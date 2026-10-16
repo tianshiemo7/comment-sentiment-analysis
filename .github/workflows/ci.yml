@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   python:
-    name: Python 骨架检查
+    name: Python 服务与数据处理检查
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -29,9 +29,9 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt || \
-              pip install fastapi uvicorn httpx pytest python-multipart openpyxl pandas
+              pip install fastapi uvicorn httpx pytest python-multipart openpyxl pandas jieba numpy
           else
-            pip install fastapi uvicorn httpx pytest python-multipart openpyxl pandas
+            pip install fastapi uvicorn httpx pytest python-multipart openpyxl pandas jieba numpy
           fi
 
       - name: 校验 Python 模块可导入

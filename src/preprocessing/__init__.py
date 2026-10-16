@@ -10,6 +10,8 @@ from .split import split_dataset
 from .stats import dataset_stats
 from .tokenize import encode_ids, load_stopwords, tokenize
 from .vocab import Vocab, build_vocab
+from .processor import LABEL_MAP, TextPreprocessor, load_encoded_split, load_preprocessing_bundle
+from .pipeline import prepare_comments, prepare_dataset
 
 __all__ = [
     "clean_text",
@@ -25,4 +27,10 @@ __all__ = [
     "split_dataset",
     "load_records",
     "save_records",
+    "LABEL_MAP",
+    "TextPreprocessor",
+    "load_encoded_split",
+    "load_preprocessing_bundle",
+    "prepare_dataset",
+    "prepare_comments",
 ]

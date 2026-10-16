@@ -1,12 +1,10 @@
-"""数据统计骨架。
-
-对应需求：输出 `outputs/stats/dataset_stats.json`，包含
-**词表规模、平均文本长度、标签分布**（报告第 4 章必须给出）。
-"""
-
+"""Label, length, truncation and OOV statistics without fitting validation data."""
 from __future__ import annotations
 
 import json
+import math
+import statistics
+from collections import Counter
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -14,62 +12,49 @@ STATS_PATH = Path("outputs") / "stats" / "dataset_stats.json"
 
 
 def label_distribution(labels: Iterable[str]) -> dict[str, int]:
-    """统计标签分布。
-
-    TODO(实现): 用 ``collections.Counter`` 统计，键为 ``label`` 取值，值为条数。
-    """
-    raise NotImplementedError("TODO: 尚未实现标签分布统计")
+    return dict(sorted(Counter(label for label in labels if label is not None).items()))
 
 
 def length_stats(tokenized_texts: Sequence[Sequence[str]]) -> dict[str, float]:
-    """统计 token 长度分布。
-
-    Returns:
-        ``{"count": int, "mean": float, "median": float, "p90": float, "max": int}``
-
-    TODO(实现): 用 ``statistics`` 或 ``numpy`` 计算；空语料返回全 0。
-    """
-    raise NotImplementedError("TODO: 尚未实现长度统计")
+    lengths = sorted(len(sentence) for sentence in tokenized_texts)
+    if not lengths:
+        return {"count": 0, "mean": 0.0, "median": 0.0, "p90": 0.0, "max": 0}
+    position = (len(lengths) - 1) * .9
+    lower, upper = math.floor(position), math.ceil(position)
+    p90 = lengths[lower] + (lengths[upper] - lengths[lower]) * (position - lower)
+    return {"count": len(lengths), "mean": statistics.mean(lengths),
+            "median": statistics.median(lengths), "p90": p90, "max": lengths[-1]}
 
 
 def dataset_stats(
-    tokenized_texts: Sequence[Sequence[str]],
-    labels: Sequence[str] | None = None,
-    vocab=None,
-    *,
-    max_len: int | None = None,
-    out_path: str | Path = STATS_PATH,
+    tokenized_texts: Sequence[Sequence[str]], labels: Sequence[str] | None = None,
+    vocab=None, *, max_len: int | None = None,
+    out_path: str | Path | None = STATS_PATH,
 ) -> dict:
-    """汇总统计并写入 JSON。
-
-    Args:
-        tokenized_texts: 分词后的语料。
-        labels: 与语料一一对应的标签（测试集可能没有标签，可传 ``None``）。
-        vocab: :class:`~src.preprocessing.vocab.Vocab`，用于汇报词表规模。
-        max_len: 统一长度，用于报告截断比例（超长样本占比）。
-        out_path: 输出 JSON 路径，默认 ``outputs/stats/dataset_stats.json``。
-
-    Returns:
-        统计字典，结构示例::
-
-            {
-              "total": 10000,
-              "vocab_size": 15234,
-              "min_freq": 3,
-              "max_len": 200,
-              "length": {"mean": 32.1, "p90": 60, "max": 210},
-              "labels": {"positive": 5010, "negative": 4990},
-              "truncated_ratio": 0.012
-            }
-
-    TODO(实现): 组合上面两个统计函数 + 词表规模 + 截断比例，写 JSON（``ensure_ascii=False``、``indent=2``）。
-    """
-    raise NotImplementedError("TODO: 尚未实现统计汇总与落盘")
+    if labels is not None and len(labels) != len(tokenized_texts):
+        raise ValueError("标签数量必须与文本数量一致")
+    if max_len is not None and (isinstance(max_len, bool) or not isinstance(max_len, int) or max_len < 1):
+        raise ValueError("max_len 必须为正整数")
+    total = len(tokenized_texts)
+    token_count = sum(map(len, tokenized_texts))
+    oov_count = sum(word not in vocab for sentence in tokenized_texts for word in sentence) if vocab is not None else None
+    payload = {
+        "total": total, "vocab_size": len(vocab) if vocab is not None else None,
+        "min_freq": getattr(vocab, "min_freq", None), "max_len": max_len,
+        "length": length_stats(tokenized_texts),
+        "labels": label_distribution(labels) if labels is not None else {},
+        "truncated_ratio": sum(len(sentence) > max_len for sentence in tokenized_texts) / total
+        if total and max_len is not None else 0.0,
+        "token_count": token_count, "oov_count": oov_count,
+        "oov_ratio": (oov_count / token_count if token_count else 0.0) if oov_count is not None else None,
+    }
+    if out_path is not None:
+        path = Path(out_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
 
 
 def load_stats(path: str | Path = STATS_PATH) -> dict:
-    """读取统计 JSON；文件不存在时返回空字典。"""
     path = Path(path)
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}

@@ -1,0 +1,9 @@
+comment_id,video_id,text,source,url,crawled_at
+raw001,demo_video01,这个教程讲解很清楚,人工编写爬虫格式示例,,
+raw002,demo_video01,关键步骤没有说明白[doge],人工编写爬虫格式示例,,
+raw003,demo_video02,这段背景音乐叫什么名字,人工编写爬虫格式示例,,
+raw004,demo_video02,看得绷不住了😂,人工编写爬虫格式示例,,
+raw005,demo_video03,<p>画面很好</p> https://example.com,人工编写爬虫格式示例,,
+raw006,demo_video03,赞,人工编写爬虫格式示例,,
+raw007,demo_video01,这个教程讲解很清楚,人工编写爬虫格式示例,,
+raw008,demo_video03,,人工编写爬虫格式示例,,
