@@ -311,6 +311,7 @@ node scripts/gen_icons.mjs /tmp/package --check  # 只校验：清单内的图�
 在 mock 模式下实跑 **24/24 通过**，覆盖：5 个视图都渲染图标、页面内无空 path 的图标、
 左栏整栏与三段收起/展开、①/②/③ 三类详情与上传弹窗、纯图标按钮 `aria-label` + `title` 齐全、
 `prefers-reduced-motion` 下无旋转、无「未知图标名」告警、无未捕获异常。
+脚本在仓库内可复现：`scripts/verify_frontend_icons.py`（用法见第七节末）。
 
 其中两条已知**预期**现象，不是回归：
 
@@ -356,3 +357,19 @@ npm run dev        # http://localhost:3000
 - ECharts 实例在 `onBeforeUnmount` dispose，切换详情后存活实例数归零（`window.__CSA_ECHARTS_ALIVE__`，仅 DEV 登记）。
 
 构建产物已由 `.gitignore` 忽略（`frontend/dist/`、`node_modules/`），不入库。
+
+### 图标验收脚本（可复现）
+
+上面「六·五」节的 24 项断言由仓库内脚本自动跑，不需要手工点：
+
+```bash
+cd frontend && npm run dev                       # 先起前端（自带 mock，无需后端）
+pip install playwright && playwright install chromium   # 仅在首次需要
+python ../scripts/verify_frontend_icons.py       # 默认打 http://localhost:3000
+```
+
+脚本会逐页截图、写 `report.txt`（UTF-8），全部通过时退出码为 0。
+截图默认落在系统临时目录（避免污染仓库），可用 `--out ./shots` 改。
+
+> 该脚本**不参与 CI**：CI 只跑后端 pytest 与前端 `npm run build`；
+> playwright 也不是 `requirements.txt` 里的依赖，属本地/发版前的人工验收工具。

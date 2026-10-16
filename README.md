@@ -76,7 +76,7 @@ comment-sentiment-analysis/
 │   ├── stats/                数据统计（词表规模、平均长度、标签分布）
 │   └── videos/               B 站任务落盘（index.json + 每个视频一份详情）
 ├── docs/                     文档与课程报告
-├── scripts/                  一键脚本（取数 / 划分 / 训练 / 启动服务 / 生成图标子集）
+├── scripts/                  一键脚本（取数 / 划分 / 训练 / 启动服务 / 生成图标子集 / 前端图标验收）
 ├── tests/                    测试
 └── requirements.txt          Python 依赖
 ```
