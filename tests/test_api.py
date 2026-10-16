@@ -196,7 +196,7 @@ def test_models_contract():
 
 
 # --------------------------------------------------------------------------- #
-# 契约边界：业务路由集合（原 4 个 + 批量导出下载）
+# 契约边界：业务路由集合（原 4 个 + 批量导出下载 + /api/videos 系列）
 # --------------------------------------------------------------------------- #
 def test_business_routes_exposed():
     documented = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}
@@ -207,11 +207,18 @@ def test_business_routes_exposed():
         if route.path not in documented
     }
     assert business == {
+        # 既有 5 个（不得改名 / 不得删除）
         ("GET", "/health"),
         ("POST", "/api/predict"),
         ("POST", "/api/predict/batch"),
         ("GET", "/api/predict/batch/download/{file_id}"),
         ("GET", "/api/models"),
+        # 本次新增：B 站视频评论分析（契约 docs/API契约.md 第二节）
+        ("POST", "/api/videos"),
+        ("GET", "/api/videos"),
+        ("GET", "/api/videos/{bvid}/detail"),
+        ("POST", "/api/videos/{bvid}/retry"),
+        ("DELETE", "/api/videos/{bvid}"),
     }
 
 

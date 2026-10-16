@@ -16,7 +16,7 @@ import importlib
 
 import pytest
 
-#: task-1 要求交付的 8 个子包
+#: task-1 要求交付的 8 个子包 + `/api/videos` 系列的实现包 `src.videos`
 PACKAGES = (
     "src.crawler",
     "src.preprocessing",
@@ -26,6 +26,7 @@ PACKAGES = (
     "src.evaluation",
     "src.visualization",
     "src.inference",
+    "src.videos",
 )
 
 

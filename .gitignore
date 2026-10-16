@@ -64,6 +64,7 @@ outputs/logs/*
 outputs/predictions/*
 outputs/figures/*
 outputs/stats/*
+outputs/videos/*
 !outputs/**/.gitkeep
 !outputs/README.md
 

@@ -4,7 +4,9 @@
 
     python -m uvicorn src.inference.app:app --host 0.0.0.0 --port 8000 --reload
 
-暴露的**业务路由**（契约见根 README「前后端接口契约」一节，原 4 个不得改名）：
+暴露的**业务路由**（契约见 `docs/API契约.md`，全部不得改名）：
+
+原有 5 个（**保持不变**）：
 
 - ``GET  /health``
 - ``POST /api/predict``
@@ -12,16 +14,36 @@
 - ``GET  /api/predict/batch/download/{file_id}``（导出文件下载，防目录穿越）
 - ``GET  /api/models``
 
+本次新增的 B 站视频评论分析系列（实现在 `src/videos/`）：
+
+- ``POST   /api/videos``（提交 BV 号；非法 400 / 重复在处理中 409）
+- ``GET    /api/videos``（列表，按 ``created_at`` 倒序）
+- ``GET    /api/videos/{bvid}/detail``（详情；未完成也 200，不报错）
+- ``POST   /api/videos/{bvid}/retry``（重置为 queued；不存在 404）
+- ``DELETE /api/videos/{bvid}``（删除；不存在 404）
+
 预测逻辑与模型加载在 `service.py`，上传文件解析与结果导出在 `batch.py`，
-本文件只负责 HTTP 语义（校验、状态码、响应模型）。
+视频分析任务的状态机 / 存储 / 后台流水线在 `src/videos/`，
+本文件只负责 HTTP 语义（校验、状态码、响应模型）与 lifespan。
 """
 
 from __future__ import annotations
+
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from ..videos import service as videos_service
+from ..videos.errors import InvalidBvidError, VideoBusyError, VideoNotFoundError
+from ..videos.schemas import (
+    VideoDeleteResponse,
+    VideoDetailResponse,
+    VideoListResponse,
+    VideoSubmitRequest,
+    VideoSubmitResponse,
+)
 from . import batch as batch_io
 from . import service
 from .schemas import (
@@ -39,14 +61,33 @@ SERVICE_NAME = "comment-sentiment-analysis-api"
 SERVICE_TITLE = "网站用户评论情感分析系统 · 推理服务"
 VERSION = "0.1.0"
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """服务生命周期：启动视频分析流水线，关停时优雅停止后台线程。
+
+    - 启动：读回 ``outputs/videos/index.json``，把上次残留的 `queued` / `crawling` /
+      `processing` 任务重置为 `queued` 并重新入队（不会留下卡死的任务）；
+    - 关停：置位 `stop_event`，流水线在阶段内立刻退出并把任务恢复成 `queued`，
+      下次启动继续跑（标准库线程，无 Celery / Redis 依赖）。
+    """
+    videos_service.get_service().start()
+    try:
+        yield
+    finally:
+        videos_service.get_service().shutdown()
+
+
 app = FastAPI(
     title=SERVICE_TITLE,
     version=VERSION,
     description=(
-        "网站用户评论情感分析系统的推理服务：单条预测、批量预测（csv/xlsx）、模型列表。\n\n"
-        "骨架阶段为占位实现（mock），真实模型接入后接口契约保持不变。"
+        "网站用户评论情感分析系统的推理服务：单条预测、批量预测（csv/xlsx）、模型列表，\n\n"
+        "以及 B 站视频评论分析任务（``/api/videos`` 系列：提交 / 列表 / 详情 / 重试 / 删除）。\n\n"
+        "骨架阶段为占位实现（mock），真实模型与真实爬虫接入后接口契约保持不变。"
     ),
     docs_url="/docs",
+    lifespan=lifespan,
 )
 
 # 前端开发服务器（:3000）与后端（:8000）跨域联调需要 CORS；
@@ -168,6 +209,99 @@ def list_models() -> ModelsResponse:
     未训练时各项为 ``0.0`` 且 ``ready`` 为 ``False``。
     """
     return ModelsResponse(models=[ModelInfo(**item) for item in service.available_models()])
+
+
+# --------------------------------------------------------------------------- #
+# B 站视频评论分析任务（`/api/videos` 系列，契约见 docs/API契约.md）
+#
+# 业务规则（校验、去重、404）与状态机在 `src/videos/service.py` / `pipeline.py`，
+# 本处只做 HTTP 语义：把业务异常映射成 400 / 409 / 404，并按 response_model 裁剪字段。
+# --------------------------------------------------------------------------- #
+@app.post(
+    "/api/videos",
+    response_model=VideoSubmitResponse,
+    summary="提交 B 站视频分析任务",
+    tags=["视频分析"],
+)
+def create_video_task(payload: VideoSubmitRequest) -> VideoSubmitResponse:
+    """提交 BV 号创建分析任务，成功返回 ``{"bvid","status":"queued","progress":0,"created_at"}``。
+
+    - BV 号不匹配 ``^BV[0-9A-Za-z]{10}$`` → **400**；
+    - 同一 BV 号已在 ``queued`` / ``crawling`` / ``processing`` → **409**；
+    - 已完成 / 已失败的任务可重新提交（会被重跑回 ``queued``）。
+    """
+    try:
+        task = videos_service.get_service().submit(payload.bvid)
+    except InvalidBvidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except VideoBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return VideoSubmitResponse(**task)
+
+
+@app.get(
+    "/api/videos",
+    response_model=VideoListResponse,
+    summary="视频分析任务列表（前端左侧栏轮询）",
+    tags=["视频分析"],
+)
+def list_video_tasks() -> VideoListResponse:
+    """返回 ``{"total", "videos": [...]}``，按 ``created_at`` 倒序（最新在前）。
+
+    任务进行中 ``title`` / ``owner`` / ``cover_url`` 允许为 ``null``（前端显示 BV 号占位）。
+    """
+    return VideoListResponse(**videos_service.get_service().list_videos())
+
+
+@app.get(
+    "/api/videos/{bvid}/detail",
+    response_model=VideoDetailResponse,
+    summary="视频分析详情（未完成也返回 200）",
+    tags=["视频分析"],
+)
+def get_video_detail(bvid: str) -> VideoDetailResponse:
+    """返回 ``video`` / ``analysis`` / ``sentiment`` / ``trend`` / ``keywords`` / ``model`` /
+    ``top_comments`` / ``error`` 全部字段。
+
+    **未完成时不报错，仍返回 HTTP 200**：``analysis.status`` 为当前状态并带 ``progress`` /
+    ``message``，``sentiment`` 为 ``null``，``trend`` / ``keywords`` / ``top_comments`` 为空。
+    未知 ``bvid`` → **404**。
+    """
+    try:
+        detail = videos_service.get_service().detail(bvid)
+    except VideoNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return VideoDetailResponse(**detail)
+
+
+@app.post(
+    "/api/videos/{bvid}/retry",
+    response_model=VideoSubmitResponse,
+    summary="重试视频分析任务",
+    tags=["视频分析"],
+)
+def retry_video_task(bvid: str) -> VideoSubmitResponse:
+    """把任务重置为 ``queued`` 并重新入队，返回与提交接口相同结构的对象；不存在 → **404**。"""
+    try:
+        task = videos_service.get_service().retry(bvid)
+    except VideoNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return VideoSubmitResponse(**task)
+
+
+@app.delete(
+    "/api/videos/{bvid}",
+    response_model=VideoDeleteResponse,
+    summary="删除视频分析任务",
+    tags=["视频分析"],
+)
+def delete_video_task(bvid: str) -> VideoDeleteResponse:
+    """删除任务及其 detail 文件，成功返回 ``{"deleted": true}``；不存在 → **404**。"""
+    try:
+        videos_service.get_service().delete(bvid)
+    except VideoNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return VideoDeleteResponse(deleted=True)
 
 
 if __name__ == "__main__":  # pragma: no cover - 便于 `python -m src.inference.app` 直接启动
