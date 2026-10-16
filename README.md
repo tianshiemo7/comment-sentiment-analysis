@@ -22,7 +22,9 @@
 | --- | --- |
 | B 站评论爬虫 `src/crawler/bilibili.py` | ✅ 已实现（WBI 签名、断点续爬、去重）· ⚠️ robots 校验与来源登记**尚未接入** |
 | 数据处理管线 `src/preprocessing/` | ✅ 已实现（清洗 / 分词 / 划分 / 词表 / 编码 / 统计） |
-| 前后端页面与接口 `frontend/` + `src/inference/` + `src/videos/` | ✅ 已实现 |
+| 前后端页面与接口 `frontend/` + `src/inference/` + `src/videos/` + `src/artifacts/` | ✅ 已实现 |
+| 数据项目（右上传爬虫数据 → clean 管线 → 三张表 + 逐条评论情感） | ✅ 已实现（`src/artifacts/`）· ⚠️ 情感为规则占位 |
+| 单独评论（单条预测结果存入左栏②段，无图表） | ✅ 已实现 |
 | `/api/videos` 链路中的爬取与情感推理 | ⚠️ **占位数据**（未接真实爬虫与模型，见 `src/videos/placeholder.py`） |
 | 词向量 / 深度模型 / 训练 / 评估 / 可视化 | ⛔ 仍为骨架与 TODO |
 
@@ -36,25 +38,30 @@ B 站视频分析链路（输入 BV 号 → 状态跟踪 → 图表词云详情�
 
 ```
 comment-sentiment-analysis/
-├── data/                     数据集（训练集 / 验证集 / 测试集）
+├── data/                     数据集与上传数据
 │   ├── raw/                  原始公开数据集、爬虫原始产出
 │   ├── processed/            清洗分词后的中间数据
 │   ├── splits/               划分后的 train / val / test
+│   ├── uploads/              界面上传的「数据项目」落盘（含 solo_comments.json）
 │   └── sample/               字段格式样例（照此格式准备数据）
+├── resources/                分词与清洗资源（stopwords / userdict / emoji_map）
 ├── src/                      Python 主干代码
-│   ├── crawler/              ① 爬虫模块
-│   ├── preprocessing/        ② 数据清洗 + jieba 分词 + 词表构建
+│   ├── crawler/              ① 爬虫模块（B 站评论采集）
+│   ├── preprocessing/        ② 数据清洗 + jieba 分词 + 切分 + 词表构建
 │   ├── embeddings/           ③ 词向量（Word2Vec / GloVe）
 │   ├── models/               ④ 模型（CNN / BiLSTM-Attention，BERT 微调预留）
 │   ├── training/             ⑤ 训练与验证循环
 │   ├── evaluation/           ⑥ 指标评估（Accuracy / P / R / F1 / 混淆矩阵）
 │   ├── visualization/        ⑦ 结果可视化（曲线 / 热力图 / 词云 / Attention）
+│   ├── videos/               B 站视频分析任务（状态机 + 详情，供前端①③段调用）
+│   ├── artifacts/            数据项目与单独评论（上传 → clean 管线 → 三张表 + 占位情感）
 │   └── inference/            ⑧ FastAPI 推理服务（:8000，供前端调用）
 ├── notebooks/                实验记录与探索性分析（EDA）
 ├── frontend/                 Node.js 前端展示（Vue 3 + Vite，:3000）
 │   ├── src/views/            B站分析(首页) / 单条预测 / 批量预测 / 可视化 / 模型对比
-│   ├── src/components/       左侧栏、顶部 BV 输入框、详情区与 ECharts 图表组件
-│   ├── src/api/              接口封装（videos.js 主流程、client.js 辅助功能）
+│   ├── src/components/       左栏三段、BV 输入框、项目/评论详情与 ECharts 图表组件
+│   ├── src/composables/      轮询与详情状态（usePolling / useArtifacts 等）
+│   ├── src/api/              接口封装（artifacts.js 主流程、videos.js、client.js）
 │   └── mock/                 后端未实现前的接口模拟层（Vite 插件，一行卸载）
 ├── models/                   训练好的模型权重存放目录
 │   ├── checkpoints/          训练检查点（.pt / .pth）
@@ -64,7 +71,8 @@ comment-sentiment-analysis/
 │   ├── figures/              图表（曲线、混淆矩阵、词云、Attention）
 │   ├── logs/                 训练日志
 │   ├── predictions/          批量预测导出结果
-│   └── stats/                数据统计（词表规模、平均长度、标签分布）
+│   ├── stats/                数据统计（词表规模、平均长度、标签分布）
+│   └── videos/               B 站任务落盘（index.json + 每个视频一份详情）
 ├── docs/                     文档与课程报告
 ├── scripts/                  一键脚本（取数 / 划分 / 训练 / 启动服务）
 ├── tests/                    测试
@@ -76,7 +84,7 @@ comment-sentiment-analysis/
 | 课程要求 | 对应位置 | 状态 |
 | --- | --- | --- |
 | 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | 骨架就绪，待放数据 |
-| 数据来源：公开数据集或爬虫（遵守 robots，注明来源与采集时间） | `src/crawler/` | 骨架就绪 |
+| 数据来源：公开数据集或爬虫（遵守 robots，注明来源与采集时间） | `src/crawler/bilibili.py` | 爬虫已实现；robots 校验与来源登记待接入（见 Issue #4） |
 | 划分 7 : 1 : 2 | `src/preprocessing/split.py` | 已实现 分层或按视频分组 |
 | 中文 jieba 分词、英文分词小写化；去停用词/URL/HTML/特殊符号 | `src/preprocessing/` | 已实现 保护否定词与表情信息 |
 | 统一 max_len（如 200）截断补齐 | `src/preprocessing/processor.py` | 已实现 同时输出有效长度及掩码 |
@@ -85,10 +93,12 @@ comment-sentiment-analysis/
 | 两种深度模型搭建、训练与对比 | `src/models/` `src/training/` | 骨架就绪 |
 | 指标 Accuracy / Precision / Recall / F1 / 混淆矩阵 | `src/evaluation/` | 骨架就绪 |
 | 损失 / 准确率曲线、混淆矩阵热力图、正负词云、Attention 可视化 | `src/visualization/` → `outputs/figures/` | 骨架就绪 |
-| 可运行入口：CLI 或 Web 界面 | `src/inference/` + `frontend/` | 主界面已落地 |
+| 可运行入口：CLI 或 Web 界面 | `src/inference/` + `frontend/` | 已实现 |
 | **B 站视频评论分析主流程**（输入 BV 号 → 状态跟踪 → 图表词云详情） | `frontend/` + `src/videos/` + `docs/API契约.md` | 前后端与契约均已实现（爬取/推理为占位） |
-| 输入一条评论 → 情感极性与置信度 | `POST /api/predict` | 骨架就绪 |
-| 批量预测 .csv/.xlsx 并导出 | `POST /api/predict/batch` | 骨架就绪 |
+| **爬虫数据上传 → 处理结果项目**（初始数据 / 筛选后结果 / 排除记录 + 逐条评论情感） | `src/artifacts/` + 前端左栏①段 | 已实现（情感为规则占位） |
+| **单独评论集中管理**（单条预测结果存入左栏②段） | `src/artifacts/` + 前端②段 | 已实现 |
+| 输入一条评论 → 情感极性与置信度 | `POST /api/predict` | 已实现 |
+| 批量预测 .csv/.xlsx 并导出 | `POST /api/predict/batch` | 已实现 |
 | requirements.txt 与 README 说明环境/数据路径/命令 | `requirements.txt` `README.md` | ✅ |
 | 课程设计报告（≥ 5000 字，8 章结构） | `docs/课程设计报告大纲.md` | 大纲就绪 |
 
@@ -222,19 +232,37 @@ bash scripts/train.sh         # 词向量 + 深度模型训练 + 评估 + 出图
 
 单条评论文本字段统一命名为 `text`，情感标签字段为 `label`（取值 `positive` / `negative`）。
 
-`data/sample/train_sample.csv`：
+`data/sample/train_sample.csv`（最小格式，用于训练管线）：
 
 ```csv
 text,label
 这个商品质量很好，物流也快，非常满意。,positive
 ```
 
-`data/sample/test_sample.csv`：
+`data/sample/test_sample.csv`（无标签，用于批量预测）：
 
 ```csv
 id,text
 1,东西一般般，没有想象中那么好。
 ```
+
+`data/sample/bilibili_demo.csv`（**人工编写的演示数据**，用于打通界面①段，不可用于正式实验）：
+
+```csv
+comment_id,video_id,text,label,source
+demo001,demo_video01,这个教程讲解清晰看完就学会了,positive,人工编写演示样本
+```
+
+**爬虫产出格式**（`src/crawler/bilibili.py` 实际写出的列，也是上传到界面的输入格式）：
+
+```csv
+bvid,aid,video_title,rpid,level,root_rpid,parent_rpid,text,likes,reply_count,ctime_utc,collected_at_utc
+BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-09-01T12:00:00+00:00,2026-10-16T10:00:00+00:00
+```
+
+> 上传到「数据项目」时，预处理会自动做列名映射：`bvid → video_id`、`rpid → comment_id`、
+> `ctime_utc → posted_at`、`collected_at_utc → collected_at`，因此按视频分组划分能直接生效。
+> 详见 `data/uploads/README.md` 与 `src/artifacts/README.md`。
 
 ## 八、目录职责
 

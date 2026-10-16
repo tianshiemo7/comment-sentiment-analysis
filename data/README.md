@@ -9,7 +9,25 @@
 | `raw/` | 原始公开数据集压缩包/原始文件、爬虫直接产出 | 否（体积大，仅保留本说明） |
 | `processed/` | 清洗、分词、去停用词后的中间数据 | 否 |
 | `splits/` | 最终用于训练的 `train.csv` / `val.csv` / `test.csv` | 否 |
+| `uploads/` | **界面上传**的数据项目与单独评论（`<项目id>/`、`solo_comments.json`） | 否 |
 | `sample/` | 字段格式样例，供照抄字段名 | 是 |
+
+## 界面「上传爬取数据」产生的数据项目
+
+在界面右上角上传爬虫 CSV，后端会落盘到 `data/uploads/<项目id>/` 并自动跑一遍 clean 模式管线：
+
+```
+data/uploads/<project_id>/
+├── initial.csv     ① 初始数据（上传件解析后的统一 CSV）
+├── clean.csv       ② 筛选后结果（清洗 + 分词，保留 text_raw 原文）
+├── excluded.csv    ③ 排除记录（含 exclude_reason）
+├── sentiment.csv   逐条情感（rule_placeholder 占位）
+└── analysis.json   聚合情感（占比 / 词频 / 长度分布）
+```
+
+单独评论（界面②段）集中存在 `data/uploads/solo_comments.json`。
+目录布局与处理链路详见 [`uploads/README.md`](uploads/README.md) 与
+[`../src/artifacts/README.md`](../src/artifacts/README.md)；接口契约见 `docs/API契约.md` 第四点五节。
 
 ## 统一字段约定
 
