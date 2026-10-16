@@ -31,7 +31,8 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
-# ---------- 数据集（体积大，不入库） ----------
+# ---------- 数据集（体积大，不入库，只保留目录结构与说明） ----------
+# 注意 git 语义：忽略目录内容用 `data/raw/*`（不是 `data/raw/`），否则下面的 ! 反忽略规则全部失效。
 data/raw/*
 data/processed/*
 data/splits/*
@@ -41,7 +42,6 @@ data/splits/*
 !data/raw/README.md
 !data/processed/README.md
 !data/splits/README.md
-!data/splits/*.gitkeep
 # 保留格式样例
 !data/sample/
 

@@ -1,9 +1,14 @@
 # 原始评论数据登记
 
+> ⚠️ **本文件未入库**：`BV1UB4y1W7Xu_comments.csv` 被根目录忽略规则排除（原始数据不入版本控制）。
+> clone 仓库后**本目录只有本 README**，下面第 3 节的命令需要先自行取得该文件，否则会报
+> `FileNotFoundError`。取得方式见第 4 节。
+
 文件：BV1UB4y1W7Xu_comments.csv。
 
 本文件由用户提供，并从用户指定的本地文件复制到本目录；本步骤没有重新采集，也没有修改原始CSV。
 SHA256：075d7a9c69e533a44e4294c66dbc78727242ca357974850f67d1acc9e6593697。
+（取得后可用 `sha256sum data/raw/BV1UB4y1W7Xu_comments.csv` 校验是否同一份。）
 
 共154条评论，视频编号为BV1UB4y1W7Xu。其中level=1为99条，level=2为55条，无情感标签。
 采集时间与评论时间分别保存在collected_at_utc、ctime_utc；点赞与回复关系等原始字段同时保留。
@@ -19,3 +24,17 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 
 下游读取data/processed/comments_cleaned.csv，使用已训练模型的预处理器处理text_raw再进行情感预测。
 该CSV及处理产物被.gitignore忽略，不随源码自动提交。
+
+## 如何取得这份数据
+
+三种方式，任选一种（都能产出同样列名的 CSV）：
+
+1. **自行采集**：用本仓库爬虫，`python -m src.crawler.bilibili --bvid BV1UB4y1W7Xu --max-pages 10`
+   （输出到 `data/raw/BV1UB4y1W7Xu_comments.csv`，列名见 `src/crawler/bilibili.py` 的 COLUMNS）。
+2. **向组内索取**：该文件是组内成员本地采集/整理后手工放入的，找提供者复制。
+3. **换用公开数据集**：按 `data/README.md` 的推荐（ChnSentiCorp / 外卖评论）走公开数据路线，
+   并同步更新本文件与 `data/README.md` 的来源说明。
+
+> 说明：这份数据是**无标签**评论，只用于打通「采集 → 清洗 → 待预测」链路，
+> 不能当作监督训练集；训练集仍需另行准备带 `positive`/`negative` 标注的数据。
+

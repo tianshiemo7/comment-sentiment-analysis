@@ -15,6 +15,7 @@ jobs:
   python:
     name: Python 服务与数据处理检查
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -23,19 +24,31 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      # 骨架阶段只装服务与测试所需的最小依赖，保证无 torch 也能通过
-      - name: 安装依赖
+      # 先按 requirements.txt 装全量依赖；失败时**显式告警**再降级到最小集，
+      # 避免"装失败也绿"掩盖 requirements.txt 不可安装的问题。
+      - name: 安装依赖（requirements.txt 优先）
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt || \
-              pip install fastapi uvicorn httpx pytest python-multipart openpyxl pandas jieba numpy
+          if [ -f requirements.txt ] && pip install -r requirements.txt; then
+            echo "已按 requirements.txt 安装全部依赖"
           else
+            echo "::warning title=requirements.txt 安装失败::已降级为最小依赖集，绿色 CI 不代表 requirements.txt 可安装"
             pip install fastapi uvicorn httpx pytest python-multipart openpyxl pandas jieba numpy
           fi
 
       - name: 校验 Python 模块可导入
-        run: python -c "import src.inference.app; print('import ok')"
+        run: |
+          python -c "import src.inference.app; print('inference ok')"
+          python -c "import src.videos.service; print('videos ok')"
+          python -c "import src.preprocessing; print('preprocessing ok')"
+          python -c "import src.crawler; print('crawler ok')"
+
+      # 爬虫与预处理没有独立测试覆盖时，至少保证模块可编译、可导入、CLI 可 --help
+      - name: 校验爬虫模块（无测试覆盖，防语法/依赖回归）
+        run: |
+          python -m py_compile src/crawler/bilibili.py
+          python -c "import ast,sys; ast.parse(open('src/crawler/bilibili.py',encoding='utf-8').read()); print('bilibili.py 语法 ok')"
+          python -m src.crawler.bilibili --help > /dev/null && echo "爬虫 CLI --help ok"
 
       - name: 运行测试
         run: python -m pytest tests/ -q
@@ -43,6 +56,7 @@ jobs:
   frontend:
     name: 前端构建检查
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -52,6 +66,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: 安装依赖
         run: |
@@ -61,4 +77,6 @@ jobs:
         run: npm run build
 
       - name: 校验构建产物
-        run: test -f dist/index.html && echo "dist/index.html 存在"
+        run: |
+          test -f dist/index.html && echo "dist/index.html 存在"
+          test -n "$(ls dist/assets/*.js 2>/dev/null)" && echo "构建产物 JS 存在"
