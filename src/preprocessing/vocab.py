@@ -1,4 +1,4 @@
-"""词表构建骨架。
+"""仅从训练语料构建可复现词表。
 
 对应需求：词表 ``min_freq ≥ 3``，并统计词表规模（见 `stats.py`）。
 """
@@ -77,6 +77,9 @@ class Vocab:
     def from_dict(cls, payload: dict) -> "Vocab":
         """从 :meth:`to_dict` 的结果还原词表。"""
         word2id = {str(k): int(v) for k, v in payload.get("word2id", {}).items()}
+        if (word2id.get(PAD_TOKEN) != 0 or word2id.get(UNK_TOKEN) != 1
+                or sorted(word2id.values()) != list(range(len(word2id)))):
+            raise ValueError("词表编号必须连续唯一，且 PAD=0、UNK=1")
         return cls(
             word2id=word2id,
             id2word={idx: word for word, idx in word2id.items()},
@@ -115,11 +118,22 @@ def build_vocab(
     Returns:
         :class:`Vocab` 实例。
 
-    TODO(实现):
+    构建步骤:
         1. ``Counter`` 统计词频（跨全部语料）；
         2. 过滤 ``freq < min_freq``；
         3. 按 ``(-freq, word)`` 排序，``max_size`` 截断；
         4. 先放 ``<pad>=0``、``<unk>=1``，再依次编号；
         5. ``freqs`` 保留原始频率供 `stats.py` 统计。
     """
-    raise NotImplementedError("TODO: 尚未实现词表构建")
+    if isinstance(min_freq, bool) or not isinstance(min_freq, int) or min_freq < 3:
+        raise ValueError("min_freq 必须为不小于 3 的整数")
+    if max_size is not None and (isinstance(max_size, bool) or not isinstance(max_size, int) or max_size < 0):
+        raise ValueError("max_size 必须为非负整数或 None")
+    frequencies = Counter(word for sentence in tokenized_texts for word in sentence
+                          if word and word not in {PAD_TOKEN, UNK_TOKEN})
+    words = sorted((word for word, count in frequencies.items() if count >= min_freq),
+                   key=lambda word: (-frequencies[word], word))
+    if max_size is not None:
+        words = words[:max_size]
+    word2id = {word: idx for idx, word in enumerate([PAD_TOKEN, UNK_TOKEN, *words])}
+    return Vocab(word2id, {idx: word for word, idx in word2id.items()}, min_freq, frequencies)

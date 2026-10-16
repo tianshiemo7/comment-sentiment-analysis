@@ -9,3 +9,7 @@
 
 文件默认不入库（可由 `scripts/` 重新生成），但**报告中引用的最终图表建议一并提交**，
 提交前请在此说明生成命令与对应模型。
+
+数据统计现可通过 `python -m src.preprocessing --input data/raw/comments_labeled.csv` 生成。
+dataset_stats.json 包含总体与分集的标签分布、词元长度、截断率、训练词表OOV率、排除原因与课程检查结果。
+数据不足时命令默认失败；显式 --allow-small-dataset 的输出仅用于调试，不代表语料或实验已经达标。

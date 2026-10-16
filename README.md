@@ -10,8 +10,9 @@
 给定网站用户评论文本（电商评论、影评、App 评论等），自动判断其情感极性（正面 / 负面），
 并提供一个可交互的 Web 界面进行单条预测与批量预测。
 
-本仓库为**课程设计项目骨架**：目录结构、模块划分、接口契约、文档与运行入口已就绪，
-算法实现（爬虫、预处理、词向量、模型、训练、评估、可视化）待按 `docs/开发路线图.md` 逐步填充。
+本仓库为**开发中的课程设计项目**：数据处理管线、前后端演示接口与页面已经实现；
+爬虫、词向量、深度模型、训练、评估和可视化仍待完成。
+数据处理支持无标签爬虫CSV到待预测CSV的交接，也支持已标注数据到训练集、词表和模型输入数组的制备。
 
 ---
 
@@ -56,10 +57,10 @@ comment-sentiment-analysis/
 | --- | --- | --- |
 | 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | 骨架就绪，待放数据 |
 | 数据来源：公开数据集或爬虫（遵守 robots，注明来源与采集时间） | `src/crawler/` | 骨架就绪 |
-| 划分 7 : 1 : 2 | `data/splits/` `scripts/` | 骨架就绪 |
-| 中文 jieba 分词、英文分词小写化；去停用词/URL/HTML/特殊符号 | `src/preprocessing/` | 骨架就绪 |
-| 统一 max_len（如 200）截断补齐 | `src/preprocessing/` | 骨架就绪 |
-| 词表构建 min_freq ≥ 3，统计词表规模/平均长度/标签分布 | `src/preprocessing/` → `outputs/stats/` | 骨架就绪 |
+| 划分 7 : 1 : 2 | `src/preprocessing/split.py` | 已实现 分层或按视频分组 |
+| 中文 jieba 分词、英文分词小写化；去停用词/URL/HTML/特殊符号 | `src/preprocessing/` | 已实现 保护否定词与表情信息 |
+| 统一 max_len（如 200）截断补齐 | `src/preprocessing/processor.py` | 已实现 同时输出有效长度及掩码 |
+| 词表构建 min_freq ≥ 3，统计词表规模/平均长度/标签分布 | `src/preprocessing/` → `outputs/stats/` | 已实现 词表仅使用训练集 |
 | 词向量 Word2Vec / GloVe | `src/embeddings/` | 骨架就绪 |
 | 两种深度模型搭建、训练与对比 | `src/models/` `src/training/` | 骨架就绪 |
 | 指标 Accuracy / Precision / Recall / F1 / 混淆矩阵 | `src/evaluation/` | 骨架就绪 |
@@ -108,13 +109,34 @@ npm run build      # 生产构建，产物在 frontend/dist/
 前端通过 Vite 代理把 `/api`、`/health` 转发到 `http://localhost:8000`，
 因此**两个服务需同时运行**。
 
-### 3. 数据准备与训练（待实现）
+### 3. 数据处理与后续训练
 
 ```bash
-bash scripts/get_data.sh      # 获取公开数据集或运行爬虫
-bash scripts/split_data.sh    # 按 7:1:2 划分 train/val/test
-bash scripts/train.sh         # 预处理 + 训练 + 评估 + 出图
+# 接收上游无标签爬虫CSV，清洗后交给下一步情感预测
+python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode clean
+
+# 人工编写的演示数据，只用于检验管线，不能作为真实实验语料
+python -m src.preprocessing --input data/sample/bilibili_demo.csv --allow-small-dataset
+
+# 正式处理：默认检查训练不少于8000、测试不少于2000及分布条件
+python -m src.preprocessing --input data/raw/comments_labeled.csv
+
+# 使用新输出目录或显式 --overwrite 可以重跑；Shell入口同样可用
+bash scripts/split_data.sh --input data/raw/comments_labeled.csv
+
+# 以下仍待实现
+bash scripts/get_data.sh      # 采集数据
+bash scripts/train.sh         # 词向量 + 深度模型训练 + 评估 + 出图
 ```
+
+无标签模式输出 `data/processed/comments_cleaned.csv`，保留原文、清洗文本、分词及采集元数据，不生成情感标签、训练词表或训练划分。
+默认 auto 模式会识别无标签输入；混合标签文件需明确选择 clean 或 train。
+下一步预测需接入训练好的模型，并使用模型配套资源处理 text_raw。
+
+有标签训练模式输出包括 `data/splits/{train,val,test}.csv` 与同名 `.npz`、训练词表、预处理资源快照、标签映射、
+输入和产物哈希、排除记录及统计。模型输入数组为 `input_ids`、`attention_mask`、`lengths` 和 `labels`，
+标签统一为 `negative=0、positive=1`。后续预测应加载这套资源，不能重新建立词表。
+详细字段、参数、验收策略与下游调用示例见 [数据处理说明](src/preprocessing/README.md)。
 
 ## 五、当前实现状态（骨架阶段）
 
@@ -126,7 +148,8 @@ bash scripts/train.sh         # 预处理 + 训练 + 评估 + 出图
 | 批量上传解析与结果导出下载 | ✅ 可用（csv / xlsx，导出 UTF-8 BOM CSV） |
 | 前端四个页面 | ✅ 可运行（`npm run dev`），单条/批量/模型对比会真实调用后端 |
 | 情感预测逻辑 | ⚠️ **规则占位**：`src/inference/service.py:predict_rule_based`，内置 140 词情感词表（含程度副词与否定词翻转）。它能对明显正面/负面的评论给出方向正确的结果，用于打通链路，**不是深度学习模型** |
-| 爬虫 / 预处理 / 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ⛔ 仅骨架与 TODO，见 `docs/开发路线图.md` |
+| 数据读写 / 清洗分词 / 去重冲突审计 / 划分 / 词表 / 编码 / 统计 | ✅ 已实现，含训练与推理共用资源及防泄漏校验 |
+| 爬虫 / 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ⛔ 仍为骨架与 TODO，见 `docs/开发路线图.md` |
 
 替换为真实模型的入口只有一个：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text`，
 模型加载成功（返回非 `None`）后即走真实推理分支，接口契约不变。

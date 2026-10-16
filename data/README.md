@@ -32,4 +32,33 @@
 2. 在 `data/raw/来源说明.md` 中记录：站点、URL、采集时间、采集条数、遵守的协议；
 3. 给出标注规范与抽样一致性说明（如双人标注 200 条计算 Kappa）。
 
-> 数据文件不入库，克隆后请按 `docs/开发路线图.md` 的说明下载或自行采集。
+## 处理后交给情感分析模型
+
+上游爬虫输出不带情感标签时，直接清洗并输出待预测CSV：
+
+```bash
+python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode clean
+```
+
+下一步读取 data/processed/comments_cleaned.csv，使用已训练的模型判断情感。原文在 text_raw 中，
+供模型配套预处理器使用；清洗文本和分词分别为 text、tokens。此流程不需要人工标签，也不会生成训练集或自动标注。
+输入的 rpid、bvid、ctime_utc、collected_at_utc 会增加对应的标准编号/时间字段，原始列及回复层级保留。
+
+以下规模要求适用于另行准备的有标签训练语料：
+
+建议准备至少12000条清洗后有效正负标注评论，以便按约7:1:2划分后满足训练不少于8000、测试不少于2000。
+除了 text、label，哔哩哔哩数据还应提供 comment_id、video_id、source_ref、collected_at；编号按文本保存。
+默认有完整 video_id 时采用视频分组，没有时按标签分层并在报告中说明。
+
+```bash
+python -m src.preprocessing --input data/raw/comments_labeled.csv
+```
+
+data/sample/bilibili_demo.csv 是27条人工编写演示记录，24条有效，另含中性、空白和重复样例；不是从哔哩哔哩抓取的数据。
+可用 --allow-small-dataset 跑通流程，不能将其用于报告真实模型成绩。
+
+预处理在 data/processed/ 保存清洗/排除数据、词表、标签映射及资源快照；data/splits/ 同时保存 CSV 和
+模型可读的 NPZ（词编号、补齐掩码、有效长度及0/1标签）。只使用训练集拟合词表，验证与测试中的新词进入UNK。
+完整契约见 [预处理模块说明](../src/preprocessing/README.md)。
+
+> 大型原始数据和处理产物不入库。采集入口仍待实现；处理入口可接收已经取得的无标签评论，或已标注训练文件。
