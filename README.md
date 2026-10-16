@@ -2,6 +2,11 @@
 
 > Website User Comment Sentiment Analysis System
 
+[![CI](https://github.com/tianshiemo7/comment-sentiment-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/tianshiemo7/comment-sentiment-analysis/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-%E2%89%A5%203.10-3776AB?logo=python&logoColor=white)
+![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2018-339933?logo=nodedotjs&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 给定网站用户评论文本（电商评论、影评、App 评论等），自动判断其情感极性（正面 / 负面），
 并提供一个可交互的 Web 界面进行单条预测与批量预测。
 
