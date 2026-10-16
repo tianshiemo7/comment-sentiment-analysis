@@ -181,10 +181,12 @@ bash scripts/train.sh         # 词向量 + 深度模型训练 + 评估 + 出图
 | B 站分析主流程接口 `/api/videos*` | ✅ 已实现（`src/videos/`），任务状态机 + 详情接口；爬取与情感推理为占位数据 |
 | 情感预测逻辑 | ⚠️ **规则占位**：`src/inference/service.py:predict_rule_based`，内置 140 词情感词表（含程度副词与否定词翻转）。它能对明显正面/负面的评论给出方向正确的结果，用于打通链路，**不是深度学习模型** |
 | 数据读写 / 清洗分词 / 去重冲突审计 / 划分 / 词表 / 编码 / 统计 | ✅ 已实现，含训练与推理共用资源及防泄漏校验 |
-| 爬虫 / 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ⛔ 仍为骨架与 TODO，见 `docs/开发路线图.md` |
+| B 站爬虫 `src/crawler/bilibili.py` | ✅ 可采集（WBI 签名 / 断点续爬 / 去重）· ⚠️ robots 校验与来源登记待接入 |
+| 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ⛔ 仍为骨架与 TODO，见 `docs/开发路线图.md` |
 
 替换为真实模型的入口只有一个：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text`，
 模型加载成功（返回非 `None`）后即走真实推理分支，接口契约不变。
+**近期要做什么、做到什么程度算完成**，见下方「短期实现目标」一节。
 
 ## 六、前后端接口契约
 
@@ -314,6 +316,34 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 - **后端未实现前的联调**：`frontend/mock/` 提供 Vite 插件模拟全部接口（含真实的进度推进），
   真实后端就绪后删除 `vite.config.js` 中的该插件即可（或 `VITE_USE_MOCK=0` 关闭），业务代码无需改动。
 
-## 十一、许可证
+## 十一、短期实现目标
+
+> 现状：**演示链路已完整可跑**（界面 → 接口 → 落盘 → 查看），但链路上的**智能部分是规则占位**，
+> 且训练侧（词向量 / 深度模型 / 评估 / 可视化）还没写。下面 6 项是接下来要完成的事，
+> 按建议顺序排列，每项都给了「完成标准」以便自查。
+
+| # | 目标 | 为什么优先 | 完成标准（验收方式） | 依赖 |
+| --- | --- | --- | --- | --- |
+| 1 | **模型骨架落地**：实现 `src/models/cnn.py`（TextCNN）与 `src/models/bilstm_attention.py`（BiLSTM-Attention）的 `build/forward`，以及 `src/training/` 的训练循环 | 这是课程评分的大头（模型实现 30 分），也是所有后续的前置 | 两个模型都能前向出 `logits`（BiLSTM 另返回注意力权重）；`python -m src.training.cli --model textcnn` 能在一份小样本上跑通并保存 `best.pt` | 无 |
+| 2 | **训练与评估闭环**：`src/training` 早停 + 检查点 + 日志；`src/evaluation` 输出 Accuracy / Precision / Recall / F1 与混淆矩阵 | 报告第 5、6 章的直接依据 | `outputs/logs/` 有逐轮 loss/acc；`outputs/stats/metrics_<模型>.json` 产出，且 `GET /api/models` 能读出真实指标（`ready=true`） | 1 |
+| 3 | **真实数据达标**：用爬虫采够规模，跑 train 模式管线出 7:1:2 划分 | 课程硬指标：训练 ≥ 8000、测试 ≥ 2000、正负均衡；管线已就绪，缺的是数据 | `python -m src.preprocessing --input <已标注CSV>` 一次通过（**不加** `--allow-small-dataset`），`outputs/stats/dataset_stats.json` 里 `course_requirements_met=true` | 需要有标注语料（公开数据集或人工标注） |
+| 4 | **真实模型接入推理**：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text` | 一处改动即可让**单条/批量预测、视频任务、数据项目**三处的「规则占位」标识全部变成模型名 | 页面上的「规则占位」标识消失；`POST /api/predict` 返回的 `method` 变成模型名；`/api/models` 显示 `ready=true` | 2、3 |
+| 5 | **上传接真实爬取**：让 `src/artifacts` 的「采集评论」阶段调用 `src/crawler/bilibili.py`，替代"手工先爬再传" | 打通「输入 BV 号 → 自动爬取 → 出结果」的完整体验 | 上传/提交后能自动爬到真实评论；`src/videos/placeholder.py` 与 `src/artifacts` 的占位数据可删 | 爬虫可跑（已具备） |
+| 6 | **可视化出图**：`src/visualization` 输出训练曲线、混淆矩阵热力图、正负词云、Attention 热力图 | 课程要求四项可视化（报告配图 + 加分项） | `outputs/figures/` 下 6 张 PNG 齐备，且报告里能引用 | 2 |
+
+### 同时要清掉的两个合规/质量问题
+
+| 事项 | 说明 | 位置 |
+| --- | --- | --- |
+| **爬虫 robots 校验与来源登记** | 课程明确要求「遵守 robots 协议、注明数据来源与采集时间」，目前文档宣称有、代码没有 | Issue [#4](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/4) |
+| **预处理模块 4 项必修** | 英文否定被清洗摧毁、`remove_html` 吞正文、manifest 不记达标判决、标签空间二/三分类口径冲突 | Issue [#3](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/3) |
+
+### 明确不在短期范围内
+
+- BERT 微调（加分项，等前 4 项完成后视时间决定）；
+- 多 worker 部署与外部队列（当前单进程，课程演示足够）；
+- `analyze` 的 `train` 模式、Attention 权重的交互式可视化等增强项。
+
+## 十二、许可证
 
 [MIT](LICENSE)
