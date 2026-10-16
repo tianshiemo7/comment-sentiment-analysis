@@ -1,0 +1,49 @@
+/* ==========================================================================
+   B 站视频评论分析主界面 — 布局与图表卡片样式（随 BilibiliView 引入）
+   仅新增样式，不覆盖既有 main.css 中的基础组件类
+   ========================================================================== */
+
+/* ---------- 图表卡片（多个 chart 组件共用，放在全局避免重复定义） ---------- */
+
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 16px 16px;
+  min-width: 0;
+}
+
+.chart-card--tall {
+  padding-bottom: 8px;
+}
+
+.chart-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.chart-card__head h3 {
+  font-size: 15px;
+}
+
+/* 图表容器保证有宽度，canvas 不会塌陷成 0 */
+.chart-card .echart {
+  min-width: 0;
+}
+
+/* ---------- 左栏滚动条（细一点，避免抢视觉） ---------- */
+
+.video-list::-webkit-scrollbar,
+.comment-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.video-list::-webkit-scrollbar-thumb,
+.comment-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
