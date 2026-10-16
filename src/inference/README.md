@@ -10,7 +10,7 @@
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | GET | `/health` | — | `{"status":"ok","service":str,"version":str}` |
-| POST | `/api/predict` | `{"text": str}` | `{"text":str,"label":"positive"\|"negative","confidence":float,"probs":{"positive":float,"negative":float}}` |
+| POST | `/api/predict` | `{"text": str}` | `{"text":str,"label":"positive"\|"negative","confidence":float,"probs":{"positive":float,"negative":float},"method":str}` |
 | POST | `/api/predict/batch` | multipart 文件（字段名 `file`；支持 `.csv` / `.txt` / `.tsv` / `.xlsx`） | `{"total":int,"results":[{"index":int,"text":str,"label":str,"confidence":float}],"export_url":str}` |
 | GET | `/api/predict/batch/download/{file_id}` | — | CSV 文件（`Content-Type: text/csv`，`Content-Disposition: attachment`） |
 | GET | `/api/models` | — | `{"models":[{"name":str,"type":str,"metrics":{"accuracy":float,"precision":float,"recall":float,"f1":float},"ready":bool}]}` |
@@ -19,6 +19,12 @@
 （`/docs`、`/openapi.json` 为 FastAPI 自带文档路由）。
 批量接口现在会把结果落盘并返回非 null 的 `export_url`（契约扩展已由 Lead 锁定），
 下载路由只允许读取 `outputs/predictions/` 下的 CSV，并显式防目录穿越。
+
+`POST /api/predict` 响应里的 **`method` 是新增字段**（纯增量，`text` / `label` /
+`confidence` / `probs` 四个既有字段的名字与语义不变）：由
+`service.resolve_method(model, model_name)` 计算——占位模式（`load_model` 返回 `None`）
+为 `rule_placeholder`，真实模型接入后自动变成模型名。前端把预测结果保存进
+「单独评论」时直接转发该字段，就不会把将来的模型结果错标成「规则占位」。
 
 ### 新增：`/api/videos` 系列（B 站视频评论分析，契约见 `docs/API契约.md`）
 

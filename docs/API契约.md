@@ -315,7 +315,20 @@ data/uploads/<project_id>/
 #### 表格：`GET /api/artifacts/{project_id}/table?stage=clean&offset=0&limit=100`
 
 - `stage` ∈ `initial` | `clean` | `excluded`（默认 `clean`）；
-- `limit` 上限 500，默认 100。
+- `limit` 上限 500，默认 100；`offset` 越界返回空 `rows` 且 `total_rows` 不变（不报错）；
+- **列名由后端返回，前端必须按 `columns` 动态渲染**，不得写死列；
+- 三个阶段的实际列名（实测，`data/sample/bilibili_demo.csv` 上传后）：
+
+  | 阶段 | 行数 | 列名 |
+  | --- | --- | --- |
+  | `initial` | 27 | `text, label, comment_id, input_file, input_row, source, video_id` |
+  | `clean` | 25 | `text, label, tokens, comment_id, input_file, input_row, provided_label, source, status, text_hash, text_raw, video_id` |
+  | `excluded` | 2 | 同上 + `exclude_reason` |
+
+- `clean` 是**在原始列基础上追加派生列**（`tokens` / `text_raw` / `provided_label` / `status` / `text_hash`），
+  **不删列**，因此列数多于 `initial`；`clean.text_raw` 与 `initial.text` 按 `comment_id` 对齐后逐条一致（原文链路不断）；
+- `initial` **不是原样 dump**：上传件经 `load_records` 解析后由 `save_records` 统一写出 UTF-8 BOM CSV，
+  多文件上传会合并、列取并集。<br>clean 模式下 `label` 列保持为空，原始标注保留在 `provided_label`。
 
 ```json
 {
@@ -378,6 +391,19 @@ macOS `open`，Linux `xdg-open`）：
 
 错误：`400` 该阶段文件不存在 / 平台不支持；`404` 项目不存在。
 
+#### 只读取路径：`GET /api/artifacts/{project_id}/path?stage=clean`
+
+**无副作用**：只返回路径，**绝不调用 opener、不打开任何程序**。
+界面的「复制文件地址」按钮用它，避免为了拿路径而真的弹出 Excel。
+
+```json
+// 成功 200
+{"stage": "clean", "path": "D:\\...\\data\\uploads\\<id>\\clean.csv", "exists": true}
+```
+
+`stage` 同样只接受 `initial` | `clean` | `excluded`（默认 `clean`）；
+未知项目 `404`，非法 `stage` `400`。
+
 #### 删除：`DELETE /api/artifacts/{project_id}`
 
 成功 `200`：`{"deleted": true}`（同时删除该项目目录）；不存在返回 `404`。
@@ -413,8 +439,10 @@ macOS `open`，Linux `xdg-open`）：
 ```
 
 - 由前端「单条预测」页的**「保存到左栏」开关**调用（默认开启）；
-- `label` / `confidence` / `probs` 由前端把 `POST /api/predict` 的结果一并提交，
-  因此**必须与 predict 的返回一致**；后端做基本校验（label 枚举、confidence ∈ [0,1]）；
+- `label` / `confidence` / `probs` / `method` 由前端把 `POST /api/predict` 的结果一并提交，
+  因此**必须与 predict 的返回一致**；后端做基本校验（label 枚举、confidence ∈ [0,1]）。
+  其中 `method` 为 `POST /api/predict` 响应中**新增**的字段（取值 `rule_placeholder` 或模型名）；
+  若请求未带 `method`，后端按 `rule_placeholder` 处理。
 - 文本为空或仅空白返回 `400`。
 
 #### 列表：`GET /api/solo-comments?offset=0&limit=50`
@@ -425,7 +453,10 @@ macOS `open`，Linux `xdg-open`）：
 
 #### 删除：`DELETE /api/solo-comments/{id}` 与批量 `DELETE /api/solo-comments?ids=id1,id2`
 
-成功 `200`：`{"deleted": true, "deleted_count": 2}`；不存在返回 `404`。
+- 单条：成功 `200`：`{"deleted": true, "deleted_count": 1}`；不存在返回 `404`。
+- 批量：**幂等**。`ids` 缺省或为空 → `200 {"deleted": true, "deleted_count": 0}`；
+  其中部分 id 不存在 → 仍 `200`，`deleted_count` 只统计真实删除数。
+  （不返回 4xx，避免前端「清空全部」在空列表时弹错误提示。）
 
 ### 4.5.3 安全约定（必须遵守）
 

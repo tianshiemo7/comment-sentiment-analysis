@@ -6,7 +6,12 @@
  *  - 全部任务为 completed/failed 时停止，提交/重试后恢复；
  *  - 详情在「被选中且未完成」时随轮询一起刷新。
  *
- * ⚠️ 详情刷新与列表轮询解耦（修复「完成瞬间详情卡在处理中」）：
+ *  ⚠️ 列表数据源可注入：B 站分析页左栏改成三段后，三段共用一次 GET /api/artifacts
+ *  （useArtifacts），此时通过 `useVideoAnalysis({ videos })` 传入同一个 ref，
+ *  本组合函数只保留「详情 + 操作 + 详情补拉」，不再自己轮询 /api/videos。
+ *  不传参数时行为与改造前完全一致（列表 3 秒轮询 /api/videos）。
+ *
+ *  ⚠️ 详情刷新与列表轮询解耦（修复「完成瞬间详情卡在处理中」）：
  *  列表轮询的判断依据是「还有没有非终态任务」，而任务从非终态跃迁到终态的那一轮，
  *  列表已经显示 completed，若详情刷新仍以「列表项未完成」为前提，这一次刷新就会被跳过，
  *  而同一轮结束后列表轮询随即停止 —— 详情将永远停在上一次（未完成）的快照。
@@ -27,8 +32,16 @@ const POLL_INTERVAL = 3000
 const DETAIL_CATCHUP_INTERVAL = 1500
 const DETAIL_CATCHUP_MAX_ATTEMPTS = 40
 
-export function useVideoAnalysis() {
-  const videos = ref([])
+/**
+ * @param {{videos?: import('vue').Ref<Array>}} [options]
+ *   `videos`：可选。传入外部 ref 时，列表轮询改由持有该 ref 的一方（B 站分析页的
+ *   useArtifacts，单一 GET /api/artifacts 请求）负责，本组合函数不再自己请求 /api/videos，
+ *   避免两个定时器互相覆盖同一份列表；详情补拉逻辑完全保留。
+ *   不传该参数时行为与改造前 100% 一致（列表仍由本组合函数轮询 GET /api/videos）。
+ */
+export function useVideoAnalysis(options = {}) {
+  const externalVideos = options.videos || null
+  const videos = externalVideos || ref([])
   const listLoading = ref(true)
   const listError = ref('')
 
@@ -53,6 +66,12 @@ export function useVideoAnalysis() {
 
   /** 拉列表；失败时保留上一份数据，仅设置错误提示。 */
   async function refreshList() {
+    if (externalVideos) {
+      // 列表由外部唯一数据源（GET /api/artifacts 的 groups.videos）提供：
+      // 这里不再发请求，只保留调用点语义，避免与外部轮询互相覆盖。
+      listLoading.value = false
+      return
+    }
     try {
       const data = await listVideos()
       videos.value = Array.isArray(data?.videos) ? data.videos : []

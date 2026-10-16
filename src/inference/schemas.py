@@ -32,7 +32,13 @@ class PredictRequest(BaseModel):
 
 
 class PredictResponse(BaseModel):
-    """``POST /api/predict`` 响应。"""
+    """``POST /api/predict`` 响应。
+
+    ``method`` 是**新增字段**（纯增量）：如实标注本次结果的来源，
+    当前固定为 ``rule_placeholder``（规则 / 词典占位预测器，**不是训练模型**），
+    接入真实模型后为模型名（如 ``bilstm_attention``）。
+    ``text`` / ``label`` / ``confidence`` / ``probs`` 四个既有字段的名字与语义**保持不变**。
+    """
 
     text: str = Field(..., description="原样返回的评论文本")
     label: str = Field(..., pattern=LABEL_PATTERN, description="情感极性")
@@ -40,6 +46,13 @@ class PredictResponse(BaseModel):
     probs: dict[str, float] = Field(
         ...,
         description='两类概率，形如 {"positive": 0.93, "negative": 0.07}，和为 1',
+    )
+    method: str = Field(
+        "rule_placeholder",
+        description=(
+            "预测来源：当前为 rule_placeholder（规则 / 词典占位，不是训练模型），"
+            "真实模型接入后为模型名。新增字段，前端可用它决定是否显示「规则占位」标识。"
+        ),
     )
 
 

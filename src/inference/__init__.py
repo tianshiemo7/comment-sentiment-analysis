@@ -7,7 +7,7 @@
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | GET | `/health` | — | `{"status":"ok","service":str,"version":str}` |
-| POST | `/api/predict` | `{"text": str}` | `{"text":str,"label":str,"confidence":float,"probs":{...}}` |
+| POST | `/api/predict` | `{"text": str}` | `{"text":str,"label":str,"confidence":float,"probs":{...},"method":str}` |
 | POST | `/api/predict/batch` | multipart `.csv` / `.xlsx` | `{"total":int,"results":[...],"export_url":str}` |
 | GET | `/api/predict/batch/download/{file_id}` | — | CSV 文件（`text/csv`，附件下载；防目录穿越） |
 | GET | `/api/models` | — | `{"models":[{"name":str,"type":str,"metrics":{...},"ready":bool}]}` |

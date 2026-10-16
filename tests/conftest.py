@@ -10,7 +10,10 @@
    ``batch.PREDICTIONS_DIR`` 决定，仍然是 ``outputs/predictions/``）；
 3. 每条用例自动把 ``/api/videos`` 系列的落盘目录重定向到临时目录，并清掉
    `src.videos.service` 的进程内单例，避免单测在 ``outputs/videos/`` 里留下产物、
-   也避免用例之间共享后台线程与状态（真实运行目录仍是 ``outputs/videos/``）。
+   也避免用例之间共享后台线程与状态（真实运行目录仍是 ``outputs/videos/``）；
+4. 每条用例自动把 ``/api/artifacts`` 与 ``/api/solo-comments`` 的落盘目录
+   （``data/uploads/``）重定向到临时目录并清掉 ``src.artifacts.service`` 单例；
+5. 每条用例自动把「在本机打开 CSV」的实现换成记录器，**测试绝不真的拉起 Excel**。
 """
 
 from __future__ import annotations
@@ -55,4 +58,43 @@ def isolated_videos_dir(tmp_path, monkeypatch):
     _dispose_video_service(video_service)
     yield target
     _dispose_video_service(video_service)
+
+
+def _dispose_artifacts_service(artifacts_service) -> None:
+    """关停并清除 `src.artifacts.service` 的进程内单例（幂等）。"""
+    service = artifacts_service.peek_service()
+    if service is not None:
+        service.shutdown()
+    artifacts_service.set_service(None)
+
+
+@pytest.fixture(autouse=True)
+def isolated_artifacts_dir(tmp_path, monkeypatch):
+    """把 ``src.artifacts.store.DEFAULT_PROJECTS_ROOT`` 指向临时目录，并重置单例。"""
+    from src.artifacts import service as artifacts_service
+    from src.artifacts import store as artifacts_store
+
+    monkeypatch.delenv("ARTIFACTS_DIR", raising=False)
+    monkeypatch.delenv("ARTIFACTS_OPENER", raising=False)
+    target = tmp_path / "artifacts"
+    monkeypatch.setattr(artifacts_store, "DEFAULT_PROJECTS_ROOT", target)
+    _dispose_artifacts_service(artifacts_service)
+    yield target
+    _dispose_artifacts_service(artifacts_service)
+
+
+@pytest.fixture(autouse=True)
+def artifact_opener_recorder():
+    """把「在本机打开 CSV」换成记录器，返回被打开的路径列表（测试不弹 Excel）。
+
+    需要断言打开行为的用例直接把这个 fixture 作为参数请求即可；
+    它同时是 autouse 的，因此任何用例都不会真的调用 ``os.startfile``。
+    """
+    from src.artifacts import opener
+
+    calls: list[str] = []
+    previous = opener.peek_opener()
+    opener.set_opener(lambda path: calls.append(str(path)))
+    yield calls
+    opener.set_opener(previous)
 

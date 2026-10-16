@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { predict } from '../api/client.js'
+import { saveSoloComment } from '../api/artifacts.js'
 import { formatPercent, labelClass, labelText, percentWidth } from '../utils/format.js'
 
 const text = ref('')
@@ -10,6 +11,55 @@ const result = ref(null)
 const error = ref('')
 /** 请求状态：idle | loading | ok | error */
 const state = ref('idle')
+
+// ---------------------------------------------------------------------------
+// 「保存到左栏」开关（默认开启）：开启时预测成功后把结果存到 /api/solo-comments，
+// 左栏②段「单独评论」即可看到；关闭时不保存。该开关不改动本页既有的预测与展示逻辑。
+// ---------------------------------------------------------------------------
+const SAVE_PREF_KEY = 'csa.singlePredict.saveToSidebar'
+
+function readSavePref() {
+  try {
+    return localStorage.getItem(SAVE_PREF_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+const saveToList = ref(readSavePref())
+watch(saveToList, (value) => {
+  try {
+    localStorage.setItem(SAVE_PREF_KEY, value ? '1' : '0')
+  } catch {
+    /* 隐私模式下 localStorage 不可用，忽略即可 */
+  }
+})
+
+/** idle | saving | saved | error */
+const saveState = ref('idle')
+const saveMessage = ref('')
+
+async function persistResult(payload) {
+  if (!payload) return
+  saveState.value = 'saving'
+  saveMessage.value = ''
+  try {
+    await saveSoloComment({
+      text: payload.text,
+      label: payload.label,
+      confidence: payload.confidence,
+      probs: payload.probs || {},
+      // method 以后端 /api/predict 响应为准（当前为 rule_placeholder，将来是模型名）；
+      // 老后端若确实没有该字段，再回退到 rule_placeholder
+      method: payload.method || 'rule_placeholder',
+    })
+    saveState.value = 'saved'
+    saveMessage.value = `已保存到左栏「单独评论」（method: ${payload.method || 'rule_placeholder'}）`
+  } catch (err) {
+    saveState.value = 'error'
+    saveMessage.value = `保存到左栏失败：${err.message}`
+  }
+}
 
 const trimmedLength = computed(() => text.value.trim().length)
 const canSubmit = computed(() => trimmedLength.value > 0 && !loading.value)
@@ -27,6 +77,8 @@ function reset() {
   result.value = null
   error.value = ''
   state.value = 'idle'
+  saveState.value = 'idle'
+  saveMessage.value = ''
 }
 
 async function submit() {
@@ -34,10 +86,13 @@ async function submit() {
   loading.value = true
   result.value = null
   error.value = ''
+  saveState.value = 'idle'
+  saveMessage.value = ''
   state.value = 'loading'
   try {
     result.value = await predict(text.value.trim())
     state.value = 'ok'
+    if (saveToList.value) await persistResult(result.value)
   } catch (err) {
     error.value = err.message
     state.value = 'error'
@@ -82,6 +137,11 @@ function clearText() {
               {{ loading ? '请求中…' : '开始预测' }}
             </button>
             <button type="button" class="btn" :disabled="loading" @click="clearText">清空</button>
+            <label class="switch" title="开启后预测成功会把结果保存到左栏「单独评论」">
+              <input v-model="saveToList" type="checkbox" :disabled="loading" />
+              <span class="switch__label">保存到左栏</span>
+              <span class="switch__state">{{ saveToList ? '开' : '关' }}</span>
+            </label>
             <span class="card__hint">请求体：<code>{ "text": "…" }</code></span>
           </div>
         </form>
@@ -128,6 +188,12 @@ function clearText() {
           <strong>待接入后端</strong>：后端已响应但未返回可展示字段，请核对接口契约。
         </div>
 
+        <p v-if="saveState === 'saving'" class="hint">正在保存到左栏「单独评论」…</p>
+        <p v-else-if="saveMessage" class="hint" :class="saveState === 'error' ? 'hint--error' : 'hint--ok'">
+          {{ saveMessage }}
+          <span v-if="saveState === 'saved'" class="save-tip">返回「B站分析」页即可在左栏②段看到它。</span>
+        </p>
+
         <div class="card__foot">
           契约：请求 <code>{"text": str}</code> → 响应
           <code>{"text","label","confidence","probs":{"positive","negative"}}</code>
@@ -136,3 +202,36 @@ function clearText() {
     </div>
   </section>
 </template>
+
+<style scoped>
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--text);
+  user-select: none;
+  cursor: pointer;
+}
+.switch input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--primary);
+}
+.switch__label {
+  font-weight: 600;
+}
+.switch__state {
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  background: var(--surface-alt);
+}
+.save-tip {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin-left: 6px;
+}
+</style>

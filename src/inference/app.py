@@ -22,8 +22,31 @@
 - ``POST   /api/videos/{bvid}/retry``（重置为 queued；不存在 404）
 - ``DELETE /api/videos/{bvid}``（删除；不存在 404）
 
+本次新增的「数据项目」与「单独评论」两段（实现在 `src/artifacts/`，契约 4.5 节）：
+
+- ``GET    /api/artifacts``（左栏三段：projects / solo / videos）
+- ``POST   /api/artifacts/upload``（multipart 上传，校验后缀与大小，自动入队处理）
+- ``GET    /api/artifacts/{project_id}``（项目对象；不存在 404）
+- ``POST   /api/artifacts/{project_id}/analyze``（重新处理）
+- ``GET    /api/artifacts/{project_id}/stages``（三段阶段清单）
+- ``GET    /api/artifacts/{project_id}/table``（某阶段表格分页）
+- ``GET    /api/artifacts/{project_id}/comments``（逐条占位情感，可按 label 过滤）
+- ``GET    /api/artifacts/{project_id}/analysis``（聚合占比 / 词频 / 长度分布）
+- ``GET    /api/artifacts/{project_id}/path``（**只读**返回该阶段 CSV 路径，无副作用）
+- ``POST   /api/artifacts/{project_id}/open``（在服务器本机打开 CSV）
+- ``DELETE /api/artifacts/{project_id}``（删除项目目录）
+- ``POST   /api/solo-comments`` / ``GET /api/solo-comments`` /
+  ``DELETE /api/solo-comments/{id}`` / ``DELETE /api/solo-comments?ids=a,b``
+
+**占位声明**：数据项目的情感结果来自 `src.inference.service.predict_rule_based`
+（规则 / 词典占位预测器，**不是训练模型**），接口 ``method`` 字段固定为
+``rule_placeholder``。安全约定见 `docs/API契约.md` 4.5.3：
+``table`` / ``comments`` / ``analysis`` / ``open`` 只接受服务端生成的 id 与固定 stage 枚举，
+**对外绝不接受任何路径**。
+
 预测逻辑与模型加载在 `service.py`，上传文件解析与结果导出在 `batch.py`，
 视频分析任务的状态机 / 存储 / 后台流水线在 `src/videos/`，
+数据项目与单独评论在 `src/artifacts/`，
 本文件只负责 HTTP 语义（校验、状态码、响应模型）与 lifespan。
 """
 
@@ -31,10 +54,42 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
+from ..artifacts import service as artifacts_service
+from ..artifacts.errors import (
+    ArtifactNotFoundError,
+    ArtifactTooLargeError,
+    ArtifactValidationError,
+    OpenUnsupportedError,
+)
+from ..artifacts.schemas import (
+    DEFAULT_COMMENTS_LIMIT,
+    DEFAULT_SOLO_LIMIT,
+    DEFAULT_TABLE_LIMIT,
+    MAX_COMMENTS_LIMIT,
+    MAX_SOLO_LIMIT,
+    MAX_TABLE_LIMIT,
+    AnalysisResponse,
+    AnalyzeRequest,
+    ArtifactDeleteResponse,
+    ArtifactListResponse,
+    ArtifactPathResponse,
+    CommentsResponse,
+    OpenRequest,
+    OpenResponse,
+    ProjectItem,
+    SoloCommentItem,
+    SoloCreateRequest,
+    SoloDeleteResponse,
+    SoloListResponse,
+    StageItem,
+    StageListResponse,
+    TableResponse,
+)
 from ..videos import service as videos_service
 from ..videos.errors import InvalidBvidError, VideoBusyError, VideoNotFoundError
 from ..videos.schemas import (
@@ -64,17 +119,20 @@ VERSION = "0.1.0"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """服务生命周期：启动视频分析流水线，关停时优雅停止后台线程。
+    """服务生命周期：启动视频分析与数据项目流水线，关停时优雅停止后台线程。
 
-    - 启动：读回 ``outputs/videos/index.json``，把上次残留的 `queued` / `crawling` /
-      `processing` 任务重置为 `queued` 并重新入队（不会留下卡死的任务）；
-    - 关停：置位 `stop_event`，流水线在阶段内立刻退出并把任务恢复成 `queued`，
-      下次启动继续跑（标准库线程，无 Celery / Redis 依赖）。
+    - 启动：读回 `outputs/videos/index.json`，把上次残留的 `queued` / `crawling` /
+      `processing` 任务重置为 `queued` 并重新入队；同时扫描 `data/uploads/`，
+      把残留的 `queued` / `processing` 项目重置为 `queued` 并重新入队；
+    - 关停：置位各自的 `stop_event`，流水线在阶段内立刻退出并把任务 / 项目恢复成
+      `queued`，下次启动继续跑（标准库线程，无 Celery / Redis 依赖）。
     """
     videos_service.get_service().start()
+    artifacts_service.get_service().start()
     try:
         yield
     finally:
+        artifacts_service.get_service().shutdown()
         videos_service.get_service().shutdown()
 
 
@@ -83,8 +141,11 @@ app = FastAPI(
     version=VERSION,
     description=(
         "网站用户评论情感分析系统的推理服务：单条预测、批量预测（csv/xlsx）、模型列表，\n\n"
-        "以及 B 站视频评论分析任务（``/api/videos`` 系列：提交 / 列表 / 详情 / 重试 / 删除）。\n\n"
-        "骨架阶段为占位实现（mock），真实模型与真实爬虫接入后接口契约保持不变。"
+        "以及 B 站视频评论分析任务（``/api/videos`` 系列：提交 / 列表 / 详情 / 重试 / 删除），\n\n"
+        "以及数据项目与单独评论（``/api/artifacts`` 与 ``/api/solo-comments`` 系列：\n"
+        "上传 → clean 管线 → 三张表 → 占位情感 → 聚合分析 → 本机打开 CSV）。\n\n"
+        "骨架阶段为占位实现（mock），真实模型与真实爬虫接入后接口契约保持不变；\n"
+        "数据项目的情感结果 ``method`` 字段固定为 ``rule_placeholder``（不是训练模型）。"
     ),
     docs_url="/docs",
     lifespan=lifespan,
@@ -109,18 +170,22 @@ def health() -> HealthResponse:
 
 @app.post("/api/predict", response_model=PredictResponse, summary="单条评论情感预测", tags=["预测"])
 def predict(payload: PredictRequest) -> PredictResponse:
-    """输入一条评论，返回情感极性、置信度与两类概率。
+    """输入一条评论，返回情感极性、置信度、两类概率与预测来源 `method`。
 
     - 空文本由 Pydantic 校验（``min_length=1``）直接返回 422；
-    - 纯空白文本在此显式返回 422。
+    - 纯空白文本在此显式返回 422；
+    - ``method`` 是**新增字段**：当前为 ``rule_placeholder``（规则 / 词典占位预测器，
+      **不是训练模型**），真实模型接入后自动变成模型名；前端据此在「单独评论」
+      里如实标注来源，而不是硬编码占位。
     """
     text = payload.text.strip()
     if not text:
         raise HTTPException(status_code=422, detail="text 不能为纯空白字符串")
 
-    model = service.load_model_cached(service.get_active_model_name())
-    result = service.predict_text(text, model=model, model_name=service.get_active_model_name())
-    return PredictResponse(**result)
+    model_name = service.get_active_model_name()
+    model = service.load_model_cached(model_name)
+    result = service.predict_text(text, model=model, model_name=model_name)
+    return PredictResponse(**result, method=service.resolve_method(model, model_name))
 
 
 @app.post(
@@ -302,6 +367,333 @@ def delete_video_task(bvid: str) -> VideoDeleteResponse:
     except VideoNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return VideoDeleteResponse(deleted=True)
+
+
+# --------------------------------------------------------------------------- #
+# 数据项目（`/api/artifacts` 系列，契约 docs/API契约.md 4.5.1）
+#
+# 业务规则（上传校验、状态机、阶段 / 表格 / 评论 / 分析 / 打开 / 删除）都在
+# `src/artifacts/service.py`，本处只做 HTTP 语义：把业务异常映射成 400 / 404 / 413，
+# 并按 response_model 裁剪字段。
+#
+# 安全（契约 4.5.3）：`table` / `comments` / `analysis` / `open` 只接受服务端生成的
+# `project_id` 与固定 `stage` 枚举，**对外绝不接受任何路径**。
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/api/artifacts",
+    response_model=ArtifactListResponse,
+    summary="左栏三段（数据项目 / 单独评论 / 视频任务）",
+    tags=["数据项目"],
+)
+def list_artifacts() -> ArtifactListResponse:
+    """返回 ``{"groups":[{key,label,items}×3]}``。
+
+    ``projects`` / ``solo`` 来自本服务，``videos`` 复用既有 ``GET /api/videos`` 的列表项；
+    视频服务未启动时该段为空数组（不报错）。
+    """
+    return ArtifactListResponse(**artifacts_service.get_service().list_groups())
+
+
+@app.post(
+    "/api/artifacts/upload",
+    response_model=ProjectItem,
+    summary="上传爬取数据（自动入队处理）",
+    tags=["数据项目"],
+)
+async def upload_artifact(
+    files: list[UploadFile] = File(..., description=".csv / .txt / .tsv / .xlsx，可多个"),
+    name: str | None = Form(None, description="项目显示名；为空时用「未自定义数据」"),
+) -> ProjectItem:
+    """上传一个或多个数据文件，解析后落盘为统一 UTF-8 BOM CSV 并自动入队处理。
+
+    - 后缀只允许 ``.csv`` / ``.txt`` / ``.tsv`` / ``.xlsx``，单文件 ≤ 20 MB、合计 ≤ 50 MB；
+    - 文件名只取 basename（**不用用户文件名做路径**）；
+    - 成功返回项目对象（通常 ``status="queued"``，随后由后台线程推进）；
+    - 格式不支持 / 文件为空 / 无法解析 → **400**；超过大小上限 → **413**。
+    """
+    entries = [(item.filename or "", await item.read()) for item in files]
+    try:
+        project = await run_in_threadpool(
+            artifacts_service.get_service().create_project, entries, name
+        )
+    except ArtifactTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ProjectItem(**project)
+
+
+@app.get(
+    "/api/artifacts/{project_id}",
+    response_model=ProjectItem,
+    summary="项目状态（前端轮询）",
+    tags=["数据项目"],
+)
+def get_artifact(project_id: str) -> ProjectItem:
+    """返回项目对象；不存在（或 id 形态非法）→ **404**。"""
+    try:
+        return ProjectItem(**artifacts_service.get_service().get_project(project_id))
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/artifacts/{project_id}/analyze",
+    response_model=ProjectItem,
+    summary="重新处理项目",
+    tags=["数据项目"],
+)
+def analyze_artifact(project_id: str, payload: AnalyzeRequest | None = Body(None)) -> ProjectItem:
+    """重新跑一遍处理管线（清掉上一轮产物并把状态重置为 ``queued``）。
+
+    请求体可省略；``{"mode": "auto"}`` 为默认（自动判定，无标签 → ``clean``）。
+    当前只支持 ``auto`` / ``clean`` 两种取值，其余取值 → **400**；项目不存在 → **404**。
+    """
+    try:
+        project = artifacts_service.get_service().analyze(
+            project_id, payload.mode if payload is not None else "auto"
+        )
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ProjectItem(**project)
+
+
+@app.get(
+    "/api/artifacts/{project_id}/stages",
+    response_model=StageListResponse,
+    summary="阶段清单（初始 / 筛选后 / 排除）",
+    tags=["数据项目"],
+)
+def get_artifact_stages(project_id: str) -> StageListResponse:
+    """返回 ``{"stages":[{key,label,rows,columns}×3]}``；未处理完的阶段行列数为 0。"""
+    try:
+        stages = artifacts_service.get_service().list_stages(project_id)
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StageListResponse(stages=[StageItem(**item) for item in stages])
+
+
+@app.get(
+    "/api/artifacts/{project_id}/table",
+    response_model=TableResponse,
+    summary="某阶段表格分页",
+    tags=["数据项目"],
+)
+def get_artifact_table(
+    project_id: str,
+    stage: str = Query("clean", description="initial | clean | excluded"),
+    offset: int = Query(0, ge=0, description="起始行（越界返回空 rows）"),
+    limit: int = Query(DEFAULT_TABLE_LIMIT, ge=1, description=f"每页行数，上限 {MAX_TABLE_LIMIT}"),
+) -> TableResponse:
+    """返回某个阶段的表格分页。
+
+    ``stage`` 只接受固定枚举，``limit`` 上限 500；stage 非法或 limit 越界 → **400**，
+    项目不存在 → **404**。项目尚未处理完时返回空表（``total_rows`` 为 0），不报错。
+    """
+    try:
+        table = artifacts_service.get_service().table(
+            project_id, stage=stage, offset=offset, limit=limit
+        )
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return TableResponse(**table)
+
+
+@app.get(
+    "/api/artifacts/{project_id}/comments",
+    response_model=CommentsResponse,
+    summary="逐条评论占位情感（可展开）",
+    tags=["数据项目"],
+)
+def get_artifact_comments(
+    project_id: str,
+    offset: int = Query(0, ge=0, description="起始条（越界返回空 items）"),
+    limit: int = Query(DEFAULT_COMMENTS_LIMIT, ge=1, description=f"每页条数，上限 {MAX_COMMENTS_LIMIT}"),
+    label: str = Query("", description="positive | negative | neutral；不传为全部"),
+) -> CommentsResponse:
+    """返回逐条评论的占位情感结果，``items[].text`` 取原文（``text_raw``）。
+
+    ``label`` 非法或 ``limit`` 越界 → **400**；项目不存在 → **404**。
+    """
+    try:
+        comments = artifacts_service.get_service().comments(
+            project_id, offset=offset, limit=limit, label=label
+        )
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CommentsResponse(**comments)
+
+
+@app.get(
+    "/api/artifacts/{project_id}/analysis",
+    response_model=AnalysisResponse,
+    summary="聚合情感分析（占比 / 词频 / 长度分布）",
+    tags=["数据项目"],
+)
+def get_artifact_analysis(project_id: str) -> AnalysisResponse:
+    """返回 ``{method,total,sentiment{...ratio},keywords,length,sample}``。
+
+    ``method`` 如实反映来源，当前固定为 ``rule_placeholder``（规则占位，不是训练模型）；
+    三个 ``*_ratio`` 之和约等于 1（``total > 0`` 时）。项目不存在 → **404**。
+    """
+    try:
+        analysis = artifacts_service.get_service().analysis(project_id)
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return AnalysisResponse(**analysis)
+
+
+@app.post(
+    "/api/artifacts/{project_id}/open",
+    response_model=OpenResponse,
+    summary="在服务器本机打开某阶段 CSV",
+    tags=["数据项目"],
+)
+def open_artifact(project_id: str, payload: OpenRequest | None = Body(None)) -> OpenResponse:
+    """用系统默认程序打开该项目的 CSV（Windows ``os.startfile`` / macOS ``open`` / Linux ``xdg-open``）。
+
+    请求体可省略（默认打开 ``clean`` 阶段），``stage`` 只接受固定枚举。
+    安全约束：扩展名必须是 ``.csv``，``resolve()`` 后父目录必须在 ``data/uploads/``
+    或 ``data/processed/`` 之内，否则 **400**；该项目阶段文件不存在 → **400**；
+    项目不存在 → **404**。
+    """
+    stage = payload.stage if payload is not None else "clean"
+    try:
+        opened = artifacts_service.get_service().open_csv(project_id, stage)
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ArtifactValidationError, OpenUnsupportedError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return OpenResponse(**opened)
+
+
+@app.get(
+    "/api/artifacts/{project_id}/path",
+    response_model=ArtifactPathResponse,
+    summary="只读取某阶段 CSV 路径（无副作用）",
+    tags=["数据项目"],
+)
+def get_artifact_path(
+    project_id: str,
+    stage: str = Query("clean", description="initial | clean | excluded"),
+) -> ArtifactPathResponse:
+    """返回 ``{"stage", "path", "exists"}`` —— **只读，无副作用**。
+
+    **绝不调用 opener、不打开任何程序**：界面的「复制文件地址」用它，
+    避免为了拿路径而真的弹一次 Excel（要真的打开文件请用 ``POST .../open``）。
+
+    与 ``/open`` 共用同一套安全校验（固定 stage 枚举、只接受服务端生成的 id、
+    ``resolve()`` 后必须位于 ``data/uploads/`` 或 ``data/processed/`` 内），
+    区别是文件不存在时**不报错**，而是返回 ``exists: false``。
+    非法 ``stage`` → **400**；项目不存在 → **404**。
+    """
+    try:
+        payload = artifacts_service.get_service().resolve_stage_path(project_id, stage)
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ArtifactPathResponse(**payload)
+
+
+@app.delete(
+    "/api/artifacts/{project_id}",
+    response_model=ArtifactDeleteResponse,
+    summary="删除项目（含目录与全部产物）",
+    tags=["数据项目"],
+)
+def delete_artifact(project_id: str) -> ArtifactDeleteResponse:
+    """删除项目目录与产物，成功返回 ``{"deleted": true}``；不存在 → **404**。"""
+    try:
+        artifacts_service.get_service().delete_project(project_id)
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ArtifactDeleteResponse(deleted=True)
+
+
+# --------------------------------------------------------------------------- #
+# 单独评论（`/api/solo-comments` 系列，契约 docs/API契约.md 4.5.2）
+#
+# 只新增「把预测结果存起来」的路径，既有 /api/predict 系列语义完全不变。
+# --------------------------------------------------------------------------- #
+@app.post(
+    "/api/solo-comments",
+    response_model=SoloCommentItem,
+    summary="保存一条单独评论（左栏「保存到左栏」开关）",
+    tags=["单独评论"],
+)
+def create_solo_comment(payload: SoloCreateRequest) -> SoloCommentItem:
+    """保存由前端「单条预测」页提交的一条结果。
+
+    ``label`` 必须是 ``positive`` / ``negative`` / ``neutral``，``confidence`` ∈ [0, 1]，
+    ``text`` 非空（纯空白 → **400**）；``probs`` 与 ``POST /api/predict`` 的返回一致。
+    """
+    try:
+        item = artifacts_service.get_service().create_solo(payload.model_dump())
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SoloCommentItem(**item)
+
+
+@app.get(
+    "/api/solo-comments",
+    response_model=SoloListResponse,
+    summary="单独评论列表（按 created_at 倒序）",
+    tags=["单独评论"],
+)
+def list_solo_comments(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_SOLO_LIMIT, ge=1, description=f"每页条数，上限 {MAX_SOLO_LIMIT}"),
+) -> SoloListResponse:
+    """返回 ``{"total","offset","limit","items"}``，最新在前；``limit`` 越界 → **400**。"""
+    try:
+        payload = artifacts_service.get_service().list_solo(offset=offset, limit=limit)
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SoloListResponse(**payload)
+
+
+@app.delete(
+    "/api/solo-comments/{comment_id}",
+    response_model=SoloDeleteResponse,
+    summary="删除一条单独评论",
+    tags=["单独评论"],
+)
+def delete_solo_comment(comment_id: str) -> SoloDeleteResponse:
+    """成功返回 ``{"deleted": true, "deleted_count": 1}``；不存在 → **404**。"""
+    try:
+        payload = artifacts_service.get_service().delete_solo(comment_id)
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return SoloDeleteResponse(**payload)
+
+
+@app.delete(
+    "/api/solo-comments",
+    response_model=SoloDeleteResponse,
+    summary="批量删除单独评论（ids=a,b）",
+    tags=["单独评论"],
+)
+def delete_solo_comments(
+    ids: str | None = Query(None, description="逗号分隔的评论 id，形如 ids=c_...,c_..."),
+) -> SoloDeleteResponse:
+    """成功返回 ``{"deleted": true, "deleted_count": n}``（**幂等**）。
+
+    ``ids`` 缺省 / 为空 / 传入的 id 不存在 → 200 且 ``deleted_count`` 为真实删除条数（可为 0），
+    不会因为「没删到」报错（前端「清空全部」在列表为空时也会安全通过）；
+    只有 id 形态非法（不匹配 ``^c_…``）才 → **400**。
+    """
+    try:
+        payload = artifacts_service.get_service().delete_solo_many(ids)
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SoloDeleteResponse(**payload)
 
 
 if __name__ == "__main__":  # pragma: no cover - 便于 `python -m src.inference.app` 直接启动

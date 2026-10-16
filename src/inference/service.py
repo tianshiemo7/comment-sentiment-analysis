@@ -34,6 +34,10 @@ LABELS = ("negative", "positive")
 DEFAULT_MODEL_NAME = "bilstm_attention"
 ENV_ACTIVE_MODEL = "ACTIVE_MODEL"
 
+#: 预测来源标识：当前所有结果都来自规则 / 词典**占位**预测器（**不是训练模型**）。
+#: 真实模型接入后 :func:`resolve_method` 会自动返回模型名，本常量只用于占位分支。
+METHOD_RULE_PLACEHOLDER = "rule_placeholder"
+
 #: 支持的模型清单（`GET /api/models` 的输出顺序）
 SUPPORTED_MODELS: tuple[tuple[str, str], ...] = (
     ("textcnn", "cnn"),
@@ -91,6 +95,20 @@ def load_model_cached(model_name: str | None = None) -> Any:
 def is_mock_mode(model: Any) -> bool:
     """``model is None`` 即为 mock 模式（真实模型应为对象）。"""
     return model is None
+
+
+def resolve_method(model: Any = None, model_name: str | None = None) -> str:
+    """返回本次预测的**来源标识**，供 ``method`` 字段如实标注。
+
+    - 占位模式（``load_model`` 返回 ``None``）→ :data:`METHOD_RULE_PLACEHOLDER`；
+    - 真实模型（``load_model`` 返回对象）→ 实际模型名（``model_name`` 或 :func:`get_active_model_name`）。
+
+    真实模型接入后本函数无需改动：``POST /api/predict`` 与数据项目的 ``method``
+    会自动变成模型名，前端也就不会把模型结果错标成「规则占位」。
+    """
+    if is_mock_mode(model):
+        return METHOD_RULE_PLACEHOLDER
+    return model_name or get_active_model_name()
 
 
 def predict_text(text: str, model: Any = None, model_name: str | None = None) -> dict[str, Any]:

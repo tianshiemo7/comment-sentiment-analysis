@@ -62,7 +62,8 @@ def test_predict_single_text_contract(text):
     assert response.status_code == 200
 
     body = response.json()
-    assert set(body) == {"text", "label", "confidence", "probs"}
+    # method 是新增字段（纯增量）；text / label / confidence / probs 四个既有字段不变
+    assert set(body) == {"text", "label", "confidence", "probs", "method"}
     assert body["text"] == text
     assert body["label"] in LABELS
     assert 0.0 <= body["confidence"] <= 1.0
@@ -74,6 +75,18 @@ def test_predict_single_text_contract(text):
 
     expected_label = "positive" if probs["positive"] >= probs["negative"] else "negative"
     assert body["label"] == expected_label
+
+
+def test_predict_response_carries_method():
+    """`method` 如实反映来源：当前只有规则 / 词典占位预测器。"""
+    from src.inference.service import METHOD_RULE_PLACEHOLDER, resolve_method
+
+    body = client.post("/api/predict", json={"text": "这个商品质量很好"}).json()
+    assert body["method"] == METHOD_RULE_PLACEHOLDER == "rule_placeholder"
+    # 占位模式（model is None）→ 占位标识；真实模型对象 → 模型名
+    assert resolve_method(None) == "rule_placeholder"
+    assert resolve_method(object(), "bilstm_attention") == "bilstm_attention"
+    assert resolve_method(object(), None)  # 未显式传名字时回退当前生效模型名
 
 
 def test_predict_is_deterministic_for_same_text():
@@ -196,7 +209,7 @@ def test_models_contract():
 
 
 # --------------------------------------------------------------------------- #
-# 契约边界：业务路由集合（原 4 个 + 批量导出下载 + /api/videos 系列）
+# 契约边界：业务路由集合（原 5 个 + /api/videos 系列 + /api/artifacts 与 /api/solo-comments）
 # --------------------------------------------------------------------------- #
 def test_business_routes_exposed():
     documented = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}
@@ -213,12 +226,28 @@ def test_business_routes_exposed():
         ("POST", "/api/predict/batch"),
         ("GET", "/api/predict/batch/download/{file_id}"),
         ("GET", "/api/models"),
-        # 本次新增：B 站视频评论分析（契约 docs/API契约.md 第二节）
+        # B 站视频评论分析（契约 docs/API契约.md 第二节）
         ("POST", "/api/videos"),
         ("GET", "/api/videos"),
         ("GET", "/api/videos/{bvid}/detail"),
         ("POST", "/api/videos/{bvid}/retry"),
         ("DELETE", "/api/videos/{bvid}"),
+        # 数据项目与单独评论（契约 docs/API契约.md 第四点五节）
+        ("GET", "/api/artifacts"),
+        ("POST", "/api/artifacts/upload"),
+        ("GET", "/api/artifacts/{project_id}"),
+        ("POST", "/api/artifacts/{project_id}/analyze"),
+        ("GET", "/api/artifacts/{project_id}/stages"),
+        ("GET", "/api/artifacts/{project_id}/table"),
+        ("GET", "/api/artifacts/{project_id}/comments"),
+        ("GET", "/api/artifacts/{project_id}/analysis"),
+        ("GET", "/api/artifacts/{project_id}/path"),
+        ("POST", "/api/artifacts/{project_id}/open"),
+        ("DELETE", "/api/artifacts/{project_id}"),
+        ("POST", "/api/solo-comments"),
+        ("GET", "/api/solo-comments"),
+        ("DELETE", "/api/solo-comments/{comment_id}"),
+        ("DELETE", "/api/solo-comments"),
     }
 
 
