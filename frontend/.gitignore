@@ -1,0 +1,15 @@
+# 依赖与构建产物（仓库根 .gitignore 已覆盖，此处再声明一次，便于 frontend 独立使用）
+node_modules/
+dist/
+.vite/
+
+# 本地环境变量与日志
+.env
+.env.local
+*.log
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

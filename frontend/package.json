@@ -1,0 +1,22 @@
+{
+  "name": "comment-sentiment-analysis-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "网站用户评论情感分析系统 — Vue 3 + Vite 前端展示（课程设计骨架）",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^5.4.11"
+  }
+}
