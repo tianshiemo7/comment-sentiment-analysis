@@ -187,6 +187,19 @@ bash scripts/train.sh         # 词向量 + 深度模型训练 + 评估 + 出图
 | POST | `/api/predict/batch` | multipart 文件（字段名 `file`；支持 `.csv` / `.txt` / `.tsv` / `.xlsx`） | `{"total":int,"results":[{"index":int,"text":str,"label":str,"confidence":float}],"export_url":str}` |
 | GET | `/api/predict/batch/download/{file_id}` | — | `text/csv` 附件（批量结果导出，UTF-8 BOM，Excel 可直接打开） |
 | GET | `/api/models` | — | `{"models":[{"name":str,"type":str,"metrics":{"accuracy":float,"precision":float,"recall":float,"f1":float},"ready":bool}]}` |
+| GET | `/api/videos` | — | 视频任务列表（左侧栏「视频任务」段） |
+| POST | `/api/videos` | `{"bvid": str}` | 创建分析任务 |
+| GET | `/api/videos/{bvid}/detail` | — | 视频分析详情（图表 / 词云 / 评论） |
+| POST | `/api/videos/{bvid}/retry` \| `DELETE /api/videos/{bvid}` | — | 重试 / 删除任务 |
+| GET | `/api/artifacts` | — | 左栏三段列表：`数据项目` / `单独评论` / `视频任务` |
+| POST | `/api/artifacts/upload` | multipart `files`（可多个）+ 可选 `name` | 上传爬虫数据 → 落盘为**数据项目**，自动处理 |
+| GET | `/api/artifacts/{id}` · `/stages` · `/table?stage=&offset=&limit=` | — | 项目状态 / 表清单 / **分页读表** |
+| GET | `/api/artifacts/{id}/comments?offset=&limit=&label=` | — | **逐条评论情感（可展开）** |
+| GET | `/api/artifacts/{id}/analysis` | — | 聚合情感分析（`method` 标明占位或模型名） |
+| POST | `/api/artifacts/{id}/open` | `{"stage": "clean"}` | **在服务器本机**用系统程序打开该 CSV |
+| POST | `/api/artifacts/{id}/analyze` · `DELETE /api/artifacts/{id}` | — | 重新处理 / 删除项目 |
+| POST | `/api/solo-comments` | `{"text","label","confidence","probs","method"}` | 保存单条评论到左栏「单独评论」段 |
+| GET | `/api/solo-comments?offset=&limit=` · `DELETE /api/solo-comments/{id}` | — | 列表 / 删除（支持 `?ids=` 批量） |
 
 说明：
 
@@ -195,6 +208,14 @@ bash scripts/train.sh         # 词向量 + 深度模型训练 + 评估 + 出图
 - 上传文件首行为表头，文本列自动识别顺序：`text` → `comment` → `content` → `评论` → 第一列；
 - 其他后缀（如 `.xls`、无后缀）返回 400；前端文件选择框当前只开放 `.csv` / `.xlsx`；
 - 非法文件名返回 400、不存在的文件返回 404（下载路径已做目录穿越防护）。
+- **数据项目**：上传爬虫 CSV 后落盘到 `data/uploads/<项目id>/`，自动按 `clean` 模式跑一遍
+  `src/preprocessing` 管线，产出 `initial.csv`（初始数据）、`clean.csv`（筛选后结果）、
+  `excluded.csv`（排除记录）三张表与逐条情感；标题未指定时显示「未自定义数据」。
+- **单独评论**：粒度与视频任务相当但**不渲染图表**（只有原文 / 极性 / 置信度 / 概率条），
+  由「单条预测」页的「保存到左栏」开关写入。
+- **情感结果当前是占位**：`method` 字段为 `rule_placeholder`（140 词规则预测器），
+  界面据此显示「规则占位」标识，接入真实模型后自动变为模型名。
+- 完整字段定义与安全约束见 [`docs/API契约.md`](docs/API契约.md) 第四点五节。
 
 ## 七、数据格式约定
 
@@ -246,16 +267,23 @@ id,text
 
 要点：
 
-- **左侧栏**每项显示标题（未爬到用 BV 号占位）、UP 主、状态徽章、进度条（0~100）、
-  评论数；失败项给出原因与重试按钮；每项可删除；收起后仅剩窄条，状态记忆到 localStorage。
-- **右侧详情区**：任务未完成时**只渲染「处理中」状态块**（进度 + `phases` 子步骤），不渲染图表；
-  完成后渲染饼图、折线、词云、关键词排行、代表性评论、模型指标。
+- **左侧栏分三段**（各自可收起、各自记忆状态）：
+  1. **数据项目** —— 右上角「上传爬取数据」上传的爬虫 CSV，落盘后自动跑 `clean` 管线，
+     条目显示 `初始行数 → 筛选后行数`；未指定名称时显示「未自定义数据」；
+  2. **单独评论** —— 集中存放「单条预测」页保存的单条评论（粒度和视频相当，但**不渲染图表**）；
+  3. **视频任务** —— 输入 BV 号创建的分析任务（状态徽章 / 进度条 / 评论数）。
+- **数据项目详情**：三张表可切换查看（初始数据 / 筛选后结果 / 排除记录），
+  支持分页；并可**展开逐条评论的情感**（原文 + 极性 + 置信度）；
+  操作按钮统一放在**最底部**：打开 CSV（服务器本机用系统程序打开）、复制文件地址、重新处理。
+- **视频任务详情**：未完成时**只渲染「处理中」状态块**（进度 + `phases` 子步骤），不渲染图表；
+  完成后渲染饼图、折线、词云、关键词排行、代表性评论、模型指标，并可展开逐条评论。
 - **状态推进**：`queued → crawling → processing → completed`（或 `failed`），
   左侧栏每 3 秒轮询一次；全部任务到达终态后停止轮询，页面隐藏时暂停。
 - **词云与图表由前端渲染**，后端只返回词频、分布、趋势数据（不生成图片）。
+- **情感结果当前为占位**：`method="rule_placeholder"`，界面显示「规则占位」标识。
 - **接口契约**：完整字段定义见 [`docs/API契约.md`](docs/API契约.md)（前后端唯一契约来源）。
 - **后端未实现前的联调**：`frontend/mock/` 提供 Vite 插件模拟全部接口（含真实的进度推进），
-  真实后端就绪后删除 `vite.config.js` 中的该插件即可，业务代码无需改动。
+  真实后端就绪后删除 `vite.config.js` 中的该插件即可（或 `VITE_USE_MOCK=0` 关闭），业务代码无需改动。
 
 ## 十一、许可证
 

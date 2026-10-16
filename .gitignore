@@ -36,12 +36,16 @@ pnpm-debug.log*
 data/raw/*
 data/processed/*
 data/splits/*
+# 数据项目（界面「上传爬取数据」的运行期落盘：data/uploads/<project_id>/ 与 solo_comments.json）
+data/uploads/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/splits/.gitkeep
+!data/uploads/.gitkeep
 !data/raw/README.md
 !data/processed/README.md
 !data/splits/README.md
+!data/uploads/README.md
 # 保留格式样例
 !data/sample/
 
