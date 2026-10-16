@@ -116,7 +116,22 @@ bash scripts/split_data.sh    # 按 7:1:2 划分 train/val/test
 bash scripts/train.sh         # 预处理 + 训练 + 评估 + 出图
 ```
 
-## 五、前后端接口契约
+## 五、当前实现状态（骨架阶段）
+
+服务与界面已可运行，但**预测结果为占位实现，不是训练出来的模型**：
+
+| 部分 | 状态 |
+| --- | --- |
+| FastAPI 推理服务（5 个接口） | ✅ 可运行，契约已锁定 |
+| 批量上传解析与结果导出下载 | ✅ 可用（csv / xlsx，导出 UTF-8 BOM CSV） |
+| 前端四个页面 | ✅ 可运行（`npm run dev`），单条/批量/模型对比会真实调用后端 |
+| 情感预测逻辑 | ⚠️ **规则占位**：`src/inference/service.py:predict_rule_based`，内置 140 词情感词表（含程度副词与否定词翻转）。它能对明显正面/负面的评论给出方向正确的结果，用于打通链路，**不是深度学习模型** |
+| 爬虫 / 预处理 / 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ⛔ 仅骨架与 TODO，见 `docs/开发路线图.md` |
+
+替换为真实模型的入口只有一个：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text`，
+模型加载成功（返回非 `None`）后即走真实推理分支，接口契约不变。
+
+## 六、前后端接口契约
 
 契约已锁定，前后端按此实现，任何一侧不得单方面改名。
 
@@ -124,10 +139,19 @@ bash scripts/train.sh         # 预处理 + 训练 + 评估 + 出图
 | --- | --- | --- | --- |
 | GET | `/health` | — | `{"status":"ok","service":str,"version":str}` |
 | POST | `/api/predict` | `{"text": str}` | `{"text":str,"label":"positive"\|"negative","confidence":float,"probs":{"positive":float,"negative":float}}` |
-| POST | `/api/predict/batch` | multipart 文件（`.csv` / `.xlsx`） | `{"total":int,"results":[{"index":int,"text":str,"label":str,"confidence":float}],"export_url":str\|null}` |
+| POST | `/api/predict/batch` | multipart 文件（字段名 `file`；支持 `.csv` / `.txt` / `.tsv` / `.xlsx`） | `{"total":int,"results":[{"index":int,"text":str,"label":str,"confidence":float}],"export_url":str}` |
+| GET | `/api/predict/batch/download/{file_id}` | — | `text/csv` 附件（批量结果导出，UTF-8 BOM，Excel 可直接打开） |
 | GET | `/api/models` | — | `{"models":[{"name":str,"type":str,"metrics":{"accuracy":float,"precision":float,"recall":float,"f1":float},"ready":bool}]}` |
 
-## 六、数据格式约定
+说明：
+
+- `label` 取值 `positive` / `negative`，`probs` / `confidence` 均为 **0~1** 的小数；
+- 批量接口把结果写入 `outputs/predictions/batch_prediction_<时间戳>_<id>.csv`，`export_url` 即上表第 4 行的下载地址；
+- 上传文件首行为表头，文本列自动识别顺序：`text` → `comment` → `content` → `评论` → 第一列；
+- 其他后缀（如 `.xls`、无后缀）返回 400；前端文件选择框当前只开放 `.csv` / `.xlsx`；
+- 非法文件名返回 400、不存在的文件返回 404（下载路径已做目录穿越防护）。
+
+## 七、数据格式约定
 
 单条评论文本字段统一命名为 `text`，情感标签字段为 `label`（取值 `positive` / `negative`）。
 
@@ -145,15 +169,15 @@ id,text
 1,东西一般般，没有想象中那么好。
 ```
 
-## 七、目录职责
+## 八、目录职责
 
 每个源码包内附 `README.md`，说明该模块的职责、输入输出、待实现内容与对应需求条目。
 详见 [`docs/开发路线图.md`](docs/开发路线图.md)。
 
-## 八、开发团队与分工
+## 九、开发团队与分工
 
 见 [`docs/课程设计报告大纲.md`](docs/课程设计报告大纲.md) 第 8 章，待填写。
 
-## 九、许可证
+## 十、许可证
 
 [MIT](LICENSE)
