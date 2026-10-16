@@ -13,6 +13,7 @@ import VideoHeader from './VideoHeader.vue'
 import VideoProgress from './VideoProgress.vue'
 import CommentList from './CommentList.vue'
 import ModelMetrics from './ModelMetrics.vue'
+import Icon from './Icon.vue'
 import SentimentPie from './charts/SentimentPie.vue'
 import TrendLine from './charts/TrendLine.vue'
 import WordCloud from './charts/WordCloud.vue'
@@ -64,7 +65,7 @@ const failedBvid = computed(() => props.video?.bvid || props.detail?.video?.bvid
   <section class="detail">
     <!-- 未选中任何视频 -->
     <div v-if="!hasSelection" class="detail__empty">
-      <div class="detail__empty-icon">▶</div>
+      <div class="detail__empty-icon"><Icon name="play-circle-line" :size="22" /></div>
       <h2>选择一个视频查看分析结果</h2>
       <p>
         在上方输入框提交 B 站视频 <strong>BV 号</strong>（形如 <code class="mono">BV1xx411c7mD</code>），
@@ -79,8 +80,12 @@ const failedBvid = computed(() => props.video?.bvid || props.detail?.video?.bvid
 
     <template v-else>
       <p v-if="error" class="hint hint--error">
+        <Icon name="alert-line" :size="14" />
         {{ error }}
-        <button type="button" class="btn detail__reload" @click="emit('reload')">重新加载</button>
+        <button type="button" class="btn detail__reload" @click="emit('reload')">
+          <Icon name="refresh-line" :size="13" />
+          重新加载
+        </button>
       </p>
 
       <p v-if="loading && !detail" class="hint">正在加载视频详情…</p>
@@ -92,9 +97,10 @@ const failedBvid = computed(() => props.video?.bvid || props.detail?.video?.bvid
 
       <!-- 失败 -->
       <div v-else-if="isFailed" class="detail__failed">
-        <h2>分析失败</h2>
+        <h2><Icon name="error-warning-line" :size="18" /> 分析失败</h2>
         <p class="detail__failed-reason">{{ detail?.error || video?.message || '未知错误' }}</p>
         <button type="button" class="btn btn--primary" :disabled="retrying" @click="emit('retry', failedBvid)">
+          <Icon name="refresh-line" :size="14" />
           {{ retrying ? '重试中…' : '重试该任务' }}
         </button>
       </div>
@@ -117,7 +123,7 @@ const failedBvid = computed(() => props.video?.bvid || props.detail?.video?.bvid
             <ModelMetrics :model="model" />
             <div class="chart-card">
               <div class="chart-card__head">
-                <h3>文本长度统计</h3>
+                <h3><Icon name="file-3-line" :size="16" /> 文本长度统计</h3>
                 <span class="card__hint">清洗后的评论</span>
               </div>
               <dl class="kv">
@@ -224,6 +230,9 @@ const failedBvid = computed(() => props.video?.bvid || props.detail?.video?.bvid
   font-size: 18px;
   color: var(--negative);
   margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .detail__failed-reason {
   color: var(--text);
@@ -234,5 +243,12 @@ const failedBvid = computed(() => props.video?.bvid || props.detail?.video?.bvid
   margin-left: 10px;
   padding: 2px 10px;
   font-size: 12.5px;
+}
+/* 错误提示条：图标 + 文案 + 「重新加载」按钮并排 */
+.detail .hint--error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>

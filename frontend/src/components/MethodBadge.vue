@@ -7,6 +7,7 @@
  * 其它取值（如 bilstm_attention）按模型名展示。
  */
 import { computed } from 'vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   method: { type: String, default: '' },
@@ -15,6 +16,8 @@ const props = defineProps({
 
 const isPlaceholder = computed(() => !props.method || props.method === 'rule_placeholder')
 const text = computed(() => (isPlaceholder.value ? '规则占位' : props.method))
+/** 规则占位用锥形瓶（实验性/非模型），真实模型用机器人 */
+const icon = computed(() => (isPlaceholder.value ? 'flask-line' : 'robot-2-line'))
 </script>
 
 <template>
@@ -23,8 +26,7 @@ const text = computed(() => (isPlaceholder.value ? '规则占位' : props.method
     :class="[isPlaceholder ? 'method-badge--placeholder' : 'method-badge--model', `method-badge--${size}`]"
     :title="isPlaceholder ? '当前结果由规则/词典占位逻辑生成，不是训练模型输出' : `由模型 ${method} 输出`"
   >
-    <span v-if="isPlaceholder" class="method-badge__mark" aria-hidden="true">!</span>
-    <span v-else class="method-badge__mark method-badge__mark--ok" aria-hidden="true">✓</span>
+    <Icon :name="icon" :size="13" />
     {{ text }}
   </span>
 </template>
@@ -54,20 +56,5 @@ const text = computed(() => (isPlaceholder.value ? '规则占位' : props.method
   background: var(--primary-soft);
   border-color: #bfdbfe;
   color: var(--primary-dark);
-}
-.method-badge__mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--warn-border);
-  color: #fff;
-  font-size: 10px;
-  line-height: 1;
-}
-.method-badge__mark--ok {
-  background: #16a34a;
 }
 </style>

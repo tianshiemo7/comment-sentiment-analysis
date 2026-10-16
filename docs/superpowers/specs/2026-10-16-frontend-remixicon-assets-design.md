@@ -31,14 +31,14 @@ Remix Icon 在 **2026 年 1 月**更换了许可证。npm 包 `remixicon@4.9.1` 
 | 4.1 | 品牌图标（Logos 类）仅可用于指代或链接对应品牌本身 | `ri-bilibili-line` 仅可用于代表 B 站内容的入口，不得当作本项目标识 |
 
 第 5 条要求：只在分发**完整图标库或其实质部分**时保留版权声明；项目内单独使用不需要。
-本项目只取 49 个图标（总数 3229 个，约 1.5%），不构成"实质部分"，
+本项目只取 48 个图标（总数 3229 个，约 1.5%），不构成"实质部分"，
 但仍主动随源码附带 `NOTICE.txt`（许可证全文 + 出处 + 版本 + 获取日期），
 并在 `frontend/README.md` 与根 `README.md` 中致谢，避免课程审查时对来源与授权产生疑问。
 
 ## 三、交付形态：只存 path 数据，不引入依赖
 
 Remix Icon 的 `*-line` 图标文件结构统一为**单条 `<path>` 的纯填充路径**，不含
-`<circle>` / `<rect>` / `<g>` 等元素（已对全部 50 个目标图标逐一校验：`paths=1, other=0`）：
+`<circle>` / `<rect>` / `<g>` 等元素（`scripts/gen_icons.mjs` 对每个目标图标强制校验 `paths=1, other=0, viewBox=24×24`）：
 
 ```svg
 <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M4 12C4 7.58..."/></svg>
@@ -66,7 +66,7 @@ frontend/src/assets/icons/
 1. **零新增依赖** —— `frontend/README.md` 记录的依赖白名单（`vue`、`vite`、`@vitejs/plugin-vue`、
    `echarts`、`echarts-wordcloud`，不含 UI 框架）**保持不变**，CI 的 `npm ci` 不受影响；
 2. **零网络请求、零字体闪烁** —— 不像图标字体需要加载 woff2，也没有 FOUT；
-3. **体积可忽略** —— 49 条 path 合计约 15 KB 源码，gzip 后约 6 KB；
+3. **体积可控** —— 48 条 path 共 22.8 KB 源码，gzip 后约 8.6 KB（实测，含注释）；
 4. **颜色天然正确** —— `fill="currentColor"` 让图标自动继承所在容器的文字颜色，
    不需要为每种语义色维护一套图标变体；
 5. **可 tree-shake** —— 纯 ESM 常量对象，Vite 构建时按需保留。
@@ -74,7 +74,9 @@ frontend/src/assets/icons/
 **回退策略**：`name` 未命中时渲染一个中性圆环占位图，并在 `import.meta.env.DEV` 下
 `console.warn` 提示具体名字，避免拼错图标名导致静默渲染空白。
 
-## 四、图标清单（49 个，全部经校验为单条 path、无其它元素）
+## 四、图标清单（48 个，全部经校验为单条 path、无其它元素）
+
+> 实际清单以 `scripts/gen_icons.mjs` 里的 `GROUPS` 为准（唯一事实来源）；下表与之一致。
 
 | 区域 | 图标名 |
 | --- | --- |
@@ -84,9 +86,10 @@ frontend/src/assets/icons/
 | 情感极性 | `emotion-happy-line` `emotion-unhappy-line` `emotion-normal-line` `question-line` |
 | 结果来源 | `flask-line`（规则占位）`robot-2-line`（模型） |
 | 条目操作 | `refresh-line` `restart-line` `delete-bin-6-line` `close-line` |
-| 文件与数据 | `file-excel-2-line` `file-copy-2-line` `external-link-line` `file-3-line` `database-2-line` `file-search-line` `upload-2-line` `upload-cloud-2-line` `download-2-line` |
+| 文件与数据 | `file-excel-2-line` `file-copy-2-line` `file-3-line` `database-2-line` `upload-2-line` `upload-cloud-2-line` `download-2-line` |
 | 图表卡片 | `pie-chart-2-line` `line-chart-line` `cloud-line` `bar-chart-horizontal-line` `table-line` |
-| 页面控件与空态 | `play-line` `send-plane-2-line` `eraser-line` `heart-pulse-line` `cpu-line` `image-line` `inbox-archive-line` `pulse-line` `alert-line` |
+| 页面控件与空态 | `play-line` `play-circle-line` `send-plane-2-line` `eraser-line` `heart-pulse-line` `cpu-line` `image-line` `pulse-line` `alert-line` |
+| 评论与指标 | `thumb-up-line`（替换 `CommentList` 里的 👍 emoji，避免各平台 emoji 字形不一致） |
 
 ## 五、视觉规则
 
@@ -114,11 +117,22 @@ frontend/src/assets/icons/
 
 ## 六、改动文件
 
-**新增（3）**
+**新增（4）**
 
-- `frontend/src/assets/icons/icons.js`（49 个图标，由 `_work/gen-icons.mjs` 从官方包抽取生成，可重跑）
+- `frontend/src/assets/icons/icons.js`（48 个图标，由仓库内 `scripts/gen_icons.mjs` 从官方包抽取生成，可重跑且带一致性校验）
 - `frontend/src/assets/icons/NOTICE.txt`
 - `frontend/src/components/Icon.vue`
+- `scripts/gen_icons.mjs`（抽取脚本；`--check` 在「代码引用了清单外的图标名」时非零退出）
+
+**实现期调整（相对本设计初稿）**
+
+- 图标数由 49 定为 **48**：删掉 `external-link-line`、`file-search-line`、`inbox-archive-line`
+  三个最终未被任何界面引用的图标（YAGNI），并补进 `play-circle-line` —— 初稿清单漏了它，
+  空态首次运行时已触发占位回退；`scripts/gen_icons.mjs --check` 正是为拦住这类拼写错误而加。
+- 新增 `thumb-up-line`，替换 `CommentList.vue` 里的 `👍` emoji（emoji 字形随平台字体变化）。
+- 原计划给全局 `.hint` 加 flex，实测会破坏含 `<code>` 的行内提示换行，改为新增可选类
+  `.hint--icon`，只在确实带图标的提示条上使用。
+- 品牌标记由「情感」二字改为单字「情」（28×28 方块内更稳），仍为原创图形。
 
 **样式（2）**
 
@@ -142,7 +156,11 @@ frontend/src/assets/icons/
 
 ## 七、验收标准
 
-1. `npm run build` 成功；`dist/assets` 体积相对改动前增量 < 20 KB。
+1. `npm run build` 成功；产物体积增量以 **gzip 后**为准：**实测 +9.9 KB**
+   （Vite 报告：JS 30.09 → 39.69 kB、CSS 6.84 → 6.94 kB、html 0.73 → 0.97 kB）。
+   原始体积 **+28,080 字节**，其中 `icons.js` 单独占 22.8 KB；CSS 反而小了约 60 B，
+   因为自定义的圆点 / `×` 按钮样式被共用的 `.icon` / `.icon-btn` 取代。
+   基线取自 `git worktree add --detach ... ccdd3c8` 的构建结果，可复现。
 2. dev（mock 模式）下用 CDP 无头浏览器逐页截图：5 个视图 × 左栏折叠/展开 × 空态/有数据态，
    确认无布局错位、无图标挤压文字、无换行错乱。
 3. 自动化断言：页面内 `<svg>` 数量 > 0；控制台 **0** 个 JS 错误；

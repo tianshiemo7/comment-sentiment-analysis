@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import VideoStatusBadge from './VideoStatusBadge.vue'
+import Icon from './Icon.vue'
 import { formatDateTime, formatNumber } from '../utils/videoFormat.js'
 
 const props = defineProps({
@@ -24,7 +25,7 @@ const rows = computed(() => [
 <template>
   <header class="video-head">
     <div class="video-head__title-row">
-      <h1 class="video-head__title">{{ video?.title || video?.bvid || '—' }}</h1>
+      <h1 class="video-head__title"><Icon name="film-line" :size="19" /> {{ video?.title || video?.bvid || '—' }}</h1>
       <VideoStatusBadge v-if="status" :status="status" />
     </div>
     <dl class="video-head__meta">
@@ -54,6 +55,9 @@ const rows = computed(() => [
   font-size: 18px;
   flex: 1 1 auto;
   word-break: break-word;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 .video-head__meta {
   display: flex;

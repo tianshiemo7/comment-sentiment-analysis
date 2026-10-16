@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { API_CONTRACT, getHealth } from '../api/client.js'
+import Icon from '../components/Icon.vue'
 
 const emit = defineEmits(['navigate'])
 
@@ -8,10 +9,10 @@ const emit = defineEmits(['navigate'])
 const health = ref({ state: 'idle', message: '尚未检查后端连通性。' })
 
 const entries = [
-  { key: 'single', title: '单条预测', desc: '输入一条评论，输出情感极性与置信度。', api: 'POST /api/predict' },
-  { key: 'batch', title: '批量预测', desc: '上传 .csv / .xlsx，批量输出结果并导出。', api: 'POST /api/predict/batch' },
-  { key: 'visualization', title: '可视化', desc: '训练曲线、混淆矩阵、词云、Attention 权重。', api: '读取 outputs/figures/ 产物' },
-  { key: 'models', title: '模型对比', desc: '对比各模型 Accuracy / Precision / Recall / F1。', api: 'GET /api/models' },
+  { key: 'single', title: '单条预测', icon: 'chat-1-line', desc: '输入一条评论，输出情感极性与置信度。', api: 'POST /api/predict' },
+  { key: 'batch', title: '批量预测', icon: 'file-list-3-line', desc: '上传 .csv / .xlsx，批量输出结果并导出。', api: 'POST /api/predict/batch' },
+  { key: 'visualization', title: '可视化', icon: 'bar-chart-2-line', desc: '训练曲线、混淆矩阵、词云、Attention 权重。', api: '读取 outputs/figures/ 产物' },
+  { key: 'models', title: '模型对比', icon: 'stack-line', desc: '对比各模型 Accuracy / Precision / Recall / F1。', api: 'GET /api/models' },
 ]
 
 async function checkHealth() {
@@ -42,27 +43,33 @@ onMounted(() => {
 
     <div class="card">
       <div class="card__head">
-        <h2>后端连通性自检</h2>
+        <h2><Icon name="heart-pulse-line" :size="16" /> 后端连通性自检</h2>
         <span class="card__hint">GET /health → http://localhost:8000</span>
       </div>
       <div
-        class="hint"
+        class="hint hint--icon"
         :class="{
           'hint--ok': health.state === 'ok',
           'hint--error': health.state === 'error',
           'hint--warn': health.state === 'idle' || health.state === 'loading',
         }"
       >
-        <template v-if="health.state === 'ok'">
-          后端已连通 ✓ {{ health.message }}
-        </template>
-        <template v-else-if="health.state === 'error'">
-          <strong>待接入后端</strong>：{{ health.message }}
-        </template>
-        <template v-else>{{ health.message }}</template>
+        <Icon
+          :name="health.state === 'ok' ? 'checkbox-circle-line' : health.state === 'error' ? 'error-warning-line' : 'loader-4-line'"
+          :size="14"
+          :spin="health.state === 'loading'"
+        />
+        <span>
+          <template v-if="health.state === 'ok'">后端已连通：{{ health.message }}</template>
+          <template v-else-if="health.state === 'error'">
+            <strong>待接入后端</strong>：{{ health.message }}
+          </template>
+          <template v-else>{{ health.message }}</template>
+        </span>
       </div>
       <div class="actions" style="margin-top: 12px">
         <button type="button" class="btn" :disabled="health.state === 'loading'" @click="checkHealth">
+          <Icon name="refresh-line" :size="14" />
           重新检查
         </button>
       </div>
@@ -71,12 +78,13 @@ onMounted(() => {
     <div class="grid-2">
       <div v-for="entry in entries" :key="entry.key" class="card">
         <div class="card__head">
-          <h3>{{ entry.title }}</h3>
+          <h3><Icon :name="entry.icon" :size="16" /> {{ entry.title }}</h3>
           <span class="badge mono">{{ entry.api }}</span>
         </div>
         <p class="card__hint" style="margin: 0">{{ entry.desc }}</p>
         <div class="actions" style="margin-top: 12px">
           <button type="button" class="btn btn--primary" @click="emit('navigate', entry.key)">
+            <Icon name="arrow-right-s-line" :size="14" />
             打开{{ entry.title }}
           </button>
         </div>
@@ -85,7 +93,7 @@ onMounted(() => {
 
     <div class="card">
       <div class="card__head">
-        <h2>接口契约速查（已锁定，不得改名）</h2>
+        <h2><Icon name="file-list-3-line" :size="16" /> 接口契约速查（已锁定，不得改名）</h2>
         <span class="card__hint">详见仓库根 README.md「前后端接口契约」一节</span>
       </div>
       <div class="table-wrap">
@@ -112,7 +120,7 @@ onMounted(() => {
 
     <div class="card">
       <div class="card__head">
-        <h2>环境与端口</h2>
+        <h2><Icon name="database-2-line" :size="16" /> 环境与端口</h2>
       </div>
       <dl class="kv">
         <dt>前端开发服务</dt>

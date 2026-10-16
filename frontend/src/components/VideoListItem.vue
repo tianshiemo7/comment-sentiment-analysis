@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import VideoStatusBadge from './VideoStatusBadge.vue'
+import Icon from './Icon.vue'
 import { formatNumber, isTerminal, statusMeta } from '../utils/videoFormat.js'
 
 const props = defineProps({
@@ -44,12 +45,12 @@ const finished = computed(() => isTerminal(props.video.status))
       </div>
       <button
         type="button"
-        class="video-item__remove"
+        class="icon-btn icon-btn--danger video-item__remove"
         title="删除该任务"
         aria-label="删除该任务"
         @click.stop="emit('remove', video.bvid)"
       >
-        ×
+        <Icon name="delete-bin-6-line" :size="14" />
       </button>
     </div>
 
@@ -70,7 +71,10 @@ const finished = computed(() => isTerminal(props.video.status))
 
     <p v-if="isFailed" class="video-item__error">
       {{ video.message || '分析失败' }}
-      <button type="button" class="btn video-item__retry" @click.stop="emit('retry', video.bvid)">重试</button>
+      <button type="button" class="btn video-item__retry" @click.stop="emit('retry', video.bvid)">
+        <Icon name="refresh-line" :size="13" />
+        重试
+      </button>
     </p>
     <p v-else-if="showProgress" class="video-item__msg">{{ video.message }}</p>
   </li>
@@ -138,20 +142,9 @@ const finished = computed(() => isTerminal(props.video.status))
   letter-spacing: 0.3px;
 }
 .video-item__remove {
+  /* 尺寸与悬停态由全局 .icon-btn / .icon-btn--danger 提供，此处只保证不被标题压扁 */
   flex: 0 0 auto;
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 18px;
-  line-height: 1;
-  padding: 0 4px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.video-item__remove:hover {
-  background: var(--negative-soft);
-  color: var(--negative);
+  margin: -2px -4px 0 0;
 }
 .video-item__meta {
   display: flex;

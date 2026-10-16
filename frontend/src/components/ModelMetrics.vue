@@ -4,6 +4,7 @@
  * 字段来自契约 detail.model：{ name, accuracy, precision, recall, f1 }
  */
 import { computed } from 'vue'
+import Icon from './Icon.vue'
 import { formatMetric } from '../utils/videoFormat.js'
 
 const props = defineProps({
@@ -24,7 +25,7 @@ const metrics = computed(() => {
 <template>
   <div class="model-card">
     <div class="chart-card__head">
-      <h3>模型指标</h3>
+      <h3><Icon name="cpu-line" :size="16" /> 模型指标</h3>
       <span class="card__hint">当前生效模型</span>
     </div>
     <p class="model-card__name">

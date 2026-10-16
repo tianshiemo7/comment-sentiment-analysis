@@ -7,6 +7,7 @@
  * 本组件只负责收集输入并派发 submit，请求与错误处理交给父组件（useArtifacts.upload）。
  */
 import { computed, ref } from 'vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   uploading: { type: Boolean, default: false },
@@ -48,8 +49,16 @@ function submit() {
     <div class="modal" role="dialog" aria-modal="true" aria-label="上传爬取数据" @click.self="emit('close')">
       <div class="modal__panel">
         <header class="modal__head">
-          <h2>上传爬取数据</h2>
-          <button type="button" class="modal__close" aria-label="关闭" @click="emit('close')">×</button>
+          <h2><Icon name="upload-cloud-2-line" :size="17" /> 上传爬取数据</h2>
+          <button
+            type="button"
+            class="icon-btn modal__close"
+            title="关闭"
+            aria-label="关闭"
+            @click="emit('close')"
+          >
+            <Icon name="close-line" :size="16" />
+          </button>
         </header>
 
         <div class="modal__body">
@@ -68,9 +77,19 @@ function submit() {
 
           <ul v-if="files.length" class="file-list">
             <li v-for="(file, index) in files" :key="`${file.name}-${index}`" class="file-row">
+              <Icon name="file-3-line" :size="14" class="file-row__icon" />
               <span class="file-row__name mono">{{ file.name }}</span>
               <span class="file-row__size">{{ formatSize(file.size) }}</span>
-              <button type="button" class="file-row__remove" :disabled="uploading" @click="removeFile(index)">移除</button>
+              <button
+                type="button"
+                class="icon-btn icon-btn--danger file-row__remove"
+                :disabled="uploading"
+                :title="`移除 ${file.name}`"
+                :aria-label="`移除 ${file.name}`"
+                @click="removeFile(index)"
+              >
+                <Icon name="close-line" :size="14" />
+              </button>
             </li>
           </ul>
           <p v-else class="modal__empty">尚未选择文件。</p>
@@ -90,6 +109,7 @@ function submit() {
           <div class="modal__actions">
             <button type="button" class="btn" :disabled="uploading" @click="emit('close')">取消</button>
             <button type="button" class="btn btn--primary" :disabled="!files.length || uploading" @click="submit">
+              <Icon name="upload-2-line" :size="14" />
               {{ uploading ? '上传中…' : '上传并处理' }}
             </button>
           </div>
@@ -129,18 +149,16 @@ function submit() {
 }
 .modal__head h2 {
   font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .modal__close {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  font-size: 22px;
-  line-height: 1;
   color: var(--text-muted);
-  cursor: pointer;
-  padding: 0 4px;
 }
-.modal__close:hover {
+.modal__close:hover:not(:disabled) {
+  background: var(--negative-soft);
+  border-color: #fecaca;
   color: var(--negative);
 }
 .modal__body {
@@ -172,6 +190,9 @@ function submit() {
   background: var(--surface-alt);
   font-size: 13px;
 }
+.file-row__icon {
+  color: var(--text-muted);
+}
 .file-row__name {
   flex: 1 1 auto;
   overflow: hidden;
@@ -183,12 +204,8 @@ function submit() {
   font-size: 12.5px;
 }
 .file-row__remove {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--negative);
-  font-size: 12.5px;
-  cursor: pointer;
+  /* 命中区/悬停态来自全局 .icon-btn--danger */
+  flex: 0 0 auto;
 }
 .modal__empty {
   margin: 0 0 14px;

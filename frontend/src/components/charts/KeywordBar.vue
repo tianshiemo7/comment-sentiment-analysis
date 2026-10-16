@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import EChart from './EChart.vue'
+import Icon from '../Icon.vue'
 import { formatNumber } from '../../utils/videoFormat.js'
 
 const props = defineProps({
@@ -62,7 +63,7 @@ const option = computed(() => {
 <template>
   <div class="chart-card chart-card--tall">
     <div class="chart-card__head">
-      <h3>关键词排行 Top {{ limit }}</h3>
+      <h3><Icon name="bar-chart-horizontal-line" :size="16" /> 关键词排行 Top {{ limit }}</h3>
       <span class="card__hint">正/负合并按出现次数排序</span>
     </div>
     <EChart v-if="hasData" :option="option" height="380px" aria-label="关键词排行榜" />

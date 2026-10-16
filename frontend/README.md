@@ -16,6 +16,7 @@ B 站主流程的接口契约见 [`../docs/API契约.md`](../docs/API契约.md)�
 | Node.js | ≥ 18（开发环境 v24 已验证） |
 | 包管理器 | **npm**（不要使用 pnpm / yarn） |
 | 依赖 | `vue`、`vite`、`@vitejs/plugin-vue`、`echarts`、`echarts-wordcloud`（不含 UI 框架） |
+| 美术资源 | **未新增任何依赖**：48 个 Remix Icon 线稿图标以 path 数据内置在 `src/assets/icons/`，不引入图标库 npm 包、也不加载图标字体 |
 | 开发端口 | **3000**（固定，端口被占用时直接报错而非顺延） |
 
 ```bash
@@ -72,6 +73,7 @@ frontend/
     │   ├── useArtifacts.js     # ★ 左栏三段唯一数据源（一次 GET /api/artifacts）+ 上传/删除/清空
     │   └── useArtifactDetail.js# ★ 数据项目详情（三张表分页、逐条评论分页筛选、聚合、path/open）
     ├── components/
+    │   ├── Icon.vue             # ★ 统一图标组件（内联 SVG，零依赖，currentColor 继承颜色）
     │   ├── BvInput.vue          # 顶部 BV 输入框（即时校验 ^BV[0-9A-Za-z]{10}$）
     │   ├── VideoSidebar.vue     # ★ 左栏三段（各段可收起、整栏可收起为窄条，状态存 localStorage）
     │   ├── SidebarSection.vue   # ★ 可收起的一段（标题/计数/进行中数量/操作插槽）
@@ -96,8 +98,9 @@ frontend/
     │       ├── TrendLine.vue     # 情感趋势折线图
     │       ├── WordCloud.vue     # 词云（echarts-wordcloud，字号由 count 控制）
     │       └── KeywordBar.vue    # 关键词排行 Top 15 横向条形图
-    ├── assets/main.css     # 既有基础样式
+    ├── assets/main.css     # 既有基础样式（新增 .icon / .icon-btn / .icon--spin / .hint--icon 工具类）
     ├── assets/video.css    # ★ B 站页面布局与图表卡片样式
+    ├── assets/icons/       # ★ 美术资源：icons.js（48 个图标 path 数据）+ NOTICE.txt（许可全文）
     └── views/
         ├── BilibiliView.vue          # ★ 主界面：顶部入口 + 左栏三段 + 三类详情视图
         ├── HomeView.vue              # 旧骨架首页（已被 BilibiliView 取代，文件保留但不再挂载）
@@ -246,8 +249,78 @@ frontend/
 - [ ] 错误处理细化：区分「后端未启动」「请求超时」「后端返回校验失败」三类提示。
 - [ ] 视觉/无障碍：导航键盘可达性、表格 `<caption>`、移动端断点微调。
 - [ ] 可选：引入 `vue-router` 使视图可分享 URL（当前用动态组件切换）。
+- [ ] 图标新增/替换时：改 `scripts/gen_icons.mjs` 的 `GROUPS` 后重跑
+      `node scripts/gen_icons.mjs <remixicon 包目录>`，并跑一次 `--check` 校验（见第七节）。
 
 ---
+
+## 六·五、美术资源与许可
+
+界面图标取自 **[Remix Icon](https://remixicon.com)** v4.9.1，共 **48 个线稿图标**。
+
+### 接入方式：只存 path 数据，零依赖
+
+```
+src/assets/icons/
+├── icons.js      # 由 scripts/gen_icons.mjs 生成的 { '图标名': 'M12 …Z' } 映射（约 22 KB）
+└── NOTICE.txt    # Remix Icon License v1.0 全文 + 出处 / 版本 / 抽取日期
+src/components/Icon.vue   # <Icon name="refresh-line" :size="14" label="重试" />
+```
+
+Remix Icon 的 `*-line` 图标都是**单条 `<path>` 的纯填充路径**（无 `circle`/`rect`/`g`），
+所以只保留 `d` 字符串即可，`Icon.vue` 用
+`<svg viewBox="0 0 24 24" fill="currentColor"><path :d="…"/></svg>` 渲染：
+
+- **不新增 npm 依赖** —— 依赖白名单与 CI 的 `npm ci` 均不受影响；
+- **不加载图标字体** —— 没有 woff2 请求，也没有图标字体的首屏闪烁（FOUT）；
+- **颜色自动正确** —— `fill="currentColor"` 让图标继承所在容器的文字颜色；
+- 未知图标名回退为一个中性圆环占位，并在 DEV 下 `console.warn` 报出具体名字。
+
+### 使用规则（新增界面时请沿用）
+
+| 场景 | 做法 |
+| --- | --- |
+| 主操作按钮 | 保留中文文案，左侧加图标（`Icon` + 文本，`.btn` 已改为内联 flex，间距 6px） |
+| 条目上的紧凑控件（删除 / 重试 / 复制路径 / 清空 / 关闭） | 用 `.icon-btn`（必要时 `.icon-btn--danger`）做**纯图标按钮**，**必须**同时给 `title` 与 `aria-label`，命中区 26×26 |
+| 状态 / 极性 / 结果来源 | 图标 + 文字徽章，颜色由徽章的 tone 类决定，图标自身不上色 |
+| 「处理中」类进行中状态 | `:spin="true"`，`prefers-reduced-motion: reduce` 下自动停转 |
+| 装饰性图标 | 默认 `aria-hidden="true" focusable="false"`；传了 `label` 才输出 `role="img"` + `<title>` |
+
+### 许可要点（Remix Icon License v1.0）
+
+- 第 2.1 / 2.2 条：允许在 Web 界面中作功能与装饰元素使用，允许改颜色与尺寸 —— 本项目属此范围；
+- 第 3.3 条：**禁止**将图标用作 logo / 商标 / 品牌标识 —— 因此本项目的品牌标记（「情」字方格）
+  与 favicon 均为**原创**，未使用任何 Remix 图形，详见 `index.html` 中的注释；
+- 第 4.1 条：品牌图标仅可用于指代对应品牌 —— 本项目只用 `bilibili-line` 一个 Logos 类图标，
+  且仅出现在「B站分析」入口（代表 B 站内容），未用作项目标识，也未暗示背书或隶属关系。
+
+### 增删图标
+
+```bash
+cd /tmp && npm pack remixicon@4.9.1 && tar xzf remixicon-4.9.1.tgz   # 取官方包（不装进 package.json）
+cd <仓库根目录>
+node scripts/gen_icons.mjs /tmp/package          # 重新生成 icons.js
+node scripts/gen_icons.mjs /tmp/package --check  # 只校验：清单内的图标都在包里、代码用到的都在清单里
+```
+
+`--check` 会在「代码里用了一个不在清单里的图标名」时以非零码退出并打印出处文件 ——
+这类拼写错误此前只会静默回退成占位圆环，加了这道校验后能在构建前拦住。
+
+### 验收（2026-10-16，Playwright + headless Chromium）
+
+在 mock 模式下实跑 **24/24 通过**，覆盖：5 个视图都渲染图标、页面内无空 path 的图标、
+左栏整栏与三段收起/展开、①/②/③ 三类详情与上传弹窗、纯图标按钮 `aria-label` + `title` 齐全、
+`prefers-reduced-motion` 下无旋转、无「未知图标名」告警、无未捕获异常。
+
+其中两条已知**预期**现象，不是回归：
+
+- `GET /api/models`（契约里不在 mock 覆盖范围内）在后端未启动时经 Vite 代理返回 **500**，
+  页面按既有设计显示「待接入后端：请求 /api/models 失败（HTTP 500）」——本次改动未触碰
+  `src/api/`、`mock/`、`vite.config.js`；
+- ②段「单独评论」详情按契约**不渲染任何图表**，`canvas` 计数为 **0**；
+  页面上只有标题左侧的界面图标（内联 `<svg class="icon">`，非图表）。
+
+
 
 ## 七、构建与验收
 
@@ -273,7 +346,8 @@ npm run dev        # http://localhost:3000
 已用 headless Edge（CDP 驱动）实跑验收（截图与逐条断言见交付报告）：
 
 - 主验收 **37/37**：左栏三段渲染、①段三张表切换与翻页/跳页、列名动态渲染、逐条评论展开与筛选、
-  饼图/词云 canvas、三个操作按钮位于页面最底部、②段详情 canvas=0、开关保存后②段新增、
+  饼图/词云 canvas、三个操作按钮位于页面最底部、②段详情**图表 canvas=0**（该视图按契约不渲染图表；
+  标题左侧的界面图标是内联 `<svg class="icon">`，不计入 canvas）、开关保存后②段新增、
   上传后轮询到完成、三段收起/展开与 localStorage、无页面级 JS 错误。
 - ③段回归 **6/6**：视频详情 5 个 ECharts 实例、提交新 BV 状态推进、非法 BV 拦截、失败态重试按钮；
   详情轮询快照 排队中 → 爬取中 9/21/33% → 处理中 45/56/67/77/88% → 已完成（补拉到位）。

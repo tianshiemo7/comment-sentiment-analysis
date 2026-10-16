@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import VideoStatusBadge from './VideoStatusBadge.vue'
+import Icon from './Icon.vue'
 import { formatNumber, isTerminal } from '../utils/videoFormat.js'
 
 const props = defineProps({
@@ -55,12 +56,12 @@ const rowsText = computed(() => {
       <div class="project-item__name" :title="name">{{ name }}</div>
       <button
         type="button"
-        class="project-item__remove"
+        class="icon-btn icon-btn--danger project-item__remove"
         title="删除该项目"
         aria-label="删除该项目"
         @click.stop="emit('remove', project.id)"
       >
-        ×
+        <Icon name="delete-bin-6-line" :size="14" />
       </button>
     </div>
 
@@ -141,20 +142,9 @@ const rowsText = computed(() => {
   word-break: break-word;
 }
 .project-item__remove {
+  /* 尺寸与悬停态由全局 .icon-btn / .icon-btn--danger 提供，此处只保证不被标题压扁 */
   flex: 0 0 auto;
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 18px;
-  line-height: 1;
-  padding: 0 4px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.project-item__remove:hover {
-  background: var(--negative-soft);
-  color: var(--negative);
+  margin: -2px -4px 0 0;
 }
 .project-item__rows {
   margin-top: 2px;

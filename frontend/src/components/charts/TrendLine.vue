@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import EChart from './EChart.vue'
+import Icon from '../Icon.vue'
 
 const props = defineProps({
   trend: { type: Array, default: () => [] },
@@ -38,7 +39,7 @@ const option = computed(() => {
 <template>
   <div class="chart-card">
     <div class="chart-card__head">
-      <h3>情感趋势</h3>
+      <h3><Icon name="line-chart-line" :size="16" /> 情感趋势</h3>
       <span class="card__hint">{{ hasData ? `按 ${trend[0].bucket.length > 10 ? '小时' : '天'} 聚合` : '暂无数据' }}</span>
     </div>
     <EChart v-if="hasData" :option="option" height="300px" aria-label="情感趋势折线图" />

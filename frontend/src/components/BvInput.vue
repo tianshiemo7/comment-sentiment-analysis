@@ -4,6 +4,7 @@
  * 即时校验 ^BV[0-9A-Za-z]{10}$，非法给中文提示且不提交（契约：BV 号校验规则前后端一致）。
  */
 import { computed, ref, watch } from 'vue'
+import Icon from './Icon.vue'
 import { validateBvid } from '../utils/videoFormat.js'
 
 const props = defineProps({
@@ -64,10 +65,12 @@ defineExpose({ reset })
         aria-describedby="bvid-input-error"
       />
       <button class="btn btn--primary" type="submit" :disabled="submitting">
+        <Icon name="play-line" :size="14" />
         {{ submitting ? '提交中…' : '开始分析' }}
       </button>
     </div>
     <p id="bvid-input-error" class="bv-input__msg" :class="errorText ? 'is-error' : 'is-hint'">
+      <Icon v-if="errorText" name="alert-line" :size="13" />
       {{ errorText || '输入视频 BV 号，格式形如 BV1xx411c7mD（共 11 位）' }}
     </p>
   </form>
@@ -115,6 +118,10 @@ defineExpose({ reset })
   flex: 1 1 100%;
   margin: 0;
   font-size: 12.5px;
+  /* 出错时在文案前放一个 alert 图标 */
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .bv-input__msg.is-hint {
   color: var(--text-muted);

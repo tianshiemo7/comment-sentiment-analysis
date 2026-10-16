@@ -4,6 +4,7 @@
  * 字段来自契约 top_comments.positive / .negative：[{ text, like, confidence, label }]
  */
 import { computed } from 'vue'
+import Icon from './Icon.vue'
 import { formatMetric, formatNumber } from '../utils/videoFormat.js'
 
 const props = defineProps({
@@ -19,14 +20,14 @@ const hasData = computed(() => props.comments.length > 0)
 <template>
   <div class="comment-card">
     <div class="chart-card__head">
-      <h3>{{ title }}</h3>
+      <h3><Icon name="chat-quote-line" :size="16" /> {{ title }}</h3>
       <span class="card__hint">{{ comments.length }} 条</span>
     </div>
     <ul v-if="hasData" class="comment-list">
       <li v-for="(item, index) in comments" :key="index" class="comment" :class="`comment--${tone}`">
         <p class="comment__text">{{ item.text }}</p>
         <div class="comment__meta">
-          <span>👍 {{ formatNumber(item.like) }}</span>
+          <span class="comment__likes"><Icon name="thumb-up-line" :size="13" />{{ formatNumber(item.like) }}</span>
           <span>置信度 {{ formatMetric(item.confidence, 3) }}</span>
           <span class="comment__label">{{ tone === 'negative' ? '负面' : '正面' }}</span>
         </div>
@@ -70,6 +71,12 @@ const hasData = computed(() => props.comments.length > 0)
   margin-top: 6px;
   font-size: 12px;
   color: var(--text-muted);
+}
+/* 点赞数前的拇指图标替代原 👍 emoji（emoji 字形随平台/系统字体变化） */
+.comment__likes {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .comment__label {
   margin-left: auto;

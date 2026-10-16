@@ -2,7 +2,12 @@
 /**
  * components/SidebarSection.vue — 左栏可收起的一段（数据项目 / 单独评论 / 视频任务）
  * 收起状态由父组件持有并写入 localStorage；本组件只负责渲染与派发事件。
+ *
+ * 图标：段标题左侧一个语义图标（由父组件通过 icon 传入），右侧箭头用 arrow-down-s-line
+ * 旋转 90° 表示收起，替代原先的 ▾ 字符。
  */
+import Icon from './Icon.vue'
+
 defineProps({
   title: { type: String, required: true },
   count: { type: Number, default: 0 },
@@ -11,6 +16,8 @@ defineProps({
   activeCount: { type: Number, default: 0 },
   empty: { type: String, default: '暂无数据' },
   isEmpty: { type: Boolean, default: false },
+  /** 段标题左侧的语义图标名（icons.js 中的键），留空则不渲染 */
+  icon: { type: String, default: '' },
 })
 
 const emit = defineEmits(['toggle'])
@@ -26,7 +33,8 @@ const emit = defineEmits(['toggle'])
         :title="collapsed ? `展开${title}` : `收起${title}`"
         @click="emit('toggle')"
       >
-        <span class="sec__caret" :class="{ 'is-collapsed': collapsed }" aria-hidden="true">▾</span>
+        <Icon class="sec__caret" :class="{ 'is-collapsed': collapsed }" name="arrow-down-s-line" :size="14" />
+        <Icon v-if="icon" class="sec__icon" :name="icon" :size="14" />
         <span class="sec__title">{{ title }}</span>
         <span class="sec__count">{{ count }}</span>
         <span v-if="activeCount" class="sec__active">{{ activeCount }} 进行中</span>
@@ -83,11 +91,16 @@ const emit = defineEmits(['toggle'])
 }
 .sec__caret {
   color: var(--text-muted);
-  font-size: 11px;
   transition: transform 0.15s ease;
 }
 .sec__caret.is-collapsed {
   transform: rotate(-90deg);
+}
+.sec__icon {
+  color: var(--text-muted);
+}
+.sec__toggle:hover .sec__icon {
+  color: var(--primary);
 }
 .sec__title {
   font-size: 13.5px;

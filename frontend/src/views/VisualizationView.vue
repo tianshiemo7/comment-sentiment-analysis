@@ -5,10 +5,13 @@
  * 锁定的接口契约中【没有】图表接口，因此本页不做任何网络请求，
  * 只声明卡片与对应产物文件路径。
  */
+import Icon from '../components/Icon.vue'
+
 const figures = [
   {
     key: 'curves',
     title: '损失 / 准确率曲线',
+    icon: 'line-chart-line',
     file: 'outputs/figures/loss_curve.png、accuracy_curve.png',
     desc: '训练集与验证集的 loss、accuracy 随 epoch 变化曲线，用于观察收敛与过拟合。',
     source: 'src/visualization/（训练曲线）',
@@ -16,6 +19,7 @@ const figures = [
   {
     key: 'confusion',
     title: '混淆矩阵热力图',
+    icon: 'table-line',
     file: 'outputs/figures/confusion_matrix_*.png',
     desc: '正负样本的预测分布热力图（每个模型一份，如 confusion_matrix_cnn.png、confusion_matrix_bilstm_attention.png）。',
     source: 'src/evaluation/ + src/visualization/',
@@ -23,6 +27,7 @@ const figures = [
   {
     key: 'wordcloud',
     title: '正负评论词云',
+    icon: 'cloud-line',
     file: 'outputs/figures/wordcloud_positive.png、wordcloud_negative.png',
     desc: '正面与负面评论的高频词分布，用于结果解释与文本分析。',
     source: 'src/visualization/（词云）',
@@ -30,6 +35,7 @@ const figures = [
   {
     key: 'attention',
     title: 'Attention 权重可视化',
+    icon: 'bar-chart-horizontal-line',
     file: 'outputs/figures/attention_heatmap.png',
     desc: 'BiLSTM-Attention 模型对输入词序列的注意力权重（可选加分项）。',
     source: 'src/models/ + src/visualization/',
@@ -57,9 +63,10 @@ const figures = [
     <div class="grid-4">
       <div v-for="item in figures" :key="item.key" class="card">
         <div class="card__head">
-          <h3>{{ item.title }}</h3>
+          <h3><Icon :name="item.icon" :size="16" /> {{ item.title }}</h3>
         </div>
         <div class="figure-placeholder">
+          <Icon name="image-line" :size="26" />
           <span>图表待生成</span>
           <span class="figure-placeholder__file">{{ item.file }}</span>
         </div>
@@ -72,7 +79,7 @@ const figures = [
 
     <div class="card">
       <div class="card__head">
-        <h2>产物文件对照表</h2>
+        <h2><Icon name="file-list-3-line" :size="16" /> 产物文件对照表</h2>
         <span class="card__hint">命名约定见 outputs/README.md</span>
       </div>
       <div class="table-wrap">

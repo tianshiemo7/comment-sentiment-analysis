@@ -21,6 +21,7 @@ import VideoDetail from '../components/VideoDetail.vue'
 import ProjectDetail from '../components/ProjectDetail.vue'
 import SoloCommentDetail from '../components/SoloCommentDetail.vue'
 import UploadArtifactsDialog from '../components/UploadArtifactsDialog.vue'
+import Icon from '../components/Icon.vue'
 import { useArtifacts } from '../composables/useArtifacts.js'
 import { useVideoAnalysis } from '../composables/useVideoAnalysis.js'
 import { isTerminal } from '../utils/videoFormat.js'
@@ -286,15 +287,22 @@ const counts = computed(() => ({
       </div>
       <div class="bili__top-right">
         <span class="bili__poll" :class="{ 'is-on': isPolling }">
-          <span class="bili__poll-dot"></span>
+          <Icon name="pulse-line" :size="14" />
           {{ isPolling ? '自动刷新中（3s）' : '轮询已停止' }}
         </span>
-        <button type="button" class="btn btn--primary" @click="openUpload">上传爬取数据</button>
-        <button type="button" class="btn" @click="refreshAll()">立即刷新</button>
+        <button type="button" class="btn btn--primary" @click="openUpload">
+          <Icon name="upload-cloud-2-line" :size="15" />
+          上传爬取数据
+        </button>
+        <button type="button" class="btn" @click="refreshAll()">
+          <Icon name="refresh-line" :size="15" />
+          立即刷新
+        </button>
       </div>
     </header>
 
     <p v-if="actionError" class="hint hint--error bili__action-error">
+      <Icon name="alert-line" :size="14" />
       {{ actionError }}
       <button type="button" class="btn bili__action-close" @click="clearActionError">知道了</button>
     </p>
@@ -414,15 +422,12 @@ const counts = computed(() => ({
   color: var(--text-muted);
   white-space: nowrap;
 }
-.bili__poll-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #cbd5e1;
+/* 轮询状态：原先是发光圆点，改用 pulse-line 图标，颜色即状态 */
+.bili__poll .icon {
+  color: #cbd5e1;
 }
-.bili__poll.is-on .bili__poll-dot {
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+.bili__poll.is-on .icon {
+  color: #22c55e;
 }
 .bili__action-error {
   display: flex;

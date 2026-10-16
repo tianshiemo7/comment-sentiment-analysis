@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { predictBatch } from '../api/client.js'
+import Icon from '../components/Icon.vue'
 import { formatPercent, labelClass, labelText, truncate } from '../utils/format.js'
 
 const ALLOWED_EXT = ['.csv', '.xlsx']
@@ -87,7 +88,7 @@ function resetInput(event) {
 
     <div class="card">
       <div class="card__head">
-        <h2>文件上传</h2>
+        <h2><Icon name="upload-2-line" :size="16" /> 文件上传</h2>
         <span class="card__hint">multipart/form-data，字段名 <code>file</code></span>
       </div>
 
@@ -102,13 +103,20 @@ function resetInput(event) {
         </p>
         <p v-else class="card__hint" style="margin-top: -6px">尚未选择文件。</p>
 
-        <div v-if="fileError" class="hint hint--error" style="margin-bottom: 12px">{{ fileError }}</div>
+        <div v-if="fileError" class="hint hint--icon hint--error" style="margin-bottom: 12px">
+          <Icon name="alert-line" :size="14" />
+          <span>{{ fileError }}</span>
+        </div>
 
         <div class="actions">
           <button type="submit" class="btn btn--primary" :disabled="!file || loading">
+            <Icon name="send-plane-2-line" :size="14" />
             {{ loading ? '上传中…' : '开始批量预测' }}
           </button>
-          <button type="button" class="btn" :disabled="loading" @click="resetInput">重置</button>
+          <button type="button" class="btn" :disabled="loading" @click="resetInput">
+            <Icon name="eraser-line" :size="14" />
+            重置
+          </button>
         </div>
       </form>
 
@@ -120,26 +128,34 @@ function resetInput(event) {
 
     <div class="card">
       <div class="card__head">
-        <h2>批量结果</h2>
+        <h2><Icon name="file-list-3-line" :size="16" /> 批量结果</h2>
         <span class="card__hint">
           <template v-if="result">共 {{ result.total }} 条</template>
           <template v-else>响应字段：total / results / export_url</template>
         </span>
       </div>
 
-      <div v-if="state === 'error'" class="hint hint--error">
-        <strong>待接入后端</strong>：{{ error }}
+      <div v-if="state === 'error'" class="hint hint--icon hint--error">
+        <Icon name="error-warning-line" :size="14" />
+        <span><strong>待接入后端</strong>：{{ error }}</span>
       </div>
 
-      <div v-else-if="state === 'loading'" class="hint">正在上传并请求后端，请稍候…</div>
-
-      <div v-else-if="state === 'idle'" class="hint hint--warn">
-        <strong>待接入后端</strong>：尚未发起批量预测请求。启动 FastAPI 服务并上传文件后即可看到真实结果；
-        骨架阶段不展示任何模拟数据。
+      <div v-else-if="state === 'loading'" class="hint hint--icon">
+        <Icon name="loader-4-line" :size="14" spin />
+        <span>正在上传并请求后端，请稍候…</span>
       </div>
 
-      <div v-else-if="state === 'ok' && rows.length === 0" class="hint hint--warn">
-        <strong>待接入后端</strong>：后端返回结果为空（<code>results</code> 为空数组）。
+      <div v-else-if="state === 'idle'" class="hint hint--icon hint--warn">
+        <Icon name="alert-line" :size="14" />
+        <span>
+          <strong>待接入后端</strong>：尚未发起批量预测请求。启动 FastAPI 服务并上传文件后即可看到真实结果；
+          骨架阶段不展示任何模拟数据。
+        </span>
+      </div>
+
+      <div v-else-if="state === 'ok' && rows.length === 0" class="hint hint--icon hint--warn">
+        <Icon name="alert-line" :size="14" />
+        <span><strong>待接入后端</strong>：后端返回结果为空（<code>results</code> 为空数组）。</span>
       </div>
 
       <!-- 结果表格与导出按钮始终渲染（骨架阶段为空态），保证 DOM 结构稳定 -->
@@ -151,9 +167,13 @@ function resetInput(event) {
           download
           style="text-decoration: none"
         >
+          <Icon name="download-2-line" :size="14" />
           导出结果文件
         </a>
-        <button v-else type="button" class="btn" disabled>导出结果文件</button>
+        <button v-else type="button" class="btn" disabled>
+          <Icon name="download-2-line" :size="14" />
+          导出结果文件
+        </button>
         <span v-if="!exportUrl" class="card__hint">
           <strong>待接入后端</strong>：响应未提供 <code>export_url</code>，暂无可下载文件。
         </span>

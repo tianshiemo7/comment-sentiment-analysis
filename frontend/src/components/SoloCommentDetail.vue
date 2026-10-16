@@ -3,12 +3,14 @@
  * components/SoloCommentDetail.vue — 「单独评论」详情视图
  *
  * 契约 4.5.2 明确要求：**只渲染**原文 + 极性徽章 + 置信度 + 概率条 + 时间 + method 标识，
- * 不渲染任何图表（本组件不引入 ECharts / canvas / svg 图表，避免误加图表）。
+ * 不渲染任何图表。本组件不引入 ECharts、不产生 canvas；标题左侧的 Icon.vue 内联 SVG
+ * 属界面图标（非图表），不违反该约束。
  */
 import { computed } from 'vue'
 import MethodBadge from './MethodBadge.vue'
 import SentimentBadge from './SentimentBadge.vue'
 import ProbBars from './ProbBars.vue'
+import Icon from './Icon.vue'
 import { formatPercent } from '../utils/format.js'
 import { formatDateTime } from '../utils/videoFormat.js'
 
@@ -25,7 +27,7 @@ const createdAt = computed(() => formatDateTime(props.item?.created_at))
   <section class="solo">
     <header class="solo__head">
       <div class="solo__headline">
-        <h1>单独评论</h1>
+        <h1><Icon name="chat-quote-line" :size="19" /> 单独评论</h1>
         <MethodBadge :method="item?.method" size="large" />
       </div>
       <p class="solo__sub">单条评论只展示预测结果本身，按契约不渲染任何图表。</p>
@@ -33,7 +35,7 @@ const createdAt = computed(() => formatDateTime(props.item?.created_at))
 
     <article class="card solo__card">
       <div class="card__head">
-        <h2>原文</h2>
+        <h2><Icon name="file-3-line" :size="16" /> 原文</h2>
         <span class="card__hint">#{{ item?.id || '—' }}</span>
       </div>
       <p class="solo__text">{{ item?.text || '—' }}</p>
@@ -60,7 +62,7 @@ const createdAt = computed(() => formatDateTime(props.item?.created_at))
 
     <article class="card solo__card">
       <div class="card__head">
-        <h2>概率分布</h2>
+        <h2><Icon name="bar-chart-2-line" :size="16" /> 概率分布</h2>
         <span class="card__hint">probs（由 POST /api/predict 结果原样保存）</span>
       </div>
       <ProbBars :probs="item?.probs" />
@@ -90,6 +92,9 @@ const createdAt = computed(() => formatDateTime(props.item?.created_at))
 }
 .solo__headline h1 {
   font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 .solo__sub {
   margin: 6px 0 0;

@@ -62,6 +62,8 @@ comment-sentiment-analysis/
 │   ├── src/components/       左栏三段、BV 输入框、项目/评论详情与 ECharts 图表组件
 │   ├── src/composables/      轮询与详情状态（usePolling / useArtifacts 等）
 │   ├── src/api/              接口封装（artifacts.js 主流程、videos.js、client.js）
+│   ├── src/components/Icon.vue  统一图标组件（内联 SVG，零依赖）
+│   ├── src/assets/icons/     内置的 Remix Icon 精选子集（48 个，见 NOTICE.txt）
 │   └── mock/                 后端未实现前的接口模拟层（Vite 插件，一行卸载）
 ├── models/                   训练好的模型权重存放目录
 │   ├── checkpoints/          训练检查点（.pt / .pth）
@@ -74,7 +76,7 @@ comment-sentiment-analysis/
 │   ├── stats/                数据统计（词表规模、平均长度、标签分布）
 │   └── videos/               B 站任务落盘（index.json + 每个视频一份详情）
 ├── docs/                     文档与课程报告
-├── scripts/                  一键脚本（取数 / 划分 / 训练 / 启动服务）
+├── scripts/                  一键脚本（取数 / 划分 / 训练 / 启动服务 / 生成图标子集）
 ├── tests/                    测试
 └── requirements.txt          Python 依赖
 ```
@@ -313,6 +315,10 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 - **词云与图表由前端渲染**，后端只返回词频、分布、趋势数据（不生成图片）。
 - **情感结果当前为占位**：`method="rule_placeholder"`，界面显示「规则占位」标识。
 - **接口契约**：完整字段定义见 [`docs/API契约.md`](docs/API契约.md)（前后端唯一契约来源）。
+- **美术资源**：界面图标取自 Remix Icon 的 48 个线稿图标，以 path 数据内置在
+  `frontend/src/assets/icons/`，由 `components/Icon.vue` 渲染 —— **不新增任何 npm 依赖**、
+  不用图标字体。品牌标记与 favicon 为项目原创（图标许可禁止用作品牌标识），许可与出处见
+  [`frontend/src/assets/icons/NOTICE.txt`](frontend/src/assets/icons/NOTICE.txt)。
 - **后端未实现前的联调**：`frontend/mock/` 提供 Vite 插件模拟全部接口（含真实的进度推进），
   真实后端就绪后删除 `vite.config.js` 中的该插件即可（或 `VITE_USE_MOCK=0` 关闭），业务代码无需改动。
 
@@ -346,4 +352,21 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 
 ## 十二、许可证
 
-[MIT](LICENSE)
+本项目代码：[MIT](LICENSE)
+
+### 第三方美术资源
+
+界面图标取自 **[Remix Icon](https://remixicon.com)** v4.9.1（Copyright © 2017–2026 Remix Design），
+按 **Remix Icon License v1.0**（2026 年 1 月版）使用：
+
+- 本项目在 Web 界面中将图标用作**功能与装饰元素**，并对其颜色与尺寸做了适配
+  （`fill="currentColor"`，图形本身未改动）—— 属该许可第 2.1、2.2 条允许的用途；
+- 该许可第 3.3 条**禁止**将图标用作 logo / 商标 / 品牌标识，因此本项目的品牌标记（「情」字方格）
+  与 favicon 均为**项目原创**，未使用任何 Remix 图形；
+- 第 4.1 条要求品牌图标仅用于指代对应品牌：本项目仅使用 `bilibili-line` 一个 Logos 类图标，
+  且只出现在代表 B 站内容的「B站分析」入口上，未用作项目标识，也未暗示任何背书或隶属关系；
+- 第 5 条要求随源码附带许可，故完整许可全文与出处记录见
+  [`frontend/src/assets/icons/NOTICE.txt`](frontend/src/assets/icons/NOTICE.txt)。
+
+图标子集可复现/更新：`node scripts/gen_icons.mjs <remixicon 包目录>`（详见
+[`docs/superpowers/specs/2026-10-16-frontend-remixicon-assets-design.md`](docs/superpowers/specs/2026-10-16-frontend-remixicon-assets-design.md)）。

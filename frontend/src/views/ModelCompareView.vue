@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { getModels } from '../api/client.js'
+import Icon from '../components/Icon.vue'
 import { formatMetric } from '../utils/format.js'
 
 /** idle | loading | ok | error */
@@ -47,21 +48,26 @@ onMounted(load)
 
     <div class="card">
       <div class="card__head">
-        <h2>模型指标对比表</h2>
+        <h2><Icon name="table-line" :size="16" /> 模型指标对比表</h2>
         <span class="card__hint">
           <template v-if="state === 'ok'">共 {{ rows.length }} 个模型</template>
           <template v-else>响应字段：models[].metrics</template>
         </span>
       </div>
 
-      <div v-if="state === 'error'" class="hint hint--error" style="margin-bottom: 12px">
-        <strong>待接入后端</strong>：{{ error }}
+      <div v-if="state === 'error'" class="hint hint--icon hint--error" style="margin-bottom: 12px">
+        <Icon name="error-warning-line" :size="14" />
+        <span><strong>待接入后端</strong>：{{ error }}</span>
       </div>
-      <div v-else-if="state === 'loading'" class="hint" style="margin-bottom: 12px">
-        正在请求 GET /api/models …
+      <div v-else-if="state === 'loading'" class="hint hint--icon" style="margin-bottom: 12px">
+        <Icon name="loader-4-line" :size="14" spin />
+        <span>正在请求 GET /api/models …</span>
       </div>
-      <div v-else-if="state === 'ok' && rows.length === 0" class="hint hint--warn" style="margin-bottom: 12px">
-        <strong>待接入后端</strong>：后端返回的 <code>models</code> 为空数组，模型训练完成后此处会自动出现数据。
+      <div v-else-if="state === 'ok' && rows.length === 0" class="hint hint--icon hint--warn" style="margin-bottom: 12px">
+        <Icon name="alert-line" :size="14" />
+        <span>
+          <strong>待接入后端</strong>：后端返回的 <code>models</code> 为空数组，模型训练完成后此处会自动出现数据。
+        </span>
       </div>
 
       <div class="table-wrap">
@@ -94,6 +100,7 @@ onMounted(load)
                   class="badge badge--ready"
                   style="margin-left: 6px"
                 >
+                  <Icon name="checkbox-circle-line" :size="12" />
                   最优 Accuracy
                 </span>
               </td>
@@ -104,6 +111,7 @@ onMounted(load)
               <td class="num">{{ formatMetric(model.metrics && model.metrics.f1) }}</td>
               <td>
                 <span :class="model.ready ? 'badge badge--ready' : 'badge'">
+                  <Icon :name="model.ready ? 'checkbox-circle-line' : 'time-line'" :size="12" />
                   {{ model.ready ? '已就绪' : '未训练' }}
                 </span>
               </td>
@@ -113,7 +121,10 @@ onMounted(load)
       </div>
 
       <div class="actions" style="margin-top: 14px">
-        <button type="button" class="btn" :disabled="state === 'loading'" @click="load">刷新指标</button>
+        <button type="button" class="btn" :disabled="state === 'loading'" @click="load">
+          <Icon name="refresh-line" :size="14" />
+          刷新指标
+        </button>
       </div>
 
       <div class="card__foot">

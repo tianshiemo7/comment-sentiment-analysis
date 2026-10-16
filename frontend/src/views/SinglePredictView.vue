@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { predict } from '../api/client.js'
 import { saveSoloComment } from '../api/artifacts.js'
+import Icon from '../components/Icon.vue'
 import { formatPercent, labelClass, labelText, percentWidth } from '../utils/format.js'
 
 const text = ref('')
@@ -105,6 +106,10 @@ function clearText() {
   text.value = ''
   reset()
 }
+
+/** 结果极性 → 表情图标（与 SentimentBadge 同一套图形语言） */
+const RESULT_ICONS = { positive: 'emotion-happy-line', negative: 'emotion-unhappy-line', neutral: 'emotion-normal-line' }
+const resultIcon = computed(() => RESULT_ICONS[String(result.value?.label || '').toLowerCase()] || 'question-line')
 </script>
 
 <template>
@@ -117,7 +122,7 @@ function clearText() {
     <div class="grid-2">
       <div class="card">
         <div class="card__head">
-          <h2>评论输入</h2>
+          <h2><Icon name="chat-1-line" :size="16" /> 评论输入</h2>
           <span class="card__hint">POST /api/predict</span>
         </div>
 
@@ -134,9 +139,13 @@ function clearText() {
 
           <div class="actions">
             <button type="submit" class="btn btn--primary" :disabled="!canSubmit">
+              <Icon name="send-plane-2-line" :size="14" />
               {{ loading ? '请求中…' : '开始预测' }}
             </button>
-            <button type="button" class="btn" :disabled="loading" @click="clearText">清空</button>
+            <button type="button" class="btn" :disabled="loading" @click="clearText">
+              <Icon name="eraser-line" :size="14" />
+              清空
+            </button>
             <label class="switch" title="开启后预测成功会把结果保存到左栏「单独评论」">
               <input v-model="saveToList" type="checkbox" :disabled="loading" />
               <span class="switch__label">保存到左栏</span>
@@ -149,24 +158,32 @@ function clearText() {
 
       <div class="card">
         <div class="card__head">
-          <h2>预测结果</h2>
+          <h2><Icon name="bar-chart-2-line" :size="16" /> 预测结果</h2>
           <span class="card__hint">响应字段：text / label / confidence / probs</span>
         </div>
 
-        <div v-if="state === 'error'" class="hint hint--error">
+        <div v-if="state === 'error'" class="hint hint--icon hint--error">
+          <Icon name="error-warning-line" :size="14" />
           <strong>待接入后端</strong>：{{ error }}
         </div>
 
-        <div v-else-if="state === 'idle'" class="hint hint--warn">
-          <strong>待接入后端</strong>：尚未发起预测请求。请先启动 FastAPI 服务
-          （<code>python -m uvicorn src.inference.app:app --port 8000</code>），再点击「开始预测」。
-          骨架阶段界面不会展示任何模拟结果。
+        <div v-else-if="state === 'idle'" class="hint hint--icon hint--warn">
+          <Icon name="alert-line" :size="14" />
+          <span>
+            <strong>待接入后端</strong>：尚未发起预测请求。请先启动 FastAPI 服务
+            （<code>python -m uvicorn src.inference.app:app --port 8000</code>），再点击「开始预测」。
+            骨架阶段界面不会展示任何模拟结果。
+          </span>
         </div>
 
-        <div v-else-if="state === 'loading'" class="hint">正在请求后端，请稍候…</div>
+        <div v-else-if="state === 'loading'" class="hint hint--icon">
+          <Icon name="loader-4-line" :size="14" spin />
+          正在请求后端，请稍候…
+        </div>
 
         <div v-else-if="result" class="result">
           <div class="result__headline">
+            <Icon :name="resultIcon" :size="19" />
             <span :class="labelClass(result.label)">{{ labelText(result.label) }}</span>
             <span class="card__hint">置信度 {{ formatPercent(result.confidence) }}</span>
           </div>
@@ -184,14 +201,21 @@ function clearText() {
           </div>
         </div>
 
-        <div v-else class="hint hint--warn">
-          <strong>待接入后端</strong>：后端已响应但未返回可展示字段，请核对接口契约。
+        <div v-else class="hint hint--icon hint--warn">
+          <Icon name="alert-line" :size="14" />
+          <span><strong>待接入后端</strong>：后端已响应但未返回可展示字段，请核对接口契约。</span>
         </div>
 
-        <p v-if="saveState === 'saving'" class="hint">正在保存到左栏「单独评论」…</p>
-        <p v-else-if="saveMessage" class="hint" :class="saveState === 'error' ? 'hint--error' : 'hint--ok'">
-          {{ saveMessage }}
-          <span v-if="saveState === 'saved'" class="save-tip">返回「B站分析」页即可在左栏②段看到它。</span>
+        <p v-if="saveState === 'saving'" class="hint hint--icon">
+          <Icon name="loader-4-line" :size="13" spin />
+          正在保存到左栏「单独评论」…
+        </p>
+        <p v-else-if="saveMessage" class="hint hint--icon" :class="saveState === 'error' ? 'hint--error' : 'hint--ok'">
+          <Icon :name="saveState === 'error' ? 'error-warning-line' : 'checkbox-circle-line'" :size="13" />
+          <span>
+            {{ saveMessage }}
+            <span v-if="saveState === 'saved'" class="save-tip">返回「B站分析」页即可在左栏②段看到它。</span>
+          </span>
         </p>
 
         <div class="card__foot">
@@ -233,5 +257,8 @@ function clearText() {
   color: var(--text-muted);
   font-size: 12.5px;
   margin-left: 6px;
+}
+.result__headline .icon {
+  color: var(--text-muted);
 }
 </style>

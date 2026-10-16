@@ -13,6 +13,7 @@ import SidebarSection from './SidebarSection.vue'
 import ProjectListItem from './ProjectListItem.vue'
 import SoloCommentItem from './SoloCommentItem.vue'
 import VideoListItem from './VideoListItem.vue'
+import Icon from './Icon.vue'
 import { isTerminal, statusMeta } from '../utils/videoFormat.js'
 import { SENTIMENT_COLORS } from '../utils/sentimentLabels.js'
 
@@ -101,13 +102,13 @@ function videoInitial(video) {
     <div class="sidebar__head">
       <button
         type="button"
-        class="sidebar__toggle"
+        class="icon-btn sidebar__toggle"
         :title="collapsed ? '展开数据与任务栏' : '收起数据与任务栏'"
         :aria-label="collapsed ? '展开数据与任务栏' : '收起数据与任务栏'"
         :aria-expanded="collapsed ? 'false' : 'true'"
         @click="emit('toggle')"
       >
-        {{ collapsed ? '»' : '«' }}
+        <Icon :name="collapsed ? 'arrow-right-s-line' : 'arrow-left-s-line'" :size="16" />
       </button>
       <template v-if="!collapsed">
         <h2 class="sidebar__title">数据与任务</h2>
@@ -173,6 +174,7 @@ function videoInitial(video) {
       <!-- ① 数据项目 -->
       <SidebarSection
         :title="titleOf('projects', '数据项目')"
+        icon="folder-3-line"
         :count="projects.length"
         :active-count="activeProjectCount"
         :collapsed="Boolean(sections.projects)"
@@ -195,6 +197,7 @@ function videoInitial(video) {
       <!-- ② 单独评论 -->
       <SidebarSection
         :title="titleOf('solo', '单独评论')"
+        icon="chat-quote-line"
         :count="solo.length"
         :collapsed="Boolean(sections.solo)"
         :is-empty="!solo.length"
@@ -205,11 +208,12 @@ function videoInitial(video) {
           <button
             v-if="solo.length"
             type="button"
-            class="sec-clear"
+            class="icon-btn icon-btn--danger"
             title="清空全部单独评论"
+            aria-label="清空全部单独评论"
             @click.stop="emit('clear-solo')"
           >
-            清空全部
+            <Icon name="delete-bin-6-line" :size="14" />
           </button>
         </template>
         <ul class="item-list">
@@ -227,6 +231,7 @@ function videoInitial(video) {
       <!-- ③ 视频任务（原有行为保持不变） -->
       <SidebarSection
         :title="titleOf('videos', '视频任务')"
+        icon="film-line"
         :count="videos.length"
         :active-count="activeVideoCount"
         :collapsed="Boolean(sections.videos)"
@@ -248,7 +253,7 @@ function videoInitial(video) {
       </SidebarSection>
 
       <p class="sidebar__foot">
-        <span class="sidebar__pulse" :class="{ 'is-on': polling }"></span>
+        <Icon class="sidebar__pulse" :class="{ 'is-on': polling }" name="pulse-line" :size="14" />
         {{ polling ? '每 3 秒自动刷新' : '轮询已停止' }}
       </p>
     </div>
@@ -278,21 +283,9 @@ function videoInitial(video) {
   background: var(--surface-alt);
 }
 .sidebar__toggle {
-  appearance: none;
-  border: 1px solid var(--border-strong);
+  /* 左侧箭头图标替代原先的 « / » 字符；命中区与悬停态来自全局 .icon-btn */
+  border-color: var(--border-strong);
   background: var(--surface);
-  color: var(--text-muted);
-  border-radius: var(--radius-sm);
-  width: 26px;
-  height: 26px;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-.sidebar__toggle:hover {
-  color: var(--primary);
-  border-color: var(--primary);
 }
 .sidebar__title {
   font-size: 14px;
@@ -323,21 +316,6 @@ function videoInitial(video) {
   max-height: 46vh;
   overflow-y: auto;
 }
-.sec-clear {
-  appearance: none;
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--text-muted);
-  font-size: 11.5px;
-  border-radius: 999px;
-  padding: 1px 8px;
-  cursor: pointer;
-}
-.sec-clear:hover {
-  color: var(--negative);
-  border-color: #fecaca;
-  background: var(--negative-soft);
-}
 .sidebar__foot {
   margin: auto 0 0;
   padding-top: 8px;
@@ -348,15 +326,12 @@ function videoInitial(video) {
   align-items: center;
   gap: 6px;
 }
+/* 轮询状态：原先是发光圆点，改用 pulse-line 图标，颜色即状态 */
 .sidebar__pulse {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #cbd5e1;
+  color: #cbd5e1;
 }
 .sidebar__pulse.is-on {
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  color: #22c55e;
 }
 .sidebar__rail {
   display: flex;

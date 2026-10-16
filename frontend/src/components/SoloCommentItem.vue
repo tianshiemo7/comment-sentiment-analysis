@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import SentimentBadge from './SentimentBadge.vue'
+import Icon from './Icon.vue'
 import { formatPercent } from '../utils/format.js'
 import { truncate } from '../utils/videoFormat.js'
 
@@ -34,12 +35,12 @@ const confidence = computed(() => formatPercent(props.item.confidence))
       <p class="solo-item__text" :title="item.text">{{ preview }}</p>
       <button
         type="button"
-        class="solo-item__remove"
+        class="icon-btn icon-btn--danger solo-item__remove"
         title="删除这条评论"
         aria-label="删除这条评论"
         @click.stop="emit('remove', item.id)"
       >
-        ×
+        <Icon name="delete-bin-6-line" :size="14" />
       </button>
     </div>
     <div class="solo-item__meta">
@@ -98,20 +99,9 @@ const confidence = computed(() => formatPercent(props.item.confidence))
   word-break: break-word;
 }
 .solo-item__remove {
+  /* 尺寸与悬停态由全局 .icon-btn / .icon-btn--danger 提供 */
   flex: 0 0 auto;
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 18px;
-  line-height: 1;
-  padding: 0 4px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.solo-item__remove:hover {
-  background: var(--negative-soft);
-  color: var(--negative);
+  margin: -2px -4px 0 0;
 }
 .solo-item__meta {
   display: flex;

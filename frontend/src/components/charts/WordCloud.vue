@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import EChart from './EChart.vue'
+import Icon from '../Icon.vue'
 import { formatNumber } from '../../utils/videoFormat.js'
 
 const props = defineProps({
@@ -57,7 +58,7 @@ const option = computed(() => ({
 <template>
   <div class="chart-card">
     <div class="chart-card__head">
-      <h3>{{ tone === 'negative' ? '负面关键词词云' : '正面关键词词云' }}</h3>
+      <h3><Icon name="cloud-line" :size="16" /> {{ tone === 'negative' ? '负面关键词词云' : '正面关键词词云' }}</h3>
       <span class="card__hint">{{ words.length }} 个词</span>
     </div>
     <EChart

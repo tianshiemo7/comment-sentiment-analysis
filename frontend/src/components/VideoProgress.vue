@@ -4,6 +4,7 @@
  * 严格对应契约第一节：未完成时右侧只显示本组件（环形进度 + progress% + message + phases 三态），不渲染任何图表。
  */
 import { computed } from 'vue'
+import Icon from './Icon.vue'
 import { statusMeta } from '../utils/videoFormat.js'
 
 const props = defineProps({
@@ -35,6 +36,20 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 const dashOffset = computed(() => CIRCUMFERENCE * (1 - progress.value / 100))
 
 const PHASE_TEXT = { done: '已完成', active: '进行中', pending: '待执行', failed: '失败' }
+
+/** 子步骤三态 → 图标；原先用 CSS 画的圆点只能靠颜色区分，换成图标后形状本身也能区分 */
+const PHASE_ICONS = {
+  done: 'checkbox-circle-line',
+  active: 'loader-4-line',
+  pending: 'time-line',
+  failed: 'error-warning-line',
+}
+const phaseIcon = (status) => PHASE_ICONS[status] || 'time-line'
+
+/** 大标题左侧的状态图标（爬取/处理阶段旋转） */
+const HEADLINE_ICONS = { queued: 'time-line', crawling: 'download-cloud-2-line', processing: 'loader-4-line' }
+const headlineIcon = computed(() => HEADLINE_ICONS[status.value] || 'time-line')
+const headlineSpinning = computed(() => status.value === 'crawling' || status.value === 'processing')
 </script>
 
 <template>
@@ -62,12 +77,20 @@ const PHASE_TEXT = { done: '已完成', active: '进行中', pending: '待执行
     </div>
 
     <div class="progress-block__main">
-      <h2 class="progress-block__headline">{{ headline }}</h2>
+      <h2 class="progress-block__headline">
+        <Icon :name="headlineIcon" :size="19" :spin="headlineSpinning" />
+        {{ headline }}
+      </h2>
       <p v-if="detailMessage" class="progress-block__message">{{ detailMessage }}</p>
 
       <ol class="phase-list">
         <li v-for="phase in phases" :key="phase.name" class="phase" :class="`phase--${phase.status}`">
-          <span class="phase__mark" aria-hidden="true"></span>
+          <Icon
+            class="phase__mark"
+            :name="phaseIcon(phase.status)"
+            :size="16"
+            :spin="phase.status === 'active'"
+          />
           <span class="phase__name">{{ phase.name }}</span>
           <span class="phase__state">{{ PHASE_TEXT[phase.status] || phase.status }}</span>
         </li>
@@ -124,6 +147,9 @@ const PHASE_TEXT = { done: '已完成', active: '进行中', pending: '待执行
 .progress-block__headline {
   font-size: 19px;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .progress-block__message {
   color: var(--text-muted);
@@ -146,11 +172,8 @@ const PHASE_TEXT = { done: '已完成', active: '进行中', pending: '待执行
   color: var(--text-muted);
 }
 .phase__mark {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid #cbd5e1;
-  background: #fff;
+  /* 由 Icon.vue 渲染，颜色即三态；原先的 CSS 圆点已移除 */
+  color: #cbd5e1;
   flex: 0 0 auto;
 }
 .phase__name {
@@ -164,24 +187,20 @@ const PHASE_TEXT = { done: '已完成', active: '进行中', pending: '待执行
   font-weight: 600;
 }
 .phase--active .phase__mark {
-  border-color: #ea580c;
-  background: #ffedd5;
-  box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.12);
+  color: #ea580c;
 }
 .phase--done {
   color: var(--positive);
 }
 .phase--done .phase__mark {
-  border-color: #16a34a;
-  background: #16a34a;
+  color: #16a34a;
 }
 .phase--failed {
   color: var(--negative);
   font-weight: 600;
 }
 .phase--failed .phase__mark {
-  border-color: #dc2626;
-  background: #fecaca;
+  color: #dc2626;
 }
 .progress-block__hint {
   margin: 14px 0 0;

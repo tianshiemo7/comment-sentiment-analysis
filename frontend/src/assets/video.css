@@ -20,7 +20,9 @@
 
 .chart-card__head {
   display: flex;
-  align-items: baseline;
+  /* 标题左侧有图标后，改为居中对齐：inline-flex 标题的基线取自 SVG，
+     baseline 对齐会让右侧 hint 与标题错位 */
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
@@ -28,6 +30,13 @@
 
 .chart-card__head h3 {
   font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-card__head h3 .icon {
+  color: var(--text-muted);
 }
 
 /* 图表容器保证有宽度，canvas 不会塌陷成 0 */
