@@ -1,0 +1,46 @@
+# =============================================================================
+# 网站用户评论情感分析系统 —— Python 依赖清单
+# 用法：python -m pip install -r requirements.txt
+# 说明：版本号暂不锁定（骨架阶段），实现完成后按实际验证通过的版本回填。
+# =============================================================================
+
+# ---------- ① 爬虫 ----------
+requests>=2.31            # HTTP 请求
+beautifulsoup4>=4.12      # HTML 解析
+lxml>=5.0                 # bs4 的高性能解析后端
+# selenium>=4.20         # 需要 JS 渲染的站点（可选，默认不启用）
+
+# ---------- ② 预处理 ----------
+jieba>=0.42.1             # 中文分词
+pandas>=2.0               # 表格数据处理（csv / xlsx 读写）
+openpyxl>=3.1             # pandas 读写 .xlsx 的引擎
+numpy>=1.26               # 数值计算
+
+# ---------- ③ 词向量 ----------
+gensim>=4.3               # Word2Vec / GloVe 训练与加载
+scikit-learn>=1.4         # 划分、评估与基线模型
+
+# ---------- ④ 深度学习 ----------
+# 注意：PyTorch 体积大，按平台单独安装，例如：
+#   CPU ： python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   CUDA： python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
+# 骨架阶段不强制安装，src/ 中所有 torch 导入都放在函数内部或 try/except 里，
+# 因此无 torch 环境也能跑通 tests/。
+# torch>=2.2
+# transformers>=4.40     # BERT 微调（可选加分项）
+
+# ---------- ⑤ 服务 ----------
+fastapi>=0.110            # 推理服务框架
+uvicorn[standard]>=0.29   # ASGI 服务器
+python-multipart>=0.0.9   # FastAPI 接收 multipart 文件上传
+pydantic>=2.6             # 请求/响应模型校验
+
+# ---------- ⑥ 可视化 ----------
+matplotlib>=3.8           # 曲线、混淆矩阵热力图
+seaborn>=0.13             # 热力图美化
+wordcloud>=1.9            # 正负评论词云
+jieba>=0.42.1             # 词云中文分词（与预处理保持一致）
+
+# ---------- ⑦ 测试 ----------
+pytest>=8.0               # 单元测试
+httpx>=0.27               # FastAPI TestClient 依赖
