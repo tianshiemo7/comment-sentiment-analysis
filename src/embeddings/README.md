@@ -27,13 +27,19 @@
 | `word2vec.py` | Word2Vec 训练 / 加载 / 相似词评估 |
 | `matrix.py` | 词表对齐的 embedding 矩阵构造与保存 |
 
-## 待实现清单（TODO）
+## 实现状态（已完成）
 
-- [ ] `word2vec.py:train_word2vec` —— gensim `Word2Vec` 训练并保存
-- [ ] `word2vec.py:load_word2vec` —— 加载已保存模型（缺失时抛 FileNotFoundError + 提示）
-- [ ] `word2vec.py:evaluate_word2vec` —— 相似词 / 类比任务自检
-- [ ] `matrix.py:build_embedding_matrix` —— 按词表顺序取向量，OOV 用均值初始化
-- [ ] `matrix.py:save_embedding_matrix` / `load_embedding_matrix` —— `.npy` 读写
+- [x] `word2vec.py:train_word2vec` —— gensim Word2Vec 训练并保存模型 + `word2vec_params.json`（超参 / 语料规模 / 词表规模）
+- [x] `word2vec.py:load_word2vec` / `evaluate_word2vec` —— 加载与相似词自检（OOV 跳过并记录）
+- [x] `matrix.py:build_embedding_matrix` —— 按词表 id 对齐，OOV 支持 `mean` / `zeros` / `random`，`<pad>` 行恒为零
+- [x] `matrix.py:save_embedding_matrix` / `load_embedding_matrix` —— `.npy` 读写
+- [x] `src/embeddings/__main__.py` —— 命令行入口，一次产出词向量与 embedding 矩阵
+
+```bash
+python -m src.embeddings --train-file data/splits/train.csv \
+  --vocab data/processed/vocab.json --out models/word2vec --embed-dim 128
+# 训练时用 --embeddings models/word2vec/embedding_matrix.npy 初始化 Embedding 层
+```
 
 ## 关联
 
