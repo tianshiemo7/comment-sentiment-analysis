@@ -1,52 +1,39 @@
-"""爬虫主流程骨架（遵纪守法版）。
-
-设计要点（实现时必须遵守）：
-
-1. **先看 robots.txt**：只抓取 `RobotFileParser.can_fetch` 允许的 URL；
-2. **限速**：每次请求之间 `time.sleep(config.delay_seconds)`，默认 1.5 秒（见 `.env.example`）；
-3. **声明身份**：请求头使用 `CRAWL_USER_AGENT` 中的项目 UA，便于站点识别；
-4. **可追溯**：每条记录带 `source` / `url` / `crawled_at`，并由 `sources.write_source_note`
-   汇总到 `data/raw/来源说明.md`。
-
-当前为骨架：所有函数只给出签名、数据结构与文档，函数体抛 `NotImplementedError`。
-"""
-
+"""统一采集框架：配置、robots、站点适配、增量 CSV 和来源登记。"""
 from __future__ import annotations
 
+import argparse
+import csv
+import logging
+import math
 import os
+import re
+import sys
+import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit
+from urllib.robotparser import RobotFileParser
 
-# 与 .env.example 保持一致的默认值
-DEFAULT_DELAY_SECONDS = float(os.getenv("CRAWL_DELAY_SECONDS", "1.5"))
-DEFAULT_USER_AGENT = os.getenv(
-    "CRAWL_USER_AGENT",
-    "comment-sentiment-analysis-course/0.1 "
-    "(+https://github.com/tianshiemo7/comment-sentiment-analysis)",
-)
-DEFAULT_TIMEOUT = 10.0
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.crawler.sources import SourceRecord, write_source_note
+else:
+    from .sources import SourceRecord, write_source_note
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DELAY_SECONDS = float(os.getenv('CRAWL_DELAY_SECONDS', '1.5'))
+DEFAULT_USER_AGENT = os.getenv('CRAWL_USER_AGENT', 'comment-sentiment-analysis-course/0.1 (+https://github.com/tianshiemo7/comment-sentiment-analysis)')
+DEFAULT_TIMEOUT = 15.0
 DEFAULT_MAX_ITEMS = 2000
-
-#: 原始数据落盘字段（CSV 列顺序）
-RAW_FIELDS = ("text", "label", "source", "url", "crawled_at")
+RAW_FIELDS = ('text', 'label', 'source', 'url', 'crawled_at')
+LOG = logging.getLogger(__name__)
 
 
 @dataclass
 class CrawlConfig:
-    """一次采集任务的配置。
-
-    Attributes:
-        start_urls: 起始页面 URL 列表（列表页 / 详情页皆可）。
-        source: 数据来源名称，写入 `data/raw/来源说明.md` 与每条记录的 `source` 字段。
-        delay_seconds: 两次请求之间的间隔秒数，默认取环境变量 `CRAWL_DELAY_SECONDS`。
-        user_agent: 请求头 User-Agent。
-        timeout: 单次请求超时秒数。
-        max_items: 单次任务最多采集条数（超过后停止翻页）。
-        out_path: 原始数据输出文件，默认 `data/raw/<source>.csv`。
-    """
-
+    """max_items 为本次新增条数上限，B站参数放在 extra。"""
     start_urls: list[str]
     source: str
     delay_seconds: float = DEFAULT_DELAY_SECONDS
@@ -55,77 +42,306 @@ class CrawlConfig:
     max_items: int = DEFAULT_MAX_ITEMS
     out_path: Path | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    respect_robots: bool = True
 
-    def __post_init__(self) -> None:
-        if self.out_path is None:
-            self.out_path = Path("data") / "raw" / f"{self.source}.csv"
-        if self.delay_seconds < 0:
-            raise ValueError("delay_seconds 不能为负数（限速是硬性要求）")
+    def __post_init__(self):
+        if not self.start_urls:
+            raise ValueError('start_urls 不能为空')
+        if not re.fullmatch(r'[\w-]+', self.source):
+            raise ValueError('source 只能包含文字、数字、下划线或连字符')
+        for name in ('delay_seconds', 'timeout'):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f'{name} 必须是大于零的有限数值')
+        if not isinstance(self.max_items, int) or self.max_items < 1:
+            raise ValueError('max_items 必须为正整数')
+        if not self.user_agent.strip():
+            raise ValueError('user_agent 不能为空')
+        self.out_path = Path(self.out_path) if self.out_path else ROOT / 'data' / 'raw' / f'{self.source}.csv'
+        if self.source == 'bilibili':
+            self.delay_seconds = max(2.0, self.delay_seconds)
+            for name, default, maximum in (('max_pages', 5, 50), ('max_sub_pages', 3, 20)):
+                value = self.extra.get(name, default)
+                if not isinstance(value, int) or not 1 <= value <= maximum:
+                    raise ValueError(f'{name} 必须为 1~{maximum}')
+            if self.extra.get('mode', 'time') not in ('time', 'hot', 2, 3):
+                raise ValueError('mode 必须为 time/hot 或 2/3')
 
 
-def is_allowed_by_robots(url: str, user_agent: str = DEFAULT_USER_AGENT) -> bool:
-    """检查 ``url`` 是否被目标站点的 robots.txt 允许抓取。
-
-    TODO(实现):
-        1. 取 ``urljoin(url, "/robots.txt")``；
-        2. 用 ``urllib.robotparser.RobotFileParser`` 读取并 ``can_fetch(user_agent, url)``；
-        3. robots.txt 不存在（404）时按「允许」处理，网络异常时按「拒绝」处理并记录日志。
-    """
-    raise NotImplementedError("TODO: 尚未实现 robots.txt 检查")
+def is_allowed_by_robots(url: str, user_agent: str = DEFAULT_USER_AGENT, *,
+                         timeout: float = DEFAULT_TIMEOUT, session=None, cache=None,
+                         raise_on_denied: bool = False) -> bool:
+    """默认返回 bool；采集入口可要求抛出明确的禁止 / 检查失败原因。"""
+    import requests
+    parsed = urlsplit(url)
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        if raise_on_denied:
+            raise PermissionError(f'robots.txt 检查失败：不是有效的 HTTP(S) 地址：{url}')
+        return False
+    robots_url = f'{parsed.scheme}://{parsed.netloc}/robots.txt'
+    cache = {} if cache is None else cache
+    key = (robots_url, user_agent)
+    if key not in cache:
+        own_session = session is None
+        session = session or requests.Session()
+        try:
+            LOG.info('检查 robots.txt：%s', robots_url)
+            response = session.get(robots_url, headers={'User-Agent': user_agent},
+                                   timeout=timeout, allow_redirects=False)
+            if response.status_code == 404:
+                cache[key] = (True, '')
+            elif response.status_code == 200:
+                parser = RobotFileParser(robots_url)
+                parser.parse(response.text.splitlines())
+                cache[key] = (parser, '')
+            else:
+                reason = (f'robots.txt 检查失败：HTTP {response.status_code}，'
+                          f'无法确认抓取规则；地址：{robots_url}')
+                LOG.warning('%s', reason)
+                cache[key] = (False, reason)
+        except requests.RequestException as exc:
+            reason = (f'robots.txt 检查失败：{type(exc).__name__}，'
+                      f'请检查网络、代理或超时设置；地址：{robots_url}')
+            LOG.warning('%s', reason)
+            cache[key] = (False, reason)
+        finally:
+            if own_session:
+                session.close()
+    policy, reason = cache[key]
+    allowed = policy if isinstance(policy, bool) else policy.can_fetch(user_agent, url)
+    if not allowed:
+        reason = reason or (f'robots.txt 明确禁止当前爬虫访问：{url}；'
+                            f'规则文件：{robots_url}。未发送目标接口请求。')
+        if raise_on_denied:
+            raise PermissionError(reason)
+        LOG.warning('%s', reason)
+    return allowed
 
 
 def fetch_html(url: str, config: CrawlConfig) -> str:
-    """抓取单个页面并返回 HTML 文本。
-
-    TODO(实现):
-        - 先调用 :func:`is_allowed_by_robots`，未通过直接返回空串或抛异常；
-        - ``requests.get(url, headers={"User-Agent": config.user_agent}, timeout=config.timeout)``
-          并 ``raise_for_status()``；
-        - 按响应头/`<meta>` 推断编码（默认 utf-8），返回 ``response.text``；
-        - 请求前后 ``time.sleep(config.delay_seconds)`` 限速；
-        - 对 5xx / 超时做有限次重试（建议 3 次，指数退避）。
-    """
-    raise NotImplementedError("TODO: 尚未实现页面抓取")
+    """按配置检查 robots 并限速抓取；仅重试超时、连接异常和 5xx。"""
+    import requests
+    with requests.Session() as session:
+        if config.respect_robots:
+            # 上一个页面结束后也要限速，robots.txt 同样是网络请求。
+            time.sleep(config.delay_seconds)
+            is_allowed_by_robots(url, config.user_agent, timeout=config.timeout,
+                                 session=session, raise_on_denied=True)
+        for attempt in range(3):
+            time.sleep(config.delay_seconds)
+            try:
+                response = session.get(url, headers={'User-Agent': config.user_agent},
+                                       timeout=config.timeout, allow_redirects=False)
+                if 300 <= response.status_code < 400:
+                    raise ValueError('请提供最终 URL；重定向目标需要单独检查 robots.txt')
+                response.raise_for_status()
+                response.encoding = response.apparent_encoding or 'utf-8'
+                return response.text
+            except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if attempt == 2 or (status is not None and status < 500):
+                    raise
+                LOG.warning('页面请求失败，第 %d 次重试：%s', attempt + 1, exc)
+                time.sleep(2 ** attempt)
+    raise RuntimeError('页面请求失败')
 
 
 def parse_comments(html: str, selector: str | None = None) -> list[str]:
-    """从 HTML 中解析评论正文。
-
-    TODO(实现):
-        - 用 ``BeautifulSoup(html, "lxml")`` 解析；
-        - 按站点结构定位评论容器（``selector`` 可由 config.extra 传入 CSS 选择器）；
-        - 去除脚本、样式、回复按钮等噪声，返回去除首尾空白的纯文本列表；
-        - 空文本与纯符号文本过滤掉。
-    """
-    raise NotImplementedError("TODO: 尚未实现评论解析")
-
-
-def crawl(config: CrawlConfig) -> list[dict[str, Any]]:
-    """执行一次采集任务，返回原始记录列表。
-
-    Returns:
-        ``[{"text": str, "label": str | None, "source": str, "url": str, "crawled_at": str}, ...]``
-        `crawled_at` 为 ISO8601 字符串；自采数据无标签，`label` 置为 ``None``。
-
-    TODO(实现):
-        1. 逐页 :func:`fetch_html` → :func:`parse_comments`；
-        2. 用 ``(source, url, text)`` 去重，累计到 ``config.max_items`` 后停止；
-        3. 每条记录补 ``crawled_at=datetime.now().isoformat(timespec="seconds")``；
-        4. 结束时调用 :func:`save_raw` 与 ``sources.write_source_note``。
-    """
-    raise NotImplementedError("TODO: 尚未实现采集主流程")
-
-
-def save_raw(items: Iterable[dict[str, Any]], out_path: str | Path) -> Path:
-    """把原始记录写成 CSV（表头见 :data:`RAW_FIELDS`），返回实际写入路径。
-
-    TODO(实现):
-        - 用标准库 ``csv`` 写出，编码 ``utf-8-sig``（Excel 直接打开不乱码）；
-        - 自动创建父目录；已存在同名文件时追加还是覆盖由调用方决定（建议覆盖）。
-    """
-    raise NotImplementedError("TODO: 尚未实现原始数据落盘")
+    """HTML 站点必须指定评论正文的 CSS selector，避免误采整页导航。"""
+    if not selector:
+        raise ValueError('HTML 采集必须指定评论正文 selector')
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
+    for node in soup.select('script, style, button, noscript'):
+        node.decompose()
+    texts = [node.get_text(' ', strip=True) for node in soup.select(selector)]
+    return [text for text in texts if any(char.isalnum() for char in text)]
 
 
 def now_iso() -> str:
-    """返回当前时间的 ISO8601 字符串（秒级精度），用于 `crawled_at` 字段。"""
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+def save_raw(items: Iterable[dict[str, Any]], out_path: str | Path) -> Path:
+    """显式覆盖导出标准五列；采集主流程使用增量 RawStore。"""
+    path = Path(out_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + '.tmp')
+    with temporary.open('w', encoding='utf-8-sig', newline='') as handle:
+        writer = csv.DictWriter(handle, fieldnames=RAW_FIELDS, extrasaction='ignore')
+        writer.writeheader()
+        writer.writerows(items)
+    temporary.replace(path)
+    return path
+
+
+class CrawlLimitReached(Exception):
+    """本次新增条数达到上限，当前页保留原游标。"""
+
+
+class RawStore:
+    """逐批落盘；已有文件仅追加，按 B站评论 ID 或 HTML 来源去重。"""
+    def __init__(self, path, fields, max_items):
+        self.path = Path(path)
+        self.fields = tuple(fields)
+        self.max_items = max_items
+        self.items = []
+        self.keys = set()
+        self.visited_urls = set()
+        self.existed = self.path.exists() and self.path.stat().st_size > 0
+        if self.existed:
+            with self.path.open(encoding='utf-8-sig', newline='') as handle:
+                reader = csv.DictReader(handle)
+                if tuple(reader.fieldnames or ()) != self.fields:
+                    raise ValueError(f'输出文件字段与框架不一致，请使用新的 --out 文件：{self.path}')
+                self.keys = {self.key(row) for row in reader}
+        else:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open('w', encoding='utf-8-sig', newline='') as handle:
+                csv.DictWriter(handle, fieldnames=self.fields).writeheader()
+
+    @staticmethod
+    def key(row):
+        if row.get('rpid'):
+            return row['source'], row['bvid'], str(row['rpid'])
+        return row['source'], row['url'], row['text']
+
+    @property
+    def full(self):
+        return len(self.items) >= self.max_items
+
+    def check_limit(self):
+        if self.full:
+            raise CrawlLimitReached()
+
+    def add(self, records):
+        added = 0
+        with self.path.open('a', encoding='utf-8', newline='') as handle:
+            writer = csv.DictWriter(handle, fieldnames=self.fields)
+            for row in records:
+                if row is None or not str(row.get('text', '')).strip():
+                    continue
+                key = self.key(row)
+                if key in self.keys:
+                    continue
+                self.check_limit()
+                writer.writerow(row)
+                handle.flush()
+                self.keys.add(key)
+                self.items.append(row)
+                added += 1
+        return added
+
+
+def crawl(config: CrawlConfig) -> list[dict[str, Any]]:
+    """站点适配 -> 增量 CSV -> 来源登记；返回本次新保存的记录。"""
+    if config.source == 'bilibili':
+        from src.crawler import bilibili
+        fields = RAW_FIELDS + tuple(name for name in bilibili.COLUMNS if name not in RAW_FIELDS)
+        # 在创建输出前验证全部 BV，避免输入错误产生无用文件。
+        bvids = list(dict.fromkeys(bilibili.parse_bvid(value) for value in config.start_urls))
+        urls = [f'https://www.bilibili.com/video/{bvid}/' for bvid in bvids]
+    else:
+        fields = RAW_FIELDS
+        urls = list(dict.fromkeys(config.start_urls))
+        if not config.extra.get('selector'):
+            raise ValueError('HTML 采集必须指定 selector')
+    store = RawStore(config.out_path, fields, config.max_items)
+    robots_status = '已启用' if config.respect_robots else '已跳过'
+    LOG.info('robots.txt 检查：%s', robots_status)
+    status = '已完成本次配置范围（不代表已抓取全部评论）'
+    error = None
+    try:
+        if config.source == 'bilibili':
+            bilibili.crawl_config(config, store, bvids)
+        else:
+            for url in urls:
+                store.visited_urls.add(url)
+                html = fetch_html(url, config)
+                rows = ({'text': text, 'label': None, 'source': config.source,
+                         'url': url, 'crawled_at': now_iso()}
+                        for text in parse_comments(html, config.extra['selector']))
+                store.add(rows)
+                store.check_limit()
+    except CrawlLimitReached:
+        status = '达到本次新增条数上限；未完成页面下次重扫并去重'
+    except BaseException as exc:
+        error = exc
+        status = f'未完成：{exc}'
+        raise
+    finally:
+        # 失败时也登记已落盘的数据，但不让来源登记异常掩盖原始错误。
+        records = []
+        for url in urls:
+            count = sum(row['url'] == url for row in store.items)
+            url_status = status if url in store.visited_urls else '未访问（本次任务未处理到此页面）'
+            records.append(SourceRecord(config.source, url, now_iso(), count, labeled=False,
+                                        note=f'{url_status}；文件：{config.out_path.name}；'
+                                             f'条数为本次新增；robots.txt 检查：{robots_status}'))
+        try:
+            write_source_note(records, config.out_path.parent / '来源说明.md')
+        except OSError:
+            if error is None:
+                raise
+            LOG.exception('来源登记失败；CSV 已保存')
+        LOG.info('本次新增 %d 条，CSV：%s', len(store.items), config.out_path)
+    return store.items
+
+
+def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(line_buffering=True)
+    parser = argparse.ArgumentParser(description='评论采集框架（B站 / 静态 HTML）')
+    parser.add_argument('--site', choices=['bilibili', 'html'], default='bilibili')
+    parser.add_argument('--bvid', nargs='+', help='BV 号或视频链接，省略时交互输入')
+    parser.add_argument('--urls', nargs='+', help='HTML 页面 URL 或 B站视频链接')
+    parser.add_argument('--selector', help='HTML 评论正文 CSS 选择器')
+    parser.add_argument('--max-pages', type=int, default=5)
+    parser.add_argument('--max-sub-pages', type=int, default=3)
+    parser.add_argument('--include-replies', action='store_true')
+    parser.add_argument('--mode', choices=['time', 'hot'], default='time')
+    parser.add_argument('--delay', type=float, default=max(2.5, DEFAULT_DELAY_SECONDS))
+    parser.add_argument('--timeout', type=float, default=DEFAULT_TIMEOUT)
+    parser.add_argument('--max-items', '--limit', type=int, default=DEFAULT_MAX_ITEMS)
+    parser.add_argument('--out', type=Path, help='统一 CSV 输出路径')
+    parser.add_argument('--reset-state', action='store_true', help='重新扫描，保留 CSV 去重')
+    parser.add_argument('--skip-robots', action='store_true', help='跳过本地 robots.txt 检查')
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
+    print('评论采集工具已启动', flush=True)
+    values = args.bvid or args.urls
+    if args.site == 'html' and (not args.urls or not args.selector or args.bvid):
+        parser.error('HTML 采集需要 --urls 和 --selector，不能使用 --bvid')
+    if args.bvid and args.urls:
+        parser.error('--bvid 与 --urls 请选择一个')
+    if not values:
+        try:
+            values = input('请输入 BV 号或视频链接（多个用空格分隔）：').split()
+        except (EOFError, OSError):
+            parser.error('当前窗口不能输入，请在 VS Code 终端运行或使用 --bvid BV号')
+        except KeyboardInterrupt:
+            print('\n已取消采集')
+            return 130
+        if not values:
+            parser.error('未输入 BV 号或视频链接')
+    try:
+        cfg = CrawlConfig(values, args.site, args.delay, timeout=args.timeout,
+                          max_items=args.max_items, out_path=args.out,
+                          respect_robots=not args.skip_robots,
+                          extra={'max_pages': args.max_pages, 'max_sub_pages': args.max_sub_pages,
+                                 'include_replies': args.include_replies, 'mode': args.mode,
+                                 'reset_state': args.reset_state, 'selector': args.selector})
+        crawl(cfg)
+    except KeyboardInterrupt:
+        print('\n已取消；已写入 CSV 的数据保留，未完成页面下次重扫并去重')
+        return 130
+    except Exception as exc:
+        LOG.error('采集停止：%s', exc)
+        print('已写入的 CSV 数据会保留；仅完整处理的页面推进断点。')
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
