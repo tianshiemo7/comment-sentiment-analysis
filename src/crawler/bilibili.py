@@ -85,6 +85,12 @@ DEFAULT_TIMEOUT = float(os.getenv("CRAWL_TIMEOUT", "15"))
 #: 结束判断同样以它（或服务端返回的 ``page.size``）为基准，不再写死 20。
 SUB_COMMENT_PAGE_SIZE = 20
 
+#: 一级评论每页条数（接口 ``ps``）。实测匿名 ``ps=20`` 返回 20、``ps=50`` 返回 29，
+#: 说明接口支持更大页；登录态下可能接近 50（需真实账号验证）。页大小会写进断点，
+#: 中途改页大小会要求 ``--reset-state``，否则分页 offset 可能错位。
+MAIN_COMMENT_PAGE_SIZE = 20
+MAX_MAIN_PAGE_SIZE = 50
+
 #: 断点 ``sub_done`` 的最大长度：纯防御性上限，超限丢弃最早的根评论记录并告警，
 #: 避免异常情况下 state 文件无限膨胀（正常采集每页完成后会清空，远达不到此上限）。
 MAX_SUB_DONE_ENTRIES = 5000
@@ -512,10 +518,27 @@ class BiliClient:
         self.wbi_refreshes += 1
         return self._wbi_key
 
-    def get_main_comments(self, aid: int | str, offset: str = "", mode: int = 2) -> dict[str, Any]:
-        """获取一页一级评论（WBI 签名）。"""
+    def get_main_comments(
+        self,
+        aid: int | str,
+        offset: str = "",
+        mode: int = 2,
+        page_size: int = MAIN_COMMENT_PAGE_SIZE,
+    ) -> dict[str, Any]:
+        """获取一页一级评论（WBI 签名）。
 
-        params: dict[str, Any] = {"type": 1, "oid": aid, "mode": mode}
+        page_size 会作为 ``ps`` 传给接口；服务端可能返回不超过该值的条数。
+        分页 offset 与页大小相关，**同一次采集内不要改动 page_size**。
+        """
+
+        if not 1 <= int(page_size) <= MAX_MAIN_PAGE_SIZE:
+            raise ConfigError(f"page_size 必须在 1~{MAX_MAIN_PAGE_SIZE} 之间")
+        params: dict[str, Any] = {
+            "type": 1,
+            "oid": aid,
+            "mode": mode,
+            "ps": int(page_size),
+        }
         if offset:
             params["pagination_str"] = json.dumps(
                 {"offset": offset}, separators=(",", ":")
@@ -980,12 +1003,14 @@ def load_state(
     mode: int,
     include_replies: bool,
     max_sub_pages: int,
+    page_size: int = MAIN_COMMENT_PAGE_SIZE,
     reset: bool = False,
 ) -> dict[str, Any]:
     """读取断点；配置不一致时拒绝续爬（避免把两种口径的数据混在一起）。
 
-    兼容旧断点：旧版本没有 ``sub_done`` 字段，读取时按空列表处理，
-    相当于重新请求这些根评论的楼中楼（CSV 按 rpid 去重，不会重复落盘）。
+    兼容旧断点：旧版本没有 ``sub_done`` / ``page_size`` 字段，分别按空列表 /
+    :data:`MAIN_COMMENT_PAGE_SIZE` 处理。页大小与分页 offset 强相关，中途改动
+    会被拒绝，需 ``--reset-state`` 重扫。
     """
 
     if path.exists() and not reset:
@@ -995,9 +1020,11 @@ def load_state(
             state.get("mode") != mode
             or state.get("include_replies") != include_replies
             or state.get("max_sub_pages") != max_sub_pages
+            or state.get("page_size", MAIN_COMMENT_PAGE_SIZE) != page_size
         ):
             raise ConfigError(
-                "本次配置与断点配置不同，如需重新扫描请使用 --reset-state"
+                "本次配置与断点配置不同（mode / include_replies / max_sub_pages / "
+                "page_size），如需重新扫描请使用 --reset-state"
             )
         if not isinstance(state.get("sub_done"), list):
             state["sub_done"] = []
@@ -1006,6 +1033,7 @@ def load_state(
         "mode": mode,
         "include_replies": include_replies,
         "max_sub_pages": max_sub_pages,
+        "page_size": page_size,
         "offset": "",
         "pages_done": 0,
         "finished": False,
@@ -1316,6 +1344,7 @@ def crawl_video(
     max_pages: int = DEFAULT_MAX_PAGES,
     include_replies: bool = True,
     max_sub_pages: int = DEFAULT_MAX_SUB_PAGES,
+    page_size: int = MAIN_COMMENT_PAGE_SIZE,
     mode: int = 2,
     max_items: int = 0,
     max_seconds: float = 0.0,
@@ -1332,6 +1361,8 @@ def crawl_video(
         max_pages: 一级评论最多页数；``0`` 表示不限（用
             :data:`MAX_PAGES_HARD_LIMIT` 防死循环）。
         max_sub_pages: 每条根评论楼中楼最多页数；``0`` 表示不限。
+        page_size: 一级评论每页请求条数（``ps``，1~50；默认 20）。页大小与分页
+            offset 强相关，断点续采时不能中途改变。
         skip_finished: 断点已标记完成且 CSV 有数据时**直接跳过、不发起任何网络
             请求**（大规模批量重跑的关键优化）；``False`` 时强制重扫。
         max_seconds: 单个视频的时间预算（秒，0 表示不限制，默认不改变原有
@@ -1341,6 +1372,8 @@ def crawl_video(
     """
 
     max_pages, max_sub_pages = validate_page_limits(max_pages, max_sub_pages)
+    if not 1 <= int(page_size) <= MAX_MAIN_PAGE_SIZE:
+        raise ConfigError(f"page_size 必须在 1~{MAX_MAIN_PAGE_SIZE} 之间")
     started = time.monotonic()
     budget_seconds = max(0.0, float(max_seconds or 0.0))
     deadline = started + budget_seconds if budget_seconds > 0 else None
@@ -1355,7 +1388,12 @@ def crawl_video(
     result.csv_path = str(csv_path)
     result.state_path = str(state_path)
     state = load_state(
-        state_path, mode, include_replies, max_sub_pages, reset=reset_state
+        state_path,
+        mode,
+        include_replies,
+        max_sub_pages,
+        page_size=page_size,
+        reset=reset_state,
     )
 
     # 大 规 模 采 集 的 关 键 优 化：已完成且 CSV 有数据时，不请求 robots/meta/评论，
@@ -1414,6 +1452,7 @@ def crawl_video(
                 "mode": mode,
                 "include_replies": include_replies,
                 "max_sub_pages": max_sub_pages,
+                "page_size": page_size,
                 "offset": current_offset,
                 "pages_done": done_pages,
                 "finished": finished,
@@ -1463,7 +1502,9 @@ def crawl_video(
                 break
             if max_items and total_new >= max_items:
                 break
-            data = client.get_main_comments(result.aid, offset=offset, mode=mode)
+            data = client.get_main_comments(
+                result.aid, offset=offset, mode=mode, page_size=page_size
+            )
             replies = data.get("replies") or []
             cursor = data.get("cursor") or {}
             if not isinstance(replies, list):
@@ -1564,6 +1605,7 @@ def crawl_bilibili(
     max_pages: int = DEFAULT_MAX_PAGES,
     include_replies: bool = True,
     max_sub_pages: int = DEFAULT_MAX_SUB_PAGES,
+    page_size: int = MAIN_COMMENT_PAGE_SIZE,
     mode: int = 2,
     max_items: int = 0,
     max_seconds: float = 0.0,
@@ -1596,6 +1638,8 @@ def crawl_bilibili(
     """
 
     max_pages, max_sub_pages = validate_page_limits(max_pages, max_sub_pages)
+    if not 1 <= int(page_size) <= MAX_MAIN_PAGE_SIZE:
+        raise ConfigError(f"page_size 必须在 1~{MAX_MAIN_PAGE_SIZE} 之间")
     report = CrawlReport(started_at=utc_iso())
     started = time.monotonic()
     owned_client = client is None
@@ -1642,6 +1686,7 @@ def crawl_bilibili(
                     max_pages=max_pages,
                     include_replies=include_replies,
                     max_sub_pages=max_sub_pages,
+                    page_size=page_size,
                     mode=mode,
                     max_items=max_items,
                     max_seconds=max_seconds,
@@ -1686,7 +1731,8 @@ def crawl_bilibili(
             logger.info("正在登记批量来源：%d 个视频 / %d 条评论", len(collected), report.total_saved)
             note = (
                 f"批量采集 {len(collected)} 个视频；mode={mode_name}；{reply_part}；"
-                f"max_pages={max_pages or '不限'}；min-delay={client._limiter.base_interval:g}s+抖动；"
+                f"max_pages={max_pages or '不限'}；page_size={page_size}；"
+                f"min-delay={client._limiter.base_interval:g}s+抖动；"
                 f"请求 {report.metrics.get('requests', 0)} 次（重试 {report.metrics.get('retries', 0)}）；"
                 f"风控 {report.metrics.get('risk_control_hits', 0)} 次；"
                 f"输出目录={Path(out_dir)}；robots：视频页允许，api.bilibili.com="
@@ -1720,6 +1766,7 @@ def fetch_video_comments(
     max_pages: int = 1,
     include_replies: bool = False,
     max_sub_pages: int = 1,
+    page_size: int = MAIN_COMMENT_PAGE_SIZE,
     mode: int = 2,
     max_items: int = 0,
     **client_kwargs: Any,
@@ -1743,6 +1790,7 @@ def fetch_video_comments(
                 max_pages=max_pages,
                 include_replies=include_replies,
                 max_sub_pages=max_sub_pages,
+                page_size=page_size,
                 mode=mode,
                 max_items=max_items,
                 out_dir=temp_dir,
@@ -1784,6 +1832,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-sub-pages", type=int, default=DEFAULT_MAX_SUB_PAGES,
                         help=f"每条根评论最多采集多少页楼中楼；0=不限（默认 {DEFAULT_MAX_SUB_PAGES}，"
                              f"硬上限 {MAX_SUB_PAGES_HARD_LIMIT}）")
+    parser.add_argument("--page-size", type=int, default=MAIN_COMMENT_PAGE_SIZE,
+                        help=f"一级评论每页请求条数（ps，1~{MAX_MAIN_PAGE_SIZE}；默认 {MAIN_COMMENT_PAGE_SIZE}）")
     parser.add_argument("--max-items", type=int, default=0, help="每个视频最多新增多少条（0 表示不限制）")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="单个视频的最长采集时间（秒，0 表示不限制；到时保存断点后安全停止）")
@@ -1858,6 +1908,8 @@ def main(argv: list[str] | None = None) -> int:
         validate_page_limits(args.max_pages, args.max_sub_pages)
     except ConfigError as exc:
         parser.error(str(exc))
+    if not 1 <= args.page_size <= MAX_MAIN_PAGE_SIZE:
+        parser.error(f"--page-size 必须在 1~{MAX_MAIN_PAGE_SIZE} 之间")
     if args.delay < 2:
         parser.error("--delay 不能小于 2 秒（限速是硬性要求）")
     if args.max_items < 0:
@@ -1943,6 +1995,7 @@ def main(argv: list[str] | None = None) -> int:
             max_pages=args.max_pages,
             include_replies=args.include_replies,
             max_sub_pages=args.max_sub_pages,
+            page_size=args.page_size,
             mode=2 if args.mode == "time" else 3,
             max_items=args.max_items,
             max_seconds=args.max_seconds,

@@ -189,7 +189,7 @@ python -m src.crawler.bilibili --merge-output data/raw/all_comments.csv --out-di
 
 ```bash
 # 爬虫单元测试（离线；本地 HTTP 服务 + 假会话，不访问真实站点）
-python -m pytest tests/test_crawler.py -q                       # 80 passed（含大规模清单/零请求续采）
+python -m pytest tests/test_crawler.py -q                       # 81 passed（含大规模清单/零请求续采）
 python -m pytest tests/test_crawler_datasets.py tests/test_crawler_labeling.py -q  # 47 passed
 
 # 离线效率基准：本地 mock API（含 WBI 校验 / 分页 / 楼中楼 / 风控恢复）

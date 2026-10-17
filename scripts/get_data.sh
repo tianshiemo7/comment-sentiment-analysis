@@ -77,11 +77,12 @@ fi
 PAGES="${PAGES:-2}"
 MAX_SUB_PAGES="${MAX_SUB_PAGES:-2}"
 MAX_ITEMS="${MAX_ITEMS:-200}"
+PAGE_SIZE="${PAGE_SIZE:-20}"
 DELAY="${DELAY:-2.5}"
 MODE="${MODE:-time}"
 
 args=(bilibili --bvid "$BV" --max-pages "$PAGES" --max-sub-pages "$MAX_SUB_PAGES"
-      --max-items "$MAX_ITEMS" --delay "$DELAY" --mode "$MODE")
+      --max-items "$MAX_ITEMS" --page-size "$PAGE_SIZE" --delay "$DELAY" --mode "$MODE")
 if [[ "${INCLUDE_REPLIES:-0}" == "1" ]]; then
   args+=(--include-replies)
 fi

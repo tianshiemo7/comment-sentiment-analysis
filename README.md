@@ -418,7 +418,7 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 | 1 | **模型骨架落地**：`src/models` 的 TextCNN / BiLSTM-Attention，以及 `src/training/` 训练循环 | ✅ 两个模型均能前向出 logits（BiLSTM 另返回注意力权重，`<pad>` 权重为 0）；`python -m src.training.cli --model textcnn` 可在小样本上训练并保存 `best.pt` |
 | 2 | **训练与评估闭环**：早停 + 检查点 + 日志；Accuracy / Precision / Recall / F1 / 混淆矩阵 / 错误分析 | ✅ `outputs/logs/train_*.json` 逐轮 loss/acc；`outputs/stats/metrics_<模型>.json`、`model_comparison.csv`、`outputs/predictions/error_cases_<模型>.csv` 均产出；安装 torch 且训练出检查点后 `GET /api/models` 会读真实数值 |
 | 6 | **可视化出图**：训练曲线、混淆矩阵热力图、正负词云、Attention 热力图 | ✅ 训练 CLI 默认自动写入 `outputs/figures/`（曲线同时保留按模型命名的版本），见 `tests/test_visualization.py` |
-| 7 | **爬虫审查与改进**：审查 PR #2 提交的 988 行爬虫，补齐反爬稳健性 / 标准化 / robots / 来源登记 / 可复用接口 / 效率基准 | ✅ 拆为 10 个实现模块 + 统一 CLI；爬虫测试 80 条（含大规模采集）；本机真实联网与离线 mock 效率见 [第十二节](#十二爬虫模块改进与实测效率)；审查记录见 [`docs/爬虫代码审查与改进-2026-10-17.md`](docs/爬虫代码审查与改进-2026-10-17.md) |
+| 7 | **爬虫审查与改进**：审查 PR #2 提交的 988 行爬虫，补齐反爬稳健性 / 标准化 / robots / 来源登记 / 可复用接口 / 效率基准 | ✅ 拆为 10 个实现模块 + 统一 CLI；爬虫测试 81 条（含大规模采集）；本机真实联网与离线 mock 效率见 [第十二节](#十二爬虫模块改进与实测效率)；审查记录见 [`docs/爬虫代码审查与改进-2026-10-17.md`](docs/爬虫代码审查与改进-2026-10-17.md) |
 | 8 | **第二轮全面改进**：公开数据集获取 / 标注工作流 / `/api/videos` 真实爬取 / 长跑稳健性 / 可重复基准 | ✅ 3 个并行子代理交付；全量测试全过；详见 [`docs/第二轮全面改进-2026-10-17.md`](docs/第二轮全面改进-2026-10-17.md) |
 | 9 | **真实数据规模达标**：公开语料下载 → 统一格式 → 合并均衡 → train 预处理 | ✅ 实测 `waimai_10k` + `ChnSentiCorp` 合并均衡 **18,644 条**（正负各 9,322），预处理 `course_requirements_met=true`：train 13,029 / val 1,861 / test 3,723；命令见第四节，数据文件不入库 |
 
@@ -471,7 +471,7 @@ BV 号解析均实现正确，作为第一次爬虫提交质量合格。但它�
 | **正规化** | `normalize.py`：HTML 实体还原 → 逐字符 NFKC（全角字母数字转半角、**保留中文标点**）→ 统一换行 → 删除零宽/控制字符 → 空白归一；空文本 / 纯标点过滤；emoji 与 `[笑哭]` 保留；字段类型统一（rpid 字符串、likes/rcount int、UTC ISO 时间） |
 | **接口适配** | 拆分为 `bilibili / spider / transport / rate_limit / robots / normalize / sources / errors`；提供 `BiliClient` / `crawl_video` / `crawl_bilibili` / `fetch_video_comments` 可导入 API；`crawl_bilibili` 返回带效率指标的 `CrawlReport.as_dict()`；CSV 列名与旧版完全兼容，`src/preprocessing` 列名映射零改动 |
 | **合规闭环** | `robots.py` 按主机缓存校验（404 允许、异常 fail-closed）；视频页 robots 允许；`api.bilibili.com/robots.txt` 当前为 `Disallow: /`，默认 `warn`（日志告警 + 来源说明记录 + 匿名低速），`BILI_API_ROBOTS_POLICY=enforce` 可强制拒绝；每次采集自动写 `data/raw/来源说明.md` + `sources.json` |
-| **可观测性 / 测试** | 请求数、重试、延迟 avg/p50/p95/max、响应字节、评论吞吐、风控恢复次数；第一轮 60 条离线单测，第二轮 132 条，大规模补强后 **142 条**（爬虫 80 / 数据与标注 47 / 视频真实爬取 15）；`scripts/bench_crawler.py` 提供离线 mock（默认重复 3 次 + RSS）与真实联网两种基准 |
+| **可观测性 / 测试** | 请求数、重试、延迟 avg/p50/p95/max、响应字节、评论吞吐、风控恢复次数；第一轮 60 条离线单测，第二轮 132 条，大规模补强后 **143 条**（爬虫 81 / 数据与标注 47 / 视频真实爬取 15）；`scripts/bench_crawler.py` 提供离线 mock（默认重复 3 次 + RSS）与真实联网两种基准 |
 
 ### 3. 实测环境与方法
 
@@ -551,7 +551,7 @@ BV 号解析均实现正确，作为第一次爬虫提交质量合格。但它�
 
 ```bash
 # 单元测试（离线，不访问真实站点）
-python -m pytest tests/test_crawler.py -q                              # 80 passed
+python -m pytest tests/test_crawler.py -q                              # 81 passed
 python -m pytest tests/test_crawler_datasets.py tests/test_crawler_labeling.py -q  # 47 passed
 python -m pytest tests/test_videos_real_crawl.py -q                    # 15 passed
 
@@ -589,7 +589,7 @@ python -m src.preprocessing --input data/raw/BV1GJ411x7h7_comments.csv --mode cl
   1 页采集到 **19 条真实评论**，任务 `completed`，`comment_count=19`、`placeholder=false`、
   detail 标题/词云/趋势来自真实数据，耗时约 26 s（其中真实采集约 8 s，其余为流水线阶段时序）。
 
-**验收结果**：全量 **461 passed**（原 319 + 新增 142），耗时约 114 s；
+**验收结果**：全量 **462 passed**（原 319 + 新增 143），耗时约 125 s；
 `python -m src.crawler.datasets --help` / `labeling --help` / `bash -n scripts/get_data.sh`
 / `py_compile src/crawler/*.py src/videos/*.py` 均通过；`git diff --check` 干净。
 真实 `/api/videos` 冒烟与 `tests/test_videos_real_crawl.py` 证明默认路径零回归。
@@ -630,7 +630,7 @@ python -m src.preprocessing --input data/raw/BV1GJ411x7h7_comments.csv --mode cl
 | --- | --- |
 | 批量清单 | `--bvid-file data/raw/bvids.txt`（一行一个，支持注释/URL/行内备注；自动去重，非法行记错误继续） |
 | 已完成零请求跳过 | `--skip-finished`（默认）：断点 `finished=true` 且 CSV 非空时**不请求 robots/meta/评论**，直接恢复标题/条数；`--rescan-finished` 可强制重扫 |
-| 不限页数 | `--max-pages 0` / `--max-sub-pages 0` 表示翻到接口自然结束（内部硬上限防死循环） |
+| 不限页数 | `--max-pages 0` / `--max-sub-pages 0` 表示翻到接口自然结束（内部硬上限防死循环）；`--page-size 50` 可把一级评论单页请求条数从默认 20 提高（会写入断点，改页大小需重扫） |
 | 登录态 | `BILI_SESSDATA` 或完整 `BILI_COOKIE`；`--check-login` 只检查并退出；`--require-login` 未登录直接失败（匿名可见量随接口策略波动，实测 3~200+ 条，完整规模建议登录） |
 | 断点续采 | 页级 offset、`sub_done` 楼中楼断点、`timed_out` 时间预算；中断/风控后重跑同一命令即可 |
 | 批量来源登记 | 批量结束只写**一条汇总来源**，避免逐视频重写 sources.json/Markdown 的 O(N²) 磁盘开销 |

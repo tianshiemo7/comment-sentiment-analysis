@@ -731,6 +731,7 @@ def test_bili_client_gets_meta_and_signs_comment_request():
     params = main_calls[-1]["params"]
     assert {"wts", "w_rid"} <= set(params)
     assert str(params["oid"]) == "123456" and str(params["type"]) == "1"
+    assert int(params["ps"]) == 20
     # 默认不初始化 buvid（实测会限制匿名可见评论数）
     assert client.init_buvid is False
     assert not session.cookies.store.get("buvid3")
@@ -915,6 +916,7 @@ class StubBiliClient:
             "page": {"count": 1},
         }
         self.page_calls = []
+        self.page_sizes = []
         self.sub_calls = []
 
     def check_content_page_robots(self, bvid):
@@ -929,7 +931,8 @@ class StubBiliClient:
             "comment_count": 3, "view_count": 0, "pubdate": "", "cover_url": "",
         }
 
-    def get_main_comments(self, aid, offset="", mode=2):
+    def get_main_comments(self, aid, offset="", mode=2, page_size=20):
+        self.page_sizes.append(page_size)
         if self.main_delay:
             time.sleep(self.main_delay)
         self.page_calls.append(offset)
@@ -1487,6 +1490,22 @@ def test_bili_cookie_env_parsing(monkeypatch):
     assert session.cookies.store.get("SESSDATA") == "abc"
     assert session.cookies.store.get("bili_jct") == "csrf"
 
+
+
+def test_page_size_is_sent_and_checkpoint_rejects_change(tmp_path):
+    client = StubBiliClient()
+    result = crawl_video(
+        client, "BV1GJ411x7h7", max_pages=1, include_replies=False,
+        page_size=30, out_dir=tmp_path, write_source_note=False,
+    )
+    assert client.page_sizes == [30]
+    state = json.loads(Path(result.state_path).read_text(encoding="utf-8"))
+    assert state["page_size"] == 30
+    with pytest.raises(ConfigError):
+        crawl_video(
+            StubBiliClient(), "BV1GJ411x7h7", max_pages=1, include_replies=False,
+            page_size=20, out_dir=tmp_path, write_source_note=False,
+        )
 
 
 def test_crawl_bilibili_continues_after_unexpected_error(tmp_path):
