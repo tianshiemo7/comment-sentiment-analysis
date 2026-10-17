@@ -342,6 +342,17 @@ def bench_limiter(count: int = 500, min_interval: float = 2.5, jitter: float = 0
 # 离线基准
 # =========================================================================
 
+def _rss_mb() -> float | None:
+    """当前进程常驻内存（MB）；未安装 psutil 时返回 None（不新增硬依赖）。"""
+
+    try:
+        import psutil
+
+        return round(psutil.Process().memory_info().rss / (1024 * 1024), 2)
+    except Exception:
+        return None
+
+
 def run_offline(args: argparse.Namespace) -> dict[str, Any]:
     pages = build_comment_pages(args.pages, args.per_page)
     state = MockState(pages, latency=args.latency, risk_mode=args.risk_mode)
@@ -357,6 +368,7 @@ def run_offline(args: argparse.Namespace) -> dict[str, Any]:
         risk_control_cooldown=0.0,
         sleep=lambda seconds: None,
     )
+    rss_before = _rss_mb()
     started = time.perf_counter()
     try:
         with tempfile.TemporaryDirectory(prefix="bench-bili-") as temp_dir:
@@ -408,6 +420,8 @@ def run_offline(args: argparse.Namespace) -> dict[str, Any]:
             "comments_per_second": round(comments / wall, 2) if wall else 0.0,
             "client_overhead_ms_per_request": round(wall / requests * 1000, 3) if requests else 0.0,
             "latency_ms": metrics.get("latency_ms"),
+            "rss_mb_before": rss_before,
+            "rss_mb_after": _rss_mb(),
         },
         "normalize": bench_normalize(rows),
         "csv_write": bench_csv_write(rows),
@@ -416,11 +430,46 @@ def run_offline(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _aggregate_offline(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """把多次离线测量聚合为「中位数为主 + 最小/最大」的报告。"""
+
+    if len(runs) == 1:
+        payload = dict(runs[0])
+        payload["repeat"] = 1
+        payload["aggregate"] = None
+        return payload
+
+    ordered = sorted(runs, key=lambda run: run["result"]["wall_seconds"])
+    median = ordered[len(ordered) // 2]
+    payload = dict(median)
+    payload["repeat"] = len(runs)
+    payload["runs"] = [run["result"] for run in runs]
+
+    def spread(key: str) -> dict[str, float]:
+        values = sorted(float(run["result"][key]) for run in runs)
+        return {
+            "min": round(values[0], 3),
+            "median": round(values[len(values) // 2], 3),
+            "max": round(values[-1], 3),
+        }
+
+    payload["aggregate"] = {
+        "runs": len(runs),
+        "wall_seconds": spread("wall_seconds"),
+        "comments_per_second": spread("comments_per_second"),
+        "requests_per_second": spread("requests_per_second"),
+        "client_overhead_ms_per_request": spread("client_overhead_ms_per_request"),
+    }
+    return payload
+
+
+
 # =========================================================================
 # 真实联网轻量测试
 # =========================================================================
 
 def run_live(args: argparse.Namespace) -> dict[str, Any]:
+    rss_before = _rss_mb()
     started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="bench-live-") as temp_dir:
         report = crawl_bilibili(
@@ -469,6 +518,8 @@ def run_live(args: argparse.Namespace) -> dict[str, Any]:
             "video_title": video.title if video else "",
             "comment_total_on_site": video.comment_total_on_site if video else 0,
             "error": video.error if video else None,
+            "rss_mb_before": rss_before,
+            "rss_mb_after": _rss_mb(),
         },
         "normalize": bench_normalize(rows),
         "csv_write": bench_csv_write(rows),
@@ -540,6 +591,25 @@ def print_markdown(payload: dict[str, Any], json_path: Path) -> None:
             f"（均值 {limiter['interval_mean']}s，配置 {limiter['configured_min_interval']}s + 抖动 {limiter['jitter']:.0%}），"
             f"不同间隔取值 {limiter['unique_intervals']} 种"
         )
+    if payload.get("aggregate"):
+        aggregate = payload["aggregate"]
+        print(f"\n### 多次测量汇总（{aggregate['runs']} 次）\n")
+        print("| 指标 | min | median | max |")
+        print("| --- | --- | --- | --- |")
+        labels = {
+            "wall_seconds": "总耗时（s）",
+            "comments_per_second": "评论吞吐（条/s）",
+            "requests_per_second": "请求吞吐（次/s）",
+            "client_overhead_ms_per_request": "单请求耗时（ms）",
+        }
+        for key, label in labels.items():
+            values = aggregate[key]
+            print(f"| {label} | {values['min']} | {values['median']} | {values['max']} |")
+    if payload["result"].get("rss_mb_after") is not None:
+        print(
+            f"\n> 进程 RSS：{payload['result'].get('rss_mb_before')} → "
+            f"{payload['result'].get('rss_mb_after')} MB"
+        )
     print(f"\n> JSON：`{json_path.as_posix()}`")
 
 
@@ -554,6 +624,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     offline.add_argument("--risk-mode", choices=["none", "412", "-352"], default="412",
                          help="风控注入方式（验证恢复能力）")
     offline.add_argument("--latency", type=float, default=0.0, help="mock 服务每请求人为延迟（秒）")
+    offline.add_argument("--repeat", type=int, default=3, help="重复测量次数（默认 3，报告中位数）")
     offline.add_argument("--json-out", default=None, help="JSON 输出路径")
 
     live = sub.add_parser("live", help="真实联网轻量测试（请保持保守频率）")
@@ -577,7 +648,13 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(line_buffering=True)
     args = parse_args(argv)
-    payload = run_offline(args) if args.command == "offline" else run_live(args)
+    if args.command == "offline":
+        if args.repeat < 1:
+            args.repeat = 1
+        runs = [run_offline(args) for _ in range(args.repeat)]
+        payload = _aggregate_offline(runs)
+    else:
+        payload = run_live(args)
     payload["environment"] = environment()
     json_path = write_report(payload, Path(args.json_out) if args.json_out else None)
     print_markdown(payload, json_path)

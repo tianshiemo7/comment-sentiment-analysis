@@ -27,7 +27,20 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 下游读取data/processed/comments_cleaned.csv，使用已训练模型的预处理器处理text_raw再进行情感预测。
 该CSV及处理产物被.gitignore忽略，不随源码自动提交。
 
-## 2. 爬虫实测样本与来源登记
+## 2. 公开数据集与标注产物
+
+- `data/raw/datasets/`：`bash scripts/get_data.sh --dataset <name>` 下载的公开语料（体积大，不入库）；
+  下载后自动登记 `来源说明.md` / `sources.json`，可用 `--list-datasets` 查看注册表；
+- `data/raw/*_unified.csv`：`python -m src.crawler.datasets --import-csv` 统一出的 `text,label`；
+- `data/raw/comments_labeled_balanced.csv`：`--merge-balance` 合并均衡后的训练语料
+  （实测外卖 11,987 + ChnSentiCorp 7,766 → 均衡 18,644 条，正负各 9,322）；
+- `data/labeling/`：`python -m src.crawler.labeling export` 导出的标注候选与 manifest；
+  人工标注后用 `labeling merge` 合并校验，产出可进训练管线的已标注 CSV。
+
+> 这些 CSV 体积较大（约 7 MB）被 `.gitignore` 排除，不入库；命令与来源登记见
+> `data/raw/来源说明.md`，可联网复现。
+
+## 3. 爬虫实测样本与来源登记
 
 `data/raw/来源说明.md` 与 `data/raw/sources.json` **会入库**，用于课程验收「数据来源与采集时间已注明」。
 它们由 `src/crawler/sources.py` 在每次采集后自动生成/合并，当前记录了一条 2026-10-17 的本机实测：
@@ -38,7 +51,7 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 - 对应 CSV（`BV1GJ411x7h7_comments.csv`）属于原始数据，**不入库**，可用同一命令复现
   （评论会随时间变化，条数可能不同）。
 
-## 3. 如何取得数据
+## 4. 如何取得数据
 
 三种方式，任选一种（都能产出同样列名的 CSV）：
 

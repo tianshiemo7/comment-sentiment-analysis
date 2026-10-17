@@ -22,6 +22,8 @@
 | `rate_limit.py` | 最小间隔 + 抖动 + 自适应惩罚限速器；指数退避函数 |
 | `robots.py` | robots.txt 判定（按主机缓存、404 允许、异常 fail-closed） |
 | `normalize.py` | 文本与记录标准化（HTML 实体、NFKC、零宽/控制字符、字段类型） |
+| `datasets.py` | 公开带标签语料注册表：下载 + 可选 SHA256 + 来源登记 + `import_labeled_csv` 统一格式 |
+| `labeling.py` | 无标签评论 → 分层确定性标注候选；标注合并校验 + manifest |
 | `sources.py` | 来源登记：JSON 事实源 + Markdown 表格渲染/合并 |
 | `errors.py` | 异常层次（可恢复停止 vs 配置错误 vs 风控/业务错误） |
 | `__main__.py` | 统一 CLI：`python -m src.crawler <bilibili\|html>` |
@@ -43,6 +45,8 @@
 | 设备指纹（可选） | `BiliClient(init_buvid=True)` | 公开接口 `/x/frontend/finger/spi` 获取 buvid3/4。**默认关闭**：实测带上 buvid3 后匿名账号只能看到 3 条评论（见根 README 实测） |
 | robots 校验 | `robots.py` | 视频页按 www.bilibili.com 规则（允许）；API 主机单独判定并如实告警 |
 | 安全停止 | `errors.py` | 重试耗尽 / 风控持续时抛 `CrawlStopped`，已落盘 CSV 与断点保留 |
+| 长跑断点 | `bilibili.py:sub_done` | 已处理根评论的楼中楼不重复请求；旧断点兼容；上限 5000 条防膨胀 |
+| 时间预算 | `bilibili.py:max_seconds` | `--max-seconds` 到时先落 CSV 再存断点，`timed_out` 写入报告；默认 0 不限 |
 
 ## 标准化（正规化）规则
 
@@ -59,6 +63,31 @@
 text, likes, reply_count, ctime_utc, collected_at_utc`，与旧版 CSV **列名完全兼容**，
 `src/preprocessing/dataset.py` 的列名映射（`bvid→video_id`、`rpid→comment_id`、
 `ctime_utc→posted_at`）无需改动。
+
+## 公开数据集与标注
+
+```bash
+# 列表 / 下载（下载后自动登记来源；校验失败不留半成品）
+bash scripts/get_data.sh --list-datasets
+bash scripts/get_data.sh --dataset chnsenticorp
+python -m src.crawler.datasets --import-csv data/raw/datasets/ChnSentiCorp_htl_all.csv \
+    --output data/raw/chnsenticorp_unified.csv
+
+# 多份语料合并 + 类别均衡（按较小类别下采样；实测 18,644 条 / 正负各 9,322）
+python -m src.crawler.datasets --merge-balance \
+    data/raw/waimai_10k_unified.csv data/raw/chnsenticorp_unified.csv \
+    --output data/raw/comments_labeled_balanced.csv --seed 42
+
+# 无标签评论 → 标注候选（按 video_id 分层、固定 seed）
+python -m src.crawler.labeling export --input data/raw/BV1GJ411x7h7_comments.csv \
+    --output data/labeling/sample.csv --sample-size 500 --seed 42
+# 人工标注后合并校验（标签取值 / 重复 id / 冲突 / 缺失）
+python -m src.crawler.labeling merge --sample data/labeling/sample.csv \
+    --labels data/labeling/labels.csv --output data/raw/comments_labeled.csv
+```
+
+安全约定：下载 URL 仅允许 `http(s)`；`filename` 拒绝目录穿越；ZIP 只下载不解压；
+内置数据集 URL/SHA256 需在联网环境首次复核（测试不联网）。
 
 ## 接口适配（给其它模块调用）
 
@@ -125,10 +154,12 @@ bash scripts/get_data.sh BV1GJ411x7h7
 
 ```bash
 # 爬虫单元测试（离线；本地 HTTP 服务 + 假会话，不访问真实站点）
-python -m pytest tests/test_crawler.py -q
+python -m pytest tests/test_crawler.py -q                       # 70 passed
+python -m pytest tests/test_crawler_datasets.py tests/test_crawler_labeling.py -q  # 47 passed
 
 # 离线效率基准：本地 mock API（含 WBI 校验 / 分页 / 楼中楼 / 风控恢复）
-python scripts/bench_crawler.py offline --pages 5 --per-page 20 --include-replies
+# 默认 --repeat 3 取中位数，并报告进程 RSS
+python scripts/bench_crawler.py offline --pages 5 --per-page 20 --include-replies --repeat 3
 
 # 真实联网轻量测试（保守频率，结果同时写入 outputs/benchmarks/*.json）
 python scripts/bench_crawler.py live --bvid BV1GJ411x7h7 --max-pages 1
@@ -138,4 +169,5 @@ python scripts/bench_crawler.py live --bvid BV1GJ411x7h7 --max-pages 1
 
 - `src/preprocessing`：`python -m src.preprocessing --input data/raw/<BV>_comments.csv --mode clean`
 - `src/artifacts`：上传爬虫 CSV → clean 管线；列名映射保持兼容；
-- `src/videos`：可用 `fetch_video_comments` 替换占位数据（见 `src/videos/pipeline.py` 的接入点）。
+- `src/videos`：`VIDEO_REAL_CRAWL=1` 时经 `src/videos/crawler_adapter.py` 调用
+  `fetch_video_comments` 做真实采集；默认仍走占位数据。

@@ -56,6 +56,14 @@ _LAZY_EXPORTS = {
     "RobotsChecker": "robots",
     "normalize_text": "normalize",
     "normalize_comment": "normalize",
+    # 公开数据集 / 标注工作流
+    "DatasetError": "datasets",
+    "DatasetSpec": "datasets",
+    "list_datasets": "datasets",
+    "download_dataset": "datasets",
+    "import_labeled_csv": "datasets",
+    "export_labeling_sample": "labeling",
+    "merge_labels": "labeling",
 }
 
 __all__ = [

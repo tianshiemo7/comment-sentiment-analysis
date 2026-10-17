@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import threading
+import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,6 +33,7 @@ import requests  # noqa: E402
 from src.crawler import sources
 from src.crawler.bilibili import (
     COLUMNS,
+    SUB_COMMENT_PAGE_SIZE,
     BiliClient,
     CsvStore,
     crawl_bilibili,
@@ -869,9 +872,14 @@ def test_state_roundtrip_and_mismatch(tmp_path):
 
 
 class StubBiliClient:
-    """不联网的 B 站客户端替身，供 crawl_video / 适配器测试。"""
+    """不联网的 B 站客户端替身，供 crawl_video / 适配器测试。
 
-    def __init__(self, pages=None, sub_pages=None):
+    ``pages`` 可以是页面字典列表，也可以是 ``callable(offset) -> page``；
+    ``sub_pages`` 可以是固定响应字典，也可以是 ``callable(root, page) -> data``。
+    ``main_delay`` / ``sub_delay`` 用于测试 ``max_seconds`` 时间预算。
+    """
+
+    def __init__(self, pages=None, sub_pages=None, *, main_delay=0.0, sub_delay=0.0):
         self.respect_robots = False
         self.web_base = "https://www.bilibili.com"
         self.api_robots_decision = {"allowed": False}
@@ -879,6 +887,8 @@ class StubBiliClient:
         self.risk_control_hits = 0
         self.robots_checks = []
         self._limiter = SimpleNamespace(base_interval=2.5)
+        self.main_delay = main_delay
+        self.sub_delay = sub_delay
         self.pages = pages or [
             {
                 "replies": [
@@ -902,6 +912,7 @@ class StubBiliClient:
             "page": {"count": 1},
         }
         self.page_calls = []
+        self.sub_calls = []
 
     def check_content_page_robots(self, bvid):
         return None
@@ -916,14 +927,23 @@ class StubBiliClient:
         }
 
     def get_main_comments(self, aid, offset="", mode=2):
+        if self.main_delay:
+            time.sleep(self.main_delay)
         self.page_calls.append(offset)
         self.metrics.logical_requests += 1
+        if callable(self.pages):
+            return self.pages(offset)
         if offset == "":
             return self.pages[0]
         return self.pages[1]
 
     def get_sub_comments(self, aid, root, page=1, page_size=20):
+        if self.sub_delay:
+            time.sleep(self.sub_delay)
         self.metrics.logical_requests += 1
+        self.sub_calls.append({"root": str(root), "page": page, "page_size": page_size})
+        if callable(self.sub_pages):
+            return self.sub_pages(str(root), page)
         return self.sub_pages
 
     def stats_summary(self):
@@ -989,3 +1009,325 @@ def test_crawl_bilibili_reports_and_fetch_adapter(tmp_path):
         "BV1GJ411x7h7", client=client2, max_pages=1, include_replies=False
     )
     assert [row["rpid"] for row in rows] == ["1"]
+
+
+# =========================================================================
+# 10. 长跑稳健性：BV 去重 / 楼中楼分页 / sub_done 断点 / 时间预算
+# =========================================================================
+
+def _bili_comment(rpid, *, message="评论", rcount=0, root=0, parent=0):
+    return {
+        "rpid": rpid,
+        "root": root,
+        "parent": parent,
+        "content": {"message": message},
+        "rcount": rcount,
+        "like": 0,
+        "ctime": 1700000000,
+    }
+
+
+def _write_checkpoint(path: Path, state: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+
+def test_crawl_bilibili_dedupes_bvids_preserving_input_order(tmp_path):
+    client = StubBiliClient()
+    report = crawl_bilibili(
+        [
+            "BV1GJ411x7h7",
+            "https://www.bilibili.com/video/BV1GJ411x7h7?p=1",
+            "not-a-bv",
+            "BV1GJ411x7h7",
+        ],
+        client=client,
+        max_pages=2,
+        include_replies=False,
+        out_dir=tmp_path,
+        write_source_note=False,
+    )
+    # 合法且重复的 BV 只采一次；非法输入仍逐条记录错误；报告不重复计数
+    assert [video.bvid for video in report.videos] == ["BV1GJ411x7h7", "not-a-bv"]
+    assert report.videos[0].error is None
+    assert "无法识别" in report.videos[1].error
+    assert client.page_calls == ["", "N1"]  # 只对该视频请求了两页
+    assert report.total_new == 2
+
+
+def test_get_sub_comments_passes_explicit_page_size():
+    session = make_bili_session()
+    client = _make_client(session)
+    client.get_sub_comments(1, "9001")
+    reply_calls = [call for call in session.calls if "/x/v2/reply/reply" in call["url"]]
+    assert reply_calls[-1]["params"]["ps"] == SUB_COMMENT_PAGE_SIZE
+    assert reply_calls[-1]["params"]["pn"] == 1
+    client.get_sub_comments(1, "9001", page=2, page_size=5)
+    reply_calls = [call for call in session.calls if "/x/v2/reply/reply" in call["url"]]
+    assert reply_calls[-1]["params"]["ps"] == 5
+    assert reply_calls[-1]["params"]["pn"] == 2
+
+
+def test_crawl_video_sub_pages_follow_server_page_size_and_count(tmp_path):
+    """服务端页大小 10、总数 25：应按 count/size 翻 3 页，而不是第 1 页就停。"""
+
+    def sub_handler(root, page):
+        count = 10 if page <= 2 else 5
+        return {
+            "replies": [
+                _bili_comment(1000 + page * 10 + index, message=f"楼中楼{page}-{index}", root=100)
+                for index in range(count)
+            ],
+            "page": {"count": 25, "size": 10},
+        }
+
+    client = StubBiliClient(
+        pages=[{
+            "replies": [_bili_comment(100, message="根评论", rcount=25)],
+            "cursor": {"is_end": True},
+        }],
+        sub_pages=sub_handler,
+    )
+    result = crawl_video(
+        client, "BV1GJ411x7h7", max_pages=1, include_replies=True,
+        max_sub_pages=5, out_dir=tmp_path, write_source_note=False,
+    )
+    assert [call["page"] for call in client.sub_calls] == [1, 2, 3]
+    assert all(call["page_size"] == SUB_COMMENT_PAGE_SIZE for call in client.sub_calls)
+    assert result.comments_total == 26  # 1 条根评论 + 25 条楼中楼
+
+
+def test_crawl_video_sub_pages_use_server_size_when_count_unknown(tmp_path):
+    """count=0（不确定）时用 page.size 判断：满 10 条继续，短页才结束。"""
+
+    def sub_handler(root, page):
+        count = 10 if page == 1 else 5
+        return {
+            "replies": [
+                _bili_comment(2000 + page * 10 + index, message=f"楼中楼{page}-{index}", root=200)
+                for index in range(count)
+            ],
+            "page": {"count": 0, "size": 10},
+        }
+
+    client = StubBiliClient(
+        pages=[{
+            "replies": [_bili_comment(200, message="根评论", rcount=15)],
+            "cursor": {"is_end": True},
+        }],
+        sub_pages=sub_handler,
+    )
+    result = crawl_video(
+        client, "BV1GJ411x7h7", max_pages=1, include_replies=True,
+        max_sub_pages=5, out_dir=tmp_path, write_source_note=False,
+    )
+    assert [call["page"] for call in client.sub_calls] == [1, 2]
+    assert result.comments_total == 16  # 1 条根评论 + 15 条楼中楼
+
+
+def test_crawl_video_resume_skips_sub_done_roots(tmp_path):
+    """旧断点里 sub_done 记录的根评论不再请求楼中楼，其余根评论照常请求。"""
+
+    def sub_handler(root, page):
+        return {
+            "replies": [_bili_comment(int(root) * 100 + page, message="楼中楼", root=root)],
+            "page": {"count": 1},
+        }
+
+    _write_checkpoint(
+        tmp_path / ".checkpoints" / "BV1GJ411x7h7.json",
+        {
+            "mode": 2, "include_replies": True, "max_sub_pages": 2,
+            "offset": "", "pages_done": 0, "finished": False, "sub_done": ["1"],
+        },
+    )
+    client = StubBiliClient(
+        pages=[{
+            "replies": [
+                _bili_comment(1, message="根评论1", rcount=1),
+                _bili_comment(2, message="根评论2", rcount=1),
+            ],
+            "cursor": {"is_end": True},
+        }],
+        sub_pages=sub_handler,
+    )
+    result = crawl_video(
+        client, "BV1GJ411x7h7", max_pages=1, include_replies=True,
+        max_sub_pages=2, out_dir=tmp_path, write_source_note=False,
+    )
+    assert [call["root"] for call in client.sub_calls] == ["2"]
+    rows = read_csv_records(result.csv_path)
+    assert [row["rpid"] for row in rows] == ["1", "2", "201"]
+    assert result.finished is True
+    # 整页完成后 offset 已推进，sub_done 清空避免长跑 state 膨胀
+    state = json.loads(Path(result.state_path).read_text(encoding="utf-8"))
+    assert state["sub_done"] == []
+
+
+def test_load_state_tolerates_legacy_checkpoint_without_sub_done(tmp_path):
+    path = tmp_path / "state.json"
+    legacy = {
+        "mode": 2, "include_replies": True, "max_sub_pages": 3,
+        "offset": "N1", "pages_done": 1, "finished": False,
+    }
+    _write_checkpoint(path, legacy)
+    state = load_state(path, 2, True, 3)
+    assert state["sub_done"] == []
+    assert state["offset"] == "N1"
+    assert state["pages_done"] == 1
+    # 新断点同样带 sub_done 字段
+    fresh = load_state(tmp_path / "new.json", 2, True, 3)
+    assert fresh["sub_done"] == []
+
+
+def test_crawl_bilibili_max_seconds_stops_between_pages(tmp_path):
+    def slow_on_page(video_result, page_number, added, total):
+        # 模拟页间耗时（进度回调/落盘上报），用于触发「页之间」的时间预算检查
+        if page_number == 1:
+            time.sleep(0.5)
+
+    client = StubBiliClient(
+        pages=[
+            {
+                "replies": [_bili_comment(1, message="第一页")],
+                "cursor": {"is_end": False, "pagination_reply": {"next_offset": "N1"}},
+            },
+            {
+                "replies": [_bili_comment(2, message="第二页")],
+                "cursor": {"is_end": True},
+            },
+        ],
+    )
+    report = crawl_bilibili(
+        ["BV1GJ411x7h7"], client=client, max_pages=5, include_replies=False,
+        max_seconds=0.25, out_dir=tmp_path, write_source_note=False,
+        on_page=slow_on_page,
+    )
+    assert report.timed_out is True
+    video = report.videos[0]
+    assert video.timed_out is True and video.finished is False
+    assert video.pages_crawled == 1
+    assert video.as_dict()["timed_out"] is True
+    assert report.as_dict()["timed_out"] is True
+    # 已采数据落盘、断点保存为「未完成 + 下一页游标」，第二页不再请求
+    assert client.page_calls == [""]
+    assert [row["rpid"] for row in read_csv_records(video.csv_path)] == ["1"]
+    state = json.loads(Path(video.state_path).read_text(encoding="utf-8"))
+    assert state["finished"] is False
+    assert state["offset"] == "N1"
+    assert state["pages_done"] == 1
+
+
+def test_crawl_video_max_seconds_stops_between_roots_and_saves_sub_done(tmp_path):
+    """根评论间到时停止：offset 不推进、已处理根评论写入 sub_done、已采数据落盘。"""
+
+    def sub_handler(root, page):
+        if root == "1":
+            # count=0 不确定 + 满页（size=1）→ 一直翻到 max_sub_pages 上限才算处理完
+            return {
+                "replies": [_bili_comment(100 + page, message=f"楼中楼{page}", root=1)],
+                "page": {"count": 0, "size": 1},
+            }
+        return {"replies": [], "page": {"count": 0}}
+
+    client = StubBiliClient(
+        pages=[{
+            "replies": [
+                _bili_comment(1, message="根评论1", rcount=1),
+                _bili_comment(2, message="根评论2", rcount=1),
+            ],
+            "cursor": {"is_end": True},
+        }],
+        sub_pages=sub_handler,
+        sub_delay=0.3,
+    )
+    result = crawl_video(
+        client, "BV1GJ411x7h7", max_pages=1, include_replies=True,
+        max_sub_pages=2, max_seconds=0.4, out_dir=tmp_path, write_source_note=False,
+    )
+    assert result.timed_out is True and result.finished is False
+    assert result.pages_crawled == 1
+    assert result.as_dict()["timed_out"] is True
+    # 根评论 1 的楼中楼已处理完（达到 max_sub_pages 上限），根评论 2 未被请求
+    assert [(call["root"], call["page"]) for call in client.sub_calls] == [("1", 1), ("1", 2)]
+    assert [row["rpid"] for row in read_csv_records(result.csv_path)] == ["1", "101", "102"]
+    state = json.loads(Path(result.state_path).read_text(encoding="utf-8"))
+    assert state["finished"] is False
+    assert state["offset"] == ""  # 当前页未采完，offset 不推进，下次从本页重试
+    assert state["sub_done"] == ["1"]  # 恢复时跳过根评论 1 的楼中楼请求
+
+
+def test_crawl_video_resumes_after_timeout_without_repeating_sub_requests(tmp_path):
+    """超时停止后再次运行：从本页续爬，sub_done 中的根评论不再请求楼中楼。"""
+
+    def sub_handler(root, page):
+        if root == "1":
+            # count=0 + 满页（size=1）→ 需要翻满 max_sub_pages 才算处理完
+            return {
+                "replies": [_bili_comment(100 + page, message=f"楼中楼{page}", root=1)],
+                "page": {"count": 0, "size": 1},
+            }
+        return {"replies": [], "page": {"count": 0}}
+
+    pages = [{
+        "replies": [
+            _bili_comment(1, message="根评论1", rcount=1),
+            _bili_comment(2, message="根评论2", rcount=1),
+        ],
+        "cursor": {"is_end": True},
+    }]
+    first = crawl_video(
+        StubBiliClient(pages=pages, sub_pages=sub_handler, sub_delay=0.3),
+        "BV1GJ411x7h7", max_pages=1, include_replies=True,
+        max_sub_pages=2, max_seconds=0.4, out_dir=tmp_path, write_source_note=False,
+    )
+    assert first.timed_out is True and first.finished is False
+
+    resume_client = StubBiliClient(pages=pages, sub_pages=sub_handler)
+    second = crawl_video(
+        resume_client, "BV1GJ411x7h7", max_pages=1, include_replies=True,
+        max_sub_pages=2, out_dir=tmp_path, write_source_note=False,
+    )
+    assert second.timed_out is False and second.finished is True
+    # 根评论 1 已在 sub_done 中，续爬只请求根评论 2 的楼中楼
+    assert [call["root"] for call in resume_client.sub_calls] == ["2"]
+    rows = read_csv_records(second.csv_path)
+    assert [row["rpid"] for row in rows] == ["1", "101", "102", "2"]
+    state = json.loads(Path(second.state_path).read_text(encoding="utf-8"))
+    assert state["finished"] is True and state["sub_done"] == []
+
+
+def test_crawl_video_sub_done_is_capped_with_warning(tmp_path, monkeypatch, caplog):
+    """sub_done 超过上限时丢弃最早记录并告警（防御性上限，避免 state 无限膨胀）。"""
+
+    monkeypatch.setattr("src.crawler.bilibili.MAX_SUB_DONE_ENTRIES", 1)
+
+    def sub_handler(root, page):
+        return {
+            "replies": [_bili_comment(int(root) * 100 + page, message="楼中楼", root=root)],
+            "page": {"count": 1},
+        }
+
+    client = StubBiliClient(
+        pages=[{
+            "replies": [
+                _bili_comment(1, message="根评论1", rcount=1),
+                _bili_comment(2, message="根评论2", rcount=1),
+                _bili_comment(3, message="根评论3", rcount=1),
+            ],
+            "cursor": {"is_end": True},
+        }],
+        sub_pages=sub_handler,
+        sub_delay=0.3,
+    )
+    with caplog.at_level(logging.WARNING, logger="bili_crawler"):
+        result = crawl_video(
+            client, "BV1GJ411x7h7", max_pages=1, include_replies=True,
+            max_sub_pages=1, max_seconds=0.5, out_dir=tmp_path, write_source_note=False,
+        )
+    assert result.timed_out is True
+    # 根评论 1、2 的楼中楼处理完；上限=1 时丢弃最早的 1，只保留最近一条
+    assert [call["root"] for call in client.sub_calls] == ["1", "2"]
+    state = json.loads(Path(result.state_path).read_text(encoding="utf-8"))
+    assert state["sub_done"] == ["2"]
+    assert any("sub_done" in record.message for record in caplog.records)

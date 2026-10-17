@@ -80,6 +80,14 @@ SAVE_DIR = ROOT / "data" / "raw"
 DEFAULT_DELAY_SECONDS = float(os.getenv("CRAWL_DELAY_SECONDS", "2.5"))
 DEFAULT_TIMEOUT = float(os.getenv("CRAWL_TIMEOUT", "15"))
 
+#: 楼中楼每页条数（对应接口 ``ps`` 参数）。显式传递，避免依赖服务端默认值；
+#: 结束判断同样以它（或服务端返回的 ``page.size``）为基准，不再写死 20。
+SUB_COMMENT_PAGE_SIZE = 20
+
+#: 断点 ``sub_done`` 的最大长度：纯防御性上限，超限丢弃最早的根评论记录并告警，
+#: 避免异常情况下 state 文件无限膨胀（正常采集每页完成后会清空，远达不到此上限）。
+MAX_SUB_DONE_ENTRIES = 5000
+
 #: WBI 签名混淆表（官方前端固定表，非本项目可配置项）
 MIXIN_KEY_ENC_TAB = (
     46, 47, 18, 2, 53, 8, 23, 32,
@@ -430,9 +438,9 @@ class BiliClient:
         aid: int | str,
         root: str,
         page: int = 1,
-        page_size: int = 20,
+        page_size: int = SUB_COMMENT_PAGE_SIZE,
     ) -> dict[str, Any]:
-        """获取一页楼中楼评论。"""
+        """获取一页楼中楼评论（``ps`` 显式传，不依赖服务端默认值）。"""
 
         params = {"type": 1, "oid": aid, "root": root, "pn": page, "ps": page_size}
         result = self._api("/x/v2/reply/reply", params)
@@ -727,7 +735,11 @@ def load_state(
     max_sub_pages: int,
     reset: bool = False,
 ) -> dict[str, Any]:
-    """读取断点；配置不一致时拒绝续爬（避免把两种口径的数据混在一起）。"""
+    """读取断点；配置不一致时拒绝续爬（避免把两种口径的数据混在一起）。
+
+    兼容旧断点：旧版本没有 ``sub_done`` 字段，读取时按空列表处理，
+    相当于重新请求这些根评论的楼中楼（CSV 按 rpid 去重，不会重复落盘）。
+    """
 
     if path.exists() and not reset:
         with path.open("r", encoding="utf-8") as handle:
@@ -740,6 +752,8 @@ def load_state(
             raise ConfigError(
                 "本次配置与断点配置不同，如需重新扫描请使用 --reset-state"
             )
+        if not isinstance(state.get("sub_done"), list):
+            state["sub_done"] = []
         return state
     return {
         "mode": mode,
@@ -748,6 +762,7 @@ def load_state(
         "offset": "",
         "pages_done": 0,
         "finished": False,
+        "sub_done": [],
     }
 
 
@@ -786,6 +801,7 @@ class VideoCrawlResult:
     retries: int = 0
     risk_control_hits: int = 0
     finished: bool = False
+    timed_out: bool = False
     error: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -810,6 +826,7 @@ class VideoCrawlResult:
             "retries": self.retries,
             "risk_control_hits": self.risk_control_hits,
             "finished": self.finished,
+            "timed_out": self.timed_out,
             "error": self.error,
         }
 
@@ -834,6 +851,12 @@ class CrawlReport:
     def total_saved(self) -> int:
         return sum(video.comments_total for video in self.videos)
 
+    @property
+    def timed_out(self) -> bool:
+        """本次批量采集中是否有视频因 ``max_seconds`` 时间预算提前停止。"""
+
+        return any(video.timed_out for video in self.videos)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "started_at": self.started_at,
@@ -841,6 +864,7 @@ class CrawlReport:
             "elapsed_seconds": round(self.elapsed_seconds, 3),
             "total_new": self.total_new,
             "total_saved": self.total_saved,
+            "timed_out": self.timed_out,
             "comments_per_second": round(self.total_new / self.elapsed_seconds, 3)
             if self.elapsed_seconds > 0
             else 0.0,
@@ -849,6 +873,37 @@ class CrawlReport:
             "source_note_path": self.source_note_path,
             "robots": list(self.robots),
         }
+
+
+def _sub_page_reached_end(
+    sub_replies: list[Any],
+    page_info: Mapping[str, Any],
+    page_number: int,
+    requested_page_size: int,
+) -> bool:
+    """判断楼中楼是否已到最后一页（不再假设服务端每页固定 20 条）。
+
+    结束判断优先使用服务端返回的 ``page.count``（总数）与 ``page.size``
+    （服务端实际页大小），两者缺失或为 0 时退回请求页大小：
+
+    * ``count`` 明确（> 0）时以总数为准：已取条数达到总数即结束；否则继续
+      翻页（本页偏短也可能只是服务端页大小与请求不同，由 ``max_sub_pages``
+      兜底，避免把未采完误判为结束）；
+    * ``count`` 缺失或为 0（接口未给出，视为不确定）时，只能用「短页」推断
+      结束：不满一页即结束，满页继续翻页；
+    * 空页一律视为结束（同时防止接口异常时空页死循环）。
+    """
+
+    if not sub_replies:
+        return True
+    server_page_size = to_int(page_info.get("size"))
+    effective_page_size = (
+        server_page_size if server_page_size > 0 else requested_page_size
+    )
+    total = to_int(page_info.get("count"))
+    if total > 0:
+        return page_number * effective_page_size >= total
+    return len(sub_replies) < effective_page_size
 
 
 def _collect_page_rows(
@@ -864,12 +919,23 @@ def _collect_page_rows(
     collected_at: str,
     strip_urls: bool,
     budget_remaining: int,
-) -> tuple[list[dict[str, Any]], int, int, int]:
-    """整理一页一级评论（含可选的楼中楼），返回 (记录, 新增候选, 空, 子页请求数)。"""
+    sub_done: set[str] | None = None,
+    on_root_done: Any = None,
+    deadline: float | None = None,
+) -> tuple[list[dict[str, Any]], int, int, int, bool]:
+    """整理一页一级评论（含可选的楼中楼）。
+
+    返回 ``(记录, 新增候选, 空, 子页请求数, 是否因时间预算提前停止)``。
+    ``sub_done`` 中的根评论会跳过楼中楼请求（断点续爬）；某条根评论的楼中楼
+    处理完（自然结束或达到 ``max_sub_pages`` 上限）后通过 ``on_root_done``
+    回调，供调用方立即写入断点。
+    """
 
     rows: list[dict[str, Any]] = []
     empty = 0
     sub_pages = 0
+    stopped_early = False
+    done_roots = sub_done if sub_done is not None else set()
 
     for item in replies:
         if max_items and len(rows) >= max_items:
@@ -891,54 +957,80 @@ def _collect_page_rows(
         else:
             rows.append(row)
 
-        if not include_replies:
-            continue
-        root_id = str(item.get("rpid_str") or item.get("rpid") or "")
-        if not root_id:
-            continue
-        reply_count = to_int(item.get("rcount"))
-        inline_replies = item.get("replies")
-        if reply_count <= 0 and not inline_replies:
-            continue
-        for sub_page in range(1, max_sub_pages + 1):
-            if max_items and len(rows) >= max_items:
-                break
-            if budget_remaining and len(rows) >= budget_remaining:
-                break
-            try:
-                sub_data = client.get_sub_comments(aid, root_id, page=sub_page)
-            except CommentClosed:
-                break
-            sub_pages += 1
-            sub_replies = sub_data.get("replies") or []
-            if not isinstance(sub_replies, list):
-                raise CrawlStopped("二级评论格式异常")
-            for sub_item in sub_replies:
-                if max_items and len(rows) >= max_items:
-                    break
-                sub_row = normalize_comment(
-                    sub_item,
-                    bvid,
-                    aid,
-                    title,
-                    level=2,
-                    forced_root=root_id,
-                    strip_urls=strip_urls,
-                    collected_at=collected_at,
-                )
-                if sub_row is None:
-                    empty += 1
-                else:
-                    rows.append(sub_row)
-            page_info = sub_data.get("page") or {}
-            sub_total = to_int(page_info.get("count"))
-            if not sub_replies:
-                break
-            if len(sub_replies) < 20:
-                break
-            if sub_total > 0 and sub_page * 20 >= sub_total:
-                break
-    return rows, len(rows), empty, sub_pages
+        if include_replies:
+            root_id = str(item.get("rpid_str") or item.get("rpid") or "")
+            reply_count = to_int(item.get("rcount"))
+            inline_replies = item.get("replies")
+            if (
+                root_id
+                and root_id not in done_roots
+                and (reply_count > 0 or inline_replies)
+            ):
+                root_completed = True
+                for sub_page in range(1, max_sub_pages + 1):
+                    if max_items and len(rows) >= max_items:
+                        root_completed = False
+                        break
+                    if budget_remaining and len(rows) >= budget_remaining:
+                        root_completed = False
+                        break
+                    try:
+                        sub_data = client.get_sub_comments(
+                            aid,
+                            root_id,
+                            page=sub_page,
+                            page_size=SUB_COMMENT_PAGE_SIZE,
+                        )
+                    except CommentClosed:
+                        break
+                    sub_pages += 1
+                    sub_replies = sub_data.get("replies") or []
+                    if not isinstance(sub_replies, list):
+                        raise CrawlStopped("二级评论格式异常")
+                    truncated = False
+                    for sub_item in sub_replies:
+                        if max_items and len(rows) >= max_items:
+                            truncated = True
+                            break
+                        sub_row = normalize_comment(
+                            sub_item,
+                            bvid,
+                            aid,
+                            title,
+                            level=2,
+                            forced_root=root_id,
+                            strip_urls=strip_urls,
+                            collected_at=collected_at,
+                        )
+                        if sub_row is None:
+                            empty += 1
+                        else:
+                            rows.append(sub_row)
+                    if truncated:
+                        root_completed = False
+                        break
+                    page_info = sub_data.get("page") or {}
+                    if not isinstance(page_info, Mapping):
+                        page_info = {}
+                    if _sub_page_reached_end(
+                        sub_replies, page_info, sub_page, SUB_COMMENT_PAGE_SIZE
+                    ):
+                        break
+                if root_completed:
+                    # 先回调（由调用方把根评论记入 sub_done 并立即保存断点），
+                    # 再加入本页的去重集合（两者可能是同一个 set，顺序不能反）。
+                    if on_root_done is not None:
+                        try:
+                            on_root_done(root_id)
+                        except Exception:  # pragma: no cover - 断点写入失败不应中断采集
+                            logger.exception("写入楼中楼断点失败（根评论 %s）", root_id)
+                    done_roots.add(root_id)
+
+        if deadline is not None and time.monotonic() >= deadline:
+            stopped_early = True
+            break
+
+    return rows, len(rows), empty, sub_pages, stopped_early
 
 
 def crawl_video(
@@ -950,15 +1042,25 @@ def crawl_video(
     max_sub_pages: int = 3,
     mode: int = 2,
     max_items: int = 0,
+    max_seconds: float = 0.0,
     out_dir: str | Path = SAVE_DIR,
     reset_state: bool = False,
     strip_urls: bool = False,
     write_source_note: bool = True,
     on_page: Any = None,
 ) -> VideoCrawlResult:
-    """采集单个视频的一级评论与（可选）楼中楼，支持断点续爬。"""
+    """采集单个视频的一级评论与（可选）楼中楼，支持断点续爬。
+
+    Args:
+        max_seconds: 单个视频的时间预算（秒，0 表示不限制，默认不改变原有
+            行为）。在页之间、根评论之间检查 ``time.monotonic()`` 截止时间；
+            到时安全停止并保存断点/CSV（不丢已采数据、不把未采完的页算作
+            完成），结果标记 ``timed_out=True``。
+    """
 
     started = time.monotonic()
+    budget_seconds = max(0.0, float(max_seconds or 0.0))
+    deadline = started + budget_seconds if budget_seconds > 0 else None
     started_requests = client.metrics.logical_requests
     started_retries = client.metrics.retries
     started_risk = client.risk_control_hits
@@ -998,11 +1100,70 @@ def crawl_video(
         return result
 
     offset = state.get("offset", "")
+    pages_done = int(state.get("pages_done") or 0)
     total_new = 0
     collected_at = utc_iso()
 
+    # `sub_done`：当前这一页中楼中楼已完整处理过的根评论 rpid（断点恢复时跳过）。
+    # 每处理完一条根评论就写入断点；整页完成后清空——此时 offset 已推进到下一页，
+    # 旧页不会被回访，清空可避免 state 随长跑无限增长。
+    sub_done_order: list[str] = []
+    for raw_root in state.get("sub_done") or []:
+        root_key = str(raw_root)
+        if root_key and root_key not in sub_done_order:
+            sub_done_order.append(root_key)
+    sub_done: set[str] = set(sub_done_order)
+    sub_done_capped = False
+
+    def _save_checkpoint(current_offset: str, done_pages: int, finished: bool) -> None:
+        save_state(
+            state_path,
+            {
+                "mode": mode,
+                "include_replies": include_replies,
+                "max_sub_pages": max_sub_pages,
+                "offset": current_offset,
+                "pages_done": done_pages,
+                "finished": finished,
+                "sub_done": list(sub_done_order),
+            },
+        )
+
+    def _mark_root_done(root_id: str) -> None:
+        """记录一条根评论的楼中楼已处理完，并立即保存断点（offset 不推进）。"""
+
+        nonlocal sub_done_capped
+        if root_id in sub_done:
+            return
+        sub_done.add(root_id)
+        sub_done_order.append(root_id)
+        while len(sub_done_order) > MAX_SUB_DONE_ENTRIES:
+            evicted = sub_done_order.pop(0)
+            sub_done.discard(evicted)
+            if not sub_done_capped:
+                logger.warning(
+                    "断点 sub_done 超过 %d 条，已丢弃最早的根评论记录"
+                    "（仍可安全续爬，只会重新请求这些根评论的楼中楼）",
+                    MAX_SUB_DONE_ENTRIES,
+                )
+                sub_done_capped = True
+        _save_checkpoint(offset, pages_done, False)
+
+    def _notify_page(page_number: int, added: int) -> None:
+        if on_page is None:
+            return
+        try:
+            on_page(result, page_number, added, store.total)
+        except Exception:  # pragma: no cover - 回调不应影响采集
+            logger.exception("on_page 回调异常")
+
     try:
         for page_index in range(max_pages):
+            if deadline is not None and time.monotonic() >= deadline:
+                # 页间检查：时间预算用尽，保存断点后安全停止（默认 max_seconds=0 不触发）
+                result.timed_out = True
+                _save_checkpoint(offset, pages_done, False)
+                break
             if max_items and total_new >= max_items:
                 break
             data = client.get_main_comments(result.aid, offset=offset, mode=mode)
@@ -1014,7 +1175,7 @@ def crawl_video(
                 raise CrawlStopped("当前页没有评论，但未收到结束标记（可能被风控）")
 
             remaining = max_items - total_new if max_items else 0
-            rows, _candidates, empty, _sub_pages = _collect_page_rows(
+            rows, _candidates, _empty, _sub_pages, page_stopped = _collect_page_rows(
                 client,
                 replies,
                 bvid,
@@ -1026,6 +1187,9 @@ def crawl_video(
                 collected_at=collected_at,
                 strip_urls=strip_urls,
                 budget_remaining=remaining,
+                sub_done=sub_done,
+                on_root_done=_mark_root_done,
+                deadline=deadline,
             )
             added = store.add(rows)
             total_new += added
@@ -1034,24 +1198,22 @@ def crawl_video(
             pagination = cursor.get("pagination_reply") or {}
             next_offset = pagination.get("next_offset")
             is_end = bool(cursor.get("is_end"))
+            if page_stopped:
+                # 根评论间检查到时间预算用尽：当前页只采了一部分，offset 不推进，
+                # 下次从本页继续（CSV 去重 + sub_done 保证不重复请求楼中楼）。
+                result.timed_out = True
+                _save_checkpoint(offset, pages_done, False)
+                _notify_page(page_index + 1, added)
+                break
             if not is_end and (not next_offset or next_offset == offset):
                 raise CrawlStopped("无法获取下一页游标，已保存的数据不会丢失")
 
-            state = {
-                "mode": mode,
-                "include_replies": include_replies,
-                "max_sub_pages": max_sub_pages,
-                "offset": "" if is_end else next_offset,
-                "pages_done": int(state.get("pages_done") or 0) + 1,
-                "finished": is_end,
-            }
-            save_state(state_path, state)
-            offset = state["offset"]
-            if on_page is not None:
-                try:
-                    on_page(result, page_index + 1, added, store.total)
-                except Exception:  # pragma: no cover - 回调不应影响采集
-                    logger.exception("on_page 回调异常")
+            pages_done += 1
+            sub_done.clear()
+            sub_done_order.clear()
+            offset = "" if is_end else next_offset
+            _save_checkpoint(offset, pages_done, is_end)
+            _notify_page(page_index + 1, added)
             if is_end:
                 result.finished = True
                 break
@@ -1107,6 +1269,7 @@ def crawl_bilibili(
     max_sub_pages: int = 3,
     mode: int = 2,
     max_items: int = 0,
+    max_seconds: float = 0.0,
     out_dir: str | Path = SAVE_DIR,
     reset_state: bool = False,
     strip_urls: bool = False,
@@ -1118,8 +1281,13 @@ def crawl_bilibili(
 ) -> CrawlReport:
     """批量采集多个视频，返回汇总报告。
 
-    遇到 :class:`RiskControlError` 立即停止后续视频（避免继续触发风控）；
-    其它 :class:`CrawlStopped`（评论关闭、视频不存在等）记录到结果后继续下一个。
+    按输入顺序对 BV 号去重：同一个视频只采集一次，重复输入不重复计数；
+    非法 BV 仍逐条记录错误。遇到 :class:`RiskControlError` 立即停止后续视频
+    （避免继续触发风控）；其它 :class:`CrawlStopped`（评论关闭、视频不存在等）
+    记录到结果后继续下一个。
+
+    ``max_seconds`` 是「单个视频」的时间预算（0 表示不限），透传给
+    :func:`crawl_video`；任何视频因预算停止时 ``report.timed_out`` 为 True。
     """
 
     report = CrawlReport(started_at=utc_iso())
@@ -1133,6 +1301,7 @@ def crawl_bilibili(
             api_robots_policy=api_robots_policy,
             **client_kwargs,
         )
+    seen_bvids: set[str] = set()
     try:
         for value in bvids:
             try:
@@ -1142,6 +1311,10 @@ def crawl_bilibili(
                     VideoCrawlResult(bvid=str(value), error=str(exc))
                 )
                 continue
+            if bvid in seen_bvids:
+                logger.warning("跳过重复输入的 BV 号（只采集一次）：%s", bvid)
+                continue
+            seen_bvids.add(bvid)
             try:
                 result = crawl_video(
                     client,
@@ -1151,6 +1324,7 @@ def crawl_bilibili(
                     max_sub_pages=max_sub_pages,
                     mode=mode,
                     max_items=max_items,
+                    max_seconds=max_seconds,
                     out_dir=out_dir,
                     reset_state=reset_state,
                     strip_urls=strip_urls,
@@ -1236,6 +1410,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-pages", type=int, default=5, help="每次最多采集多少页一级评论（1~50）")
     parser.add_argument("--max-sub-pages", type=int, default=3, help="每条根评论最多采集多少页楼中楼（1~20）")
     parser.add_argument("--max-items", type=int, default=0, help="本次最多新增多少条（0 表示不限制）")
+    parser.add_argument("--max-seconds", type=float, default=0.0,
+                        help="单个视频的最长采集时间（秒，0 表示不限制；到时保存断点后安全停止）")
     parser.add_argument("--include-replies", action="store_true", help="是否采集楼中楼")
     parser.add_argument("--mode", choices=["time", "hot"], default="time", help="一级评论排序：time=按时间，hot=按热度")
     parser.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECONDS, help="请求最小间隔（秒，不得小于 2）")
@@ -1269,6 +1445,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--delay 不能小于 2 秒（限速是硬性要求）")
     if args.max_items < 0:
         parser.error("--max-items 不能为负数")
+    if args.max_seconds < 0:
+        parser.error("--max-seconds 不能为负数")
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -1302,6 +1480,7 @@ def main(argv: list[str] | None = None) -> int:
         max_sub_pages=args.max_sub_pages,
         mode=2 if args.mode == "time" else 3,
         max_items=args.max_items,
+        max_seconds=args.max_seconds,
         out_dir=args.out_dir,
         reset_state=args.reset_state,
         strip_urls=args.strip_urls,
@@ -1322,6 +1501,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"[{video.bvid}] {video.title}\n"
                 f"  页数 {video.pages_crawled}；本次新增 {video.comments_new}；"
                 f"累计 {video.comments_total}；耗时 {video.elapsed_seconds:.2f}s"
+                + ("；时间预算用尽，已保存断点" if video.timed_out else "")
             )
         print(f"合计新增 {report.total_new} 条；累计 {report.total_saved} 条")
         print(f"总耗时 {report.elapsed_seconds:.2f}s；"

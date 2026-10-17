@@ -14,12 +14,26 @@
 | `VIDEO_STEPS_PER_PHASE` | `4` | 每个阶段拆成几步推进 `progress` |
 | `VIDEO_SIMULATE_FAILURE` | `0` | 置 `1` 时流水线在「情感推理」阶段失败（用于验证 `failed` + retry） |
 | `VIDEOS_DIR` | `outputs/videos` | 任务落盘根目录（见 `store.py`） |
+
+真实采集（**opt-in，默认关闭**）相关的环境变量集中在
+`src/videos/crawler_adapter.py`，这里只把解析结果接进 :class:`PipelineConfig`：
+
+| 变量 | 默认 | 含义 |
+| --- | --- | --- |
+| `VIDEO_REAL_CRAWL` | `0` | 置 `1` 时「采集评论」阶段改调真实爬虫（`src.crawler.fetch_video_comments`） |
+| `VIDEO_CRAWL_MAX_PAGES` | `1` | 最多采集多少页一级评论（合法范围 1~50） |
+| `VIDEO_CRAWL_MAX_ITEMS` | `200` | 本次最多新增评论数（`0` 表示不限制） |
+| `VIDEO_CRAWL_DELAY` | `2.5` | 请求最小间隔（秒，不得为负） |
+| `VIDEO_CRAWL_INCLUDE_REPLIES` | `0` | 是否采集楼中楼 |
+| `VIDEO_CRAWL_TIMEOUT` | `15` | 单次请求超时（秒，须为正数） |
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+
+from . import crawler_adapter
 
 ENV_CRAWL_SECONDS = "VIDEO_CRAWL_SECONDS"
 ENV_CLEAN_SECONDS = "VIDEO_CLEAN_SECONDS"
@@ -34,6 +48,13 @@ DEFAULT_CLEAN_SECONDS = 6.0
 DEFAULT_SENTIMENT_SECONDS = 8.0
 DEFAULT_STATS_SECONDS = 4.0
 DEFAULT_STEPS_PER_PHASE = 4
+
+#: 真实采集默认参数（单一真相来源在 `crawler_adapter.py`，这里只做转发）
+DEFAULT_CRAWL_MAX_PAGES = crawler_adapter.DEFAULT_MAX_PAGES
+DEFAULT_CRAWL_MAX_ITEMS = crawler_adapter.DEFAULT_MAX_ITEMS
+DEFAULT_CRAWL_DELAY_SECONDS = crawler_adapter.DEFAULT_DELAY_SECONDS
+DEFAULT_CRAWL_INCLUDE_REPLIES = crawler_adapter.DEFAULT_INCLUDE_REPLIES
+DEFAULT_CRAWL_TIMEOUT = crawler_adapter.DEFAULT_TIMEOUT
 
 
 def _env_float(name: str, default: float) -> float:
@@ -79,6 +100,13 @@ class PipelineConfig:
         stats_seconds: 「统计分析」阶段耗时。
         steps_per_phase: 每个阶段推进 `progress` 的步数（≥1，步数越大进度越平滑）。
         simulate_failure: 为 ``True`` 时在「情感推理」阶段抛错，用于验证 `failed` / retry。
+        real_crawl: 为 ``True`` 时「采集评论」阶段调用真实爬虫（opt-in，默认关闭；
+            默认 ``False`` 保证现有占位行为与测试完全不变）。
+        crawl_max_pages: 真实采集最多翻多少页一级评论（1~50）。
+        crawl_max_items: 真实采集本次最多新增多少条评论（``0`` 表示不限制）。
+        crawl_delay_seconds: 真实采集的请求最小间隔（秒，不得为负）。
+        crawl_include_replies: 真实采集是否包含楼中楼。
+        crawl_timeout: 真实采集的单次请求超时（秒，须为正数）。
     """
 
     crawl_seconds: float = DEFAULT_CRAWL_SECONDS
@@ -87,6 +115,13 @@ class PipelineConfig:
     stats_seconds: float = DEFAULT_STATS_SECONDS
     steps_per_phase: int = DEFAULT_STEPS_PER_PHASE
     simulate_failure: bool = False
+    # ---- 真实采集（opt-in；默认关闭，字段追加在末尾以保持位置参数兼容）----
+    real_crawl: bool = False
+    crawl_max_pages: int = DEFAULT_CRAWL_MAX_PAGES
+    crawl_max_items: int = DEFAULT_CRAWL_MAX_ITEMS
+    crawl_delay_seconds: float = DEFAULT_CRAWL_DELAY_SECONDS
+    crawl_include_replies: bool = DEFAULT_CRAWL_INCLUDE_REPLIES
+    crawl_timeout: float = DEFAULT_CRAWL_TIMEOUT
 
     def __post_init__(self) -> None:
         for name in ("crawl_seconds", "clean_seconds", "sentiment_seconds", "stats_seconds"):
@@ -95,6 +130,16 @@ class PipelineConfig:
                 raise ValueError(f"{name} 不能为负数（阶段时长必须可配且非负）")
         if self.steps_per_phase < 1:
             raise ValueError("steps_per_phase 必须 ≥ 1")
+        if not 1 <= int(self.crawl_max_pages) <= crawler_adapter.MAX_PAGES_LIMIT:
+            raise ValueError(
+                f"crawl_max_pages 必须在 1~{crawler_adapter.MAX_PAGES_LIMIT} 之间"
+            )
+        if int(self.crawl_max_items) < 0:
+            raise ValueError("crawl_max_items 不能为负数（0 表示不限制）")
+        if float(self.crawl_delay_seconds) < 0:
+            raise ValueError("crawl_delay_seconds 不能为负数（限速是硬性要求）")
+        if float(self.crawl_timeout) <= 0:
+            raise ValueError("crawl_timeout 必须为正数")
 
     @property
     def total_seconds(self) -> float:
@@ -106,9 +151,22 @@ class PipelineConfig:
             + self.stats_seconds
         )
 
+    def crawl_config(self) -> crawler_adapter.VideoCrawlConfig:
+        """把本配置里的真实采集参数转成适配层配置（便于测试直接断言）。"""
+        return crawler_adapter.VideoCrawlConfig(
+            max_pages=self.crawl_max_pages,
+            include_replies=self.crawl_include_replies,
+            max_sub_pages=crawler_adapter.DEFAULT_MAX_SUB_PAGES,
+            max_items=self.crawl_max_items,
+            delay_seconds=self.crawl_delay_seconds,
+            timeout=self.crawl_timeout,
+            real_crawl=self.real_crawl,
+        )
+
     @classmethod
     def from_env(cls) -> "PipelineConfig":
-        """按环境变量构造配置（未设置的项用默认值）。"""
+        """按环境变量构造配置（未设置的项用默认值；非法值回退默认，不抛异常）。"""
+        crawl = crawler_adapter.VideoCrawlConfig.from_env()
         return cls(
             crawl_seconds=_env_float(ENV_CRAWL_SECONDS, DEFAULT_CRAWL_SECONDS),
             clean_seconds=_env_float(ENV_CLEAN_SECONDS, DEFAULT_CLEAN_SECONDS),
@@ -116,4 +174,10 @@ class PipelineConfig:
             stats_seconds=_env_float(ENV_STATS_SECONDS, DEFAULT_STATS_SECONDS),
             steps_per_phase=_env_int(ENV_STEPS_PER_PHASE, DEFAULT_STEPS_PER_PHASE),
             simulate_failure=_env_bool(ENV_SIMULATE_FAILURE, False),
+            real_crawl=crawl.real_crawl,
+            crawl_max_pages=crawl.max_pages,
+            crawl_max_items=crawl.max_items,
+            crawl_delay_seconds=crawl.delay_seconds,
+            crawl_include_replies=crawl.include_replies,
+            crawl_timeout=crawl.timeout,
         )

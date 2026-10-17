@@ -36,11 +36,14 @@ pnpm-debug.log*
 data/raw/*
 data/processed/*
 data/splits/*
+# 标注候选 / 合并结果（data/labeling/，体积大且可由 labeling.py 复现）
+data/labeling/*
 # 数据项目（界面「上传爬取数据」的运行期落盘：data/uploads/<project_id>/ 与 solo_comments.json）
 data/uploads/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/splits/.gitkeep
+!data/labeling/.gitkeep
 !data/uploads/.gitkeep
 !data/raw/README.md
 !data/raw/来源说明.md
@@ -72,6 +75,8 @@ outputs/figures/*
 outputs/stats/*
 outputs/videos/*
 outputs/benchmarks/*
+# 真实数据闭环验证的中间产物（可复现，不入库）
+outputs/realdata/*
 !outputs/**/.gitkeep
 !outputs/README.md
 
