@@ -48,6 +48,8 @@ data/uploads/*
 !data/raw/README.md
 !data/raw/来源说明.md
 !data/raw/sources.json
+# 例外：课程验收用的待训练语料（470 条原始评论，未清洗/未标注，2026-10-17 自采）
+!data/raw/BV1tseyzCEoF_comments.csv
 !data/processed/README.md
 !data/splits/README.md
 !data/uploads/README.md

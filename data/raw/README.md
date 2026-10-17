@@ -1,8 +1,10 @@
 # 原始评论数据登记
 
-> ⚠️ **原始 CSV 未入库**：`data/raw/*.csv` 被根目录忽略规则排除（原始数据不入版本控制）。
-> clone 仓库后本目录只有本 README、`来源说明.md` 与 `sources.json`；第 3 节的命令需要
-> 先自行取得对应 CSV，否则会报 `FileNotFoundError`。取得方式见第 4 节。
+> ⚠️ **原始 CSV 默认不入库**：`data/raw/*.csv` 被根目录忽略规则排除（原始数据不入版本控制）。
+> 唯一例外是**课程验收用的小体量待训练语料** `BV1tseyzCEoF_comments.csv`（470 条，约 118 KB，
+> 已通过 `.gitignore` 白名单显式入库，见第 5 节）。
+> clone 仓库后本目录只有本 README、`来源说明.md`、`sources.json` 与该语料；其它 CSV 需要
+> 先自行取得，否则第 3 节的命令会报 `FileNotFoundError`。取得方式见第 4 节。
 
 ## 1. 组内提供的视频评论（BV1UB4y1W7Xu）
 
@@ -64,3 +66,15 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 
 > 说明：这份数据是**无标签**评论，只用于打通「采集 → 清洗 → 待预测」链路，
 > 不能当作监督训练集；训练集仍需另行准备带 `positive`/`negative` 标注的数据。
+
+## 5. 已入库的待训练语料（BV1tseyzCEoF，2026-10-17）
+
+文件：`data/raw/BV1tseyzCEoF_comments.csv`（**随仓库入库**，约 118 KB，UTF-8 BOM）。
+
+- 视频：`BV1tseyzCEoF`《【闪客】大白话半小时理解网络！》
+- 规模：**470 条** = 一级评论 266 + 楼中楼回复 204（`level=1/2`，无情感标签）
+- 采集：项目爬虫 + 已登录账号；`page-size=50`、楼中楼全量、`max-items=500`、限速 2.5s/请求；
+  0 风控、约 4 分钟；来源登记见 `来源说明.md` / `sources.json`
+- 校验：`SHA256 = 6b92bf40c4b682f12a47ac1f3082bf19dc75b3b14a4a5e5ee8fc5012308aa8b7`
+- 用途：**原始语料，暂存为后续训练集候选**；尚未清洗、未标注，因此暂不能直接用于监督训练。
+  后续可先 `python -m src.crawler.labeling export` 抽样标注，合并后再走 `src/preprocessing` 训练管线。

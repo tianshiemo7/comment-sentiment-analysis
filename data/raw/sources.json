@@ -22,5 +22,13 @@
     "count": 7766,
     "labeled": true,
     "note": "公开数据集下载：ChnSentiCorp 中文情感分析数据集（酒店评论子集，约 7.7k 条，正负大致均衡）；文件=ChnSentiCorp_htl_all.csv；格式=csv；条数≈7766；SHA256=1d414b9c65caf3a836abdb4efded621968502ad3338e1a9d885ae131c86083f0（未固定期望值，已记录实际值供审计）；许可：以上游发布页声明为准（仅限课程/研究用途）；列：label,review；label 1=正面 0=负面"
+  },
+  {
+    "name": "B站视频评论（训练语料）",
+    "url": "https://www.bilibili.com/video/BV1tseyzCEoF",
+    "collected_at": "2026-10-17T10:41:02+00:00",
+    "count": 470,
+    "labeled": false,
+    "note": "自采原始评论（一级 266 + 楼中楼 204），无情感标签，暂存为后续训练语料；mode=time；page_size=50；楼中楼=开；min-delay=2.5s+抖动；风控 0 次；输出=data/raw/BV1tseyzCEoF_comments.csv；SHA256=6b92bf40c4b682f12a47ac1f3082bf19dc75b3b14a4a5e5ee8fc5012308aa8b7；robots：视频页允许，api.bilibili.com=Disallow（warn 模式，见 README 合规说明）"
   }
 ]
