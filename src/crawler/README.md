@@ -130,7 +130,8 @@ report = crawl_with_report(config)
 - **API robots**：`https://api.bilibili.com/robots.txt` 当前为 `Disallow: /`。本项目把它
   视为「视频页数据通道」，默认 `warn` 模式：日志告警 + 来源说明如实记录 + 保持匿名
   低速小规模；设置 `BILI_API_ROBOTS_POLICY=enforce` 可改为直接拒绝（采集会停止）；
-- **凭据**：源码不含 Cookie；如需登录态由使用者通过 `BILI_SESSDATA` 等环境变量显式提供；
+- **凭据**：源码不含 Cookie；如需登录态由使用者通过 `BILI_SESSDATA` / `BILI_COOKIE` 等
+  环境变量显式提供。**大规模采集必须配置登录态**（匿名可见量随接口策略波动，实测 3~200+ 条）；
 - **频率**：CLI 强制 `--delay ≥ 2`；默认 2.5s；单进程串行，无并发爬取。
 
 ## 命令行
@@ -148,13 +149,47 @@ python -m src.crawler html --url https://example.com/post --source 示例站点 
 
 # 统一脚本
 bash scripts/get_data.sh BV1GJ411x7h7
+
+# 公开数据集 / 标注
+bash scripts/get_data.sh --list-datasets
 ```
+
+## 大规模采集（正确性优先）
+
+```bash
+# 0) 登录态检查（0=已登录，2=未登录）
+python -m src.crawler.bilibili --check-login
+
+# 1) BV 清单：data/raw/bvids.txt，一行一个（支持注释/URL/行内备注）
+# 2) 全量采集：不限页数 + 楼中楼 + 已完成零请求跳过 + 日志 + 合并导出
+python -m src.crawler.bilibili \
+  --bvid-file data/raw/bvids.txt \
+  --max-pages 0 --max-sub-pages 0 --include-replies \
+  --require-login --delay 2.5 \
+  --out-dir data/raw \
+  --log-file outputs/logs/crawl_batch.log \
+  --merge-output data/raw/all_comments.csv
+
+# 3) 中断/风控后：直接重跑同一命令；已完成视频不会再发请求
+# 4) 只合并不采集：
+python -m src.crawler.bilibili --merge-output data/raw/all_comments.csv --out-dir data/raw
+```
+
+关键语义：
+
+- `--max-pages 0` / `--max-sub-pages 0`：翻到接口自然结束（内部硬上限防死循环）；
+- `--skip-finished`（默认）：`finished=true` 且 CSV 非空时零请求跳过；`--rescan-finished` 强制重扫；
+- 批量结束只登记**一条汇总来源**，避免逐视频重写 `sources.json` / `来源说明.md` 的 O(N²) 开销；
+- 合并是流式的（`--merge-output`），默认不按 rpid 去重（每视频内已去重），
+  需要时加 `--merge-dedupe`；坏文件可用 `--merge-lenient` 跳过；
+- 单视频时间预算 `--max-seconds`，到时保存断点，下次续采；
+- 操作手册与容量估算见 [`docs/大规模采集运行手册.md`](../../docs/大规模采集运行手册.md)。
 
 ## 测试与效率基准
 
 ```bash
 # 爬虫单元测试（离线；本地 HTTP 服务 + 假会话，不访问真实站点）
-python -m pytest tests/test_crawler.py -q                       # 70 passed
+python -m pytest tests/test_crawler.py -q                       # 79 passed（含大规模清单/零请求续采）
 python -m pytest tests/test_crawler_datasets.py tests/test_crawler_labeling.py -q  # 47 passed
 
 # 离线效率基准：本地 mock API（含 WBI 校验 / 分页 / 楼中楼 / 风控恢复）

@@ -41,10 +41,13 @@ from src.crawler.bilibili import (
     fetch_video_comments,
     get_mixin_key,
     load_state,
+    merge_video_csvs,
     parse_bvid,
+    read_bvid_list,
     read_csv_records,
     save_state,
     sign_wbi,
+    validate_page_limits,
 )
 from src.crawler.errors import (
     ApiError,
@@ -1331,3 +1334,200 @@ def test_crawl_video_sub_done_is_capped_with_warning(tmp_path, monkeypatch, capl
     state = json.loads(Path(result.state_path).read_text(encoding="utf-8"))
     assert state["sub_done"] == ["2"]
     assert any("sub_done" in record.message for record in caplog.records)
+
+
+# =========================================================================
+# 10. 大规模采集：清单 / 零请求续采 / 无限页 / 合并导出 / 登录态
+# =========================================================================
+
+def test_page_limits_allow_zero_means_unlimited():
+    assert validate_page_limits(0, 0) == (0, 0)
+    assert validate_page_limits(5, 3) == (5, 3)
+    with pytest.raises(ConfigError):
+        validate_page_limits(-1, 3)
+    with pytest.raises(ConfigError):
+        validate_page_limits(5, -1)
+
+
+def test_read_bvid_list_skips_comments_and_blank_lines(tmp_path):
+    path = tmp_path / "bvids.txt"
+    path.write_text(
+        "# 大规模采集清单\n\nBV1GJ411x7h7\n"
+        "  https://www.bilibili.com/video/BV1xx411c7mD?p=1  \n"
+        "BV1GJ411x7h7,BV1GJ411x7h7\n",
+        encoding="utf-8",
+    )
+    values = read_bvid_list(path)
+    assert len(values) == 3
+    assert values[0] == "BV1GJ411x7h7"
+    assert "BV1xx411c7mD" in values[1]
+
+
+def test_crawl_video_skips_finished_without_any_network(tmp_path):
+    first = StubBiliClient()
+    result = crawl_video(
+        first, "BV1GJ411x7h7", max_pages=2, include_replies=False,
+        out_dir=tmp_path, write_source_note=False,
+    )
+    assert result.finished and result.comments_total > 0
+
+    class NoNetworkClient(StubBiliClient):
+        def get_video_meta(self, bvid):
+            raise AssertionError("已完成视频不应再请求 meta")
+
+        def get_main_comments(self, *args, **kwargs):
+            raise AssertionError("已完成视频不应再请求评论")
+
+    second = NoNetworkClient()
+    resumed = crawl_video(
+        second, "BV1GJ411x7h7", max_pages=0, include_replies=False,
+        out_dir=tmp_path, write_source_note=False,
+    )
+    assert resumed.finished and resumed.skipped is True
+    assert resumed.comments_total == result.comments_total
+    assert second.page_calls == []
+    assert second.metrics.logical_requests == 0
+
+
+def test_crawl_video_unlimited_pages_and_sub_pages(tmp_path):
+    def pages(offset):
+        if offset == "":
+            return {
+                "replies": [_bili_comment(1, message="根1", rcount=1),
+                            _bili_comment(2, message="根2", rcount=1)],
+                "cursor": {"is_end": False, "pagination_reply": {"next_offset": "N1"}},
+            }
+        if offset == "N1":
+            return {
+                "replies": [_bili_comment(3, message="根3", rcount=1)],
+                "cursor": {"is_end": False, "pagination_reply": {"next_offset": "N2"}},
+            }
+        return {
+            "replies": [_bili_comment(4, message="根4", rcount=0)],
+            "cursor": {"is_end": True},
+        }
+
+    def sub_pages(root, page):
+        # count=25 / size=10 → 需要翻 3 页；max_sub_pages=0 时必须一直翻到自然结束
+        replies = [
+            _bili_comment(
+                int(root) * 1000 + page * 10 + index,
+                message=f"楼中楼{page}-{index}",
+                root=root,
+                parent=root,
+            )
+            for index in range(10)
+        ]
+        return {"replies": replies, "page": {"count": 25, "size": 10}}
+
+    client = StubBiliClient(pages=pages, sub_pages=sub_pages)
+    result = crawl_video(
+        client, "BV1GJ411x7h7", max_pages=0, include_replies=True,
+        max_sub_pages=0, out_dir=tmp_path, write_source_note=False,
+    )
+    assert result.finished is True
+    assert len(client.page_calls) == 3
+    assert [call["page"] for call in client.sub_calls[:3]] == [1, 2, 3]
+    assert result.comments_total == 4 + 3 * 3 * 10  # 4 条一级 + 3 根 × 3 页 × 10 条楼中楼
+
+
+def test_merge_video_csvs_streams_and_reports(tmp_path):
+    first = CsvStore(tmp_path / "BV1GJ411x7h7_comments.csv")
+    first.add([_row("1"), _row("2")])
+    second = CsvStore(tmp_path / "BV1xx411c7mD_comments.csv")
+    second.add([dict(_row("3"), bvid="BV1xx411c7mD")])
+    output = tmp_path / "all_comments.csv"
+    report = merge_video_csvs(tmp_path, output)
+    rows = read_csv_records(output)
+    assert report.files == 2
+    assert report.videos == 2
+    assert report.rows == 3
+    assert len(rows) == 3
+    assert list(rows[0]) == COLUMNS
+    assert output.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def test_crawl_bilibili_aggregates_source_note(monkeypatch, tmp_path):
+    captured = []
+    monkeypatch.setattr(sources, "register_source", lambda record, **kwargs: captured.append(record))
+    client = StubBiliClient()
+    report = crawl_bilibili(
+        ["BV1GJ411x7h7", "BV1xx411c7mD"],
+        client=client, max_pages=1, include_replies=False,
+        out_dir=tmp_path, write_source_note=True,
+    )
+    assert len(captured) == 1
+    assert captured[0].name == "B站视频评论（批量）"
+    assert captured[0].count == report.total_saved
+    assert report.as_dict()["skipped_count"] == 0
+
+
+def test_login_status_and_require_login(monkeypatch):
+    logged_in = make_bili_session(
+        nav_payload={"code": 0, "data": {"isLogin": True, "uname": "测试用户", "mid": 42}}
+    )
+    client = _make_client(logged_in)
+    status = client.login_status()
+    assert status["is_login"] is True and status["uname"] == "测试用户"
+
+    anonymous = _make_client(make_bili_session())
+    with pytest.raises(ConfigError):
+        crawl_bilibili(
+            ["BV1GJ411x7h7"], client=anonymous, require_login=True,
+            max_pages=1, include_replies=False, out_dir="unused",
+            write_source_note=False,
+        )
+
+
+def test_bili_cookie_env_parsing(monkeypatch):
+    monkeypatch.setenv("BILI_COOKIE", "SESSDATA=abc; bili_jct=csrf; DedeUserID=7")
+    session = make_bili_session()
+    client = _make_client(session)
+    assert client.has_credentials is True
+    assert session.cookies.store.get("SESSDATA") == "abc"
+    assert session.cookies.store.get("bili_jct") == "csrf"
+
+
+
+def test_large_batch_scale_and_zero_request_resume(tmp_path):
+    """30 个视频 × 3 页 × 20 条：批量落盘、全量合并、重跑零请求跳过。"""
+
+    def pages(offset):
+        index = 0 if offset == "" else int(offset[1:])
+        replies = [
+            _bili_comment(index * 100 + item + 1, message=f"评论{index}-{item}")
+            for item in range(20)
+        ]
+        is_end = index >= 2
+        cursor = {"is_end": is_end}
+        if not is_end:
+            cursor["pagination_reply"] = {"next_offset": f"N{index + 1}"}
+        return {"replies": replies, "cursor": cursor}
+
+    bvids = [f"BV1GJ411x{index:03d}" for index in range(30)]
+    client = StubBiliClient(pages=pages)
+    report = crawl_bilibili(
+        bvids, client=client, max_pages=0, include_replies=False,
+        out_dir=tmp_path, write_source_note=False,
+    )
+    assert report.total_saved == 30 * 3 * 20
+    assert len(list(tmp_path.glob("*_comments.csv"))) == 30
+
+    class NoNetworkClient(StubBiliClient):
+        def get_video_meta(self, bvid):
+            raise AssertionError("不应请求 meta")
+
+        def get_main_comments(self, *args, **kwargs):
+            raise AssertionError("不应请求评论")
+
+    resumed = crawl_bilibili(
+        bvids, client=NoNetworkClient(), max_pages=0, include_replies=False,
+        out_dir=tmp_path, write_source_note=False,
+    )
+    assert resumed.skipped == 30
+    assert resumed.failed == 0
+    assert resumed.metrics["requests"] == 0
+
+    merged = merge_video_csvs(tmp_path, tmp_path / "all_comments.csv")
+    assert merged.rows == report.total_saved
+    assert merged.videos == 30

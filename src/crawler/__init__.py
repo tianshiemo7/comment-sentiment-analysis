@@ -45,6 +45,10 @@ _LAZY_EXPORTS = {
     "crawl_bilibili": "bilibili",
     "fetch_video_comments": "bilibili",
     "parse_bvid": "bilibili",
+    "read_bvid_list": "bilibili",
+    "merge_video_csvs": "bilibili",
+    "MergeReport": "bilibili",
+    "validate_page_limits": "bilibili",
     # 公共组件
     "CrawlerError": "errors",
     "CrawlStopped": "errors",
