@@ -26,7 +26,7 @@
 | 数据项目（右上传爬虫数据 → clean 管线 → 三张表 + 逐条评论情感） | ✅ 已实现（`src/artifacts/`）· ⚠️ 情感为规则占位 |
 | 单独评论（单条预测结果存入左栏②段，无图表） | ✅ 已实现 |
 | `/api/videos` 链路中的爬取与情感推理 | ⚠️ **占位数据**（未接真实爬虫与模型，见 `src/videos/placeholder.py`） |
-| 词向量 / 深度模型 / 训练 / 评估 / 可视化 | ⛔ 仍为骨架与 TODO |
+| 词向量 / 深度模型 / 训练 / 评估 / 可视化 | ✅ 已实现（Word2Vec、TextCNN、BiLSTM-Attention、训练/早停/日志、指标与四项出图；需装 torch，见第六节） |
 
 数据处理支持无标签爬虫 CSV 到待预测 CSV 的交接，也支持已标注数据到训练集、词表和模型输入数组的制备。
 B 站视频分析链路（输入 BV 号 → 状态跟踪 → 图表词云详情）的前后端与接口契约已落地，
@@ -91,10 +91,10 @@ comment-sentiment-analysis/
 | 中文 jieba 分词、英文分词小写化；去停用词/URL/HTML/特殊符号 | `src/preprocessing/` | 已实现 保护否定词与表情信息 |
 | 统一 max_len（如 200）截断补齐 | `src/preprocessing/processor.py` | 已实现 同时输出有效长度及掩码 |
 | 词表构建 min_freq ≥ 3，统计词表规模/平均长度/标签分布 | `src/preprocessing/` → `outputs/stats/` | 已实现 词表仅使用训练集 |
-| 词向量 Word2Vec / GloVe | `src/embeddings/` | 骨架就绪 |
-| 两种深度模型搭建、训练与对比 | `src/models/` `src/training/` | 骨架就绪 |
-| 指标 Accuracy / Precision / Recall / F1 / 混淆矩阵 | `src/evaluation/` | 骨架就绪 |
-| 损失 / 准确率曲线、混淆矩阵热力图、正负词云、Attention 可视化 | `src/visualization/` → `outputs/figures/` | 骨架就绪 |
+| 词向量 Word2Vec / GloVe | `src/embeddings/` | ✅ Word2Vec 已实现（GloVe 可加载外部预训练向量，未内置下载） |
+| 两种深度模型搭建、训练与对比 | `src/models/` `src/training/` | ✅ 已实现（TextCNN / BiLSTM-Attention + 统一训练循环 + 模型对比表） |
+| 指标 Accuracy / Precision / Recall / F1 / 混淆矩阵 | `src/evaluation/` | ✅ 已实现（含宏平均与错误分析） |
+| 损失 / 准确率曲线、混淆矩阵热力图、正负词云、Attention 可视化 | `src/visualization/` → `outputs/figures/` | ✅ 已实现（训练 CLI 自动出图） |
 | 可运行入口：CLI 或 Web 界面 | `src/inference/` + `frontend/` | 已实现 |
 | **B 站视频评论分析主流程**（输入 BV 号 → 状态跟踪 → 图表词云详情） | `frontend/` + `src/videos/` + `docs/API契约.md` | 前后端与契约均已实现（爬取/推理为占位） |
 | **爬虫数据上传 → 处理结果项目**（初始数据 / 筛选后结果 / 排除记录 + 逐条评论情感） | `src/artifacts/` + 前端左栏①段 | 已实现（情感为规则占位） |
@@ -111,6 +111,7 @@ comment-sentiment-analysis/
 | Python | ≥ 3.10（开发环境 3.13 已通过） | 爬虫、预处理、训练、推理服务 |
 | Node.js | ≥ 18（开发环境 24 已通过） | 前端开发与构建 |
 | npm | 随 Node 附带 | 前端依赖管理 |
+| PyTorch | ≥ 2.2（CPU 即可） | 训练 TextCNN / BiLSTM-Attention；未安装时跳过训练与模型测试 |
 
 ## 四、快速开始
 
@@ -157,9 +158,16 @@ python -m src.preprocessing --input data/raw/comments_labeled.csv
 # 使用新输出目录或显式 --overwrite 可以重跑；Shell入口同样可用
 bash scripts/split_data.sh --input data/raw/comments_labeled.csv
 
-# 以下仍待实现
-bash scripts/get_data.sh      # 采集数据
-bash scripts/train.sh         # 词向量 + 深度模型训练 + 评估 + 出图
+# 训练 + 测试评估 + 出图（需要 PyTorch；data/splits 不存在时会先跑上面的预处理）
+bash scripts/train.sh
+
+# 只训练一个模型 / 指定超参 / 顺带训练词向量并用预训练 embedding 初始化
+MODELS=textcnn TRAIN_ARGS="--epochs 20 --batch-size 64" bash scripts/train.sh
+WITH_WORD2VEC=1 bash scripts/train.sh
+
+# 小样本冒烟（样例数据必须加 --allow-small-dataset；训练结果只用于验证链路）
+python -m src.preprocessing --input data/sample/bilibili_demo.csv --allow-small-dataset
+bash scripts/train.sh
 ```
 
 无标签模式输出 `data/processed/comments_cleaned.csv`，保留原文、清洗文本、分词及采集元数据，不生成情感标签、训练词表或训练划分。
@@ -184,11 +192,18 @@ bash scripts/train.sh         # 词向量 + 深度模型训练 + 评估 + 出图
 | 情感预测逻辑 | ⚠️ **规则占位**：`src/inference/service.py:predict_rule_based`，内置 140 词情感词表（含程度副词与否定词翻转）。它能对明显正面/负面的评论给出方向正确的结果，用于打通链路，**不是深度学习模型** |
 | 数据读写 / 清洗分词 / 去重冲突审计 / 划分 / 词表 / 编码 / 统计 | ✅ 已实现，含训练与推理共用资源及防泄漏校验 |
 | B 站爬虫 `src/crawler/bilibili.py` | ✅ 可采集（WBI 签名 / 断点续爬 / 去重）· ⚠️ robots 校验与来源登记待接入 |
-| 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ⛔ 仍为骨架与 TODO，见 `docs/开发路线图.md` |
+| 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ✅ 已实现：Word2Vec（`src/embeddings/`）+ TextCNN / BiLSTM-Attention（`src/models/`）+ 早停/检查点/日志（`src/training/`）+ 指标/混淆矩阵/错误分析（`src/evaluation/`）+ 曲线/热力图/词云（`src/visualization/`）。**需要 PyTorch**；用真实数据训练后 `metrics_<模型>.json` 会让 `/api/models` 显示真实指标 |
 
-替换为真实模型的入口只有一个：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text`，
-模型加载成功（返回非 `None`）后即走真实推理分支，接口契约不变。
-**近期要做什么、做到什么程度算完成**，见下方「短期实现目标」一节。
+训练链路已实现（`bash scripts/train.sh`）：预处理产物 → DataLoader → TextCNN / BiLSTM-Attention
+→ 早停 + best 检查点 → 测试集指标 / 对比表 / 错误样例 → 曲线 / 混淆矩阵 / 词云。
+产物位置：`models/checkpoints/<模型>/best.pt`、`outputs/logs/train_*.json`、
+`outputs/stats/metrics_<模型>.json`、`outputs/figures/*.png`。
+
+注意：**训练需要安装 PyTorch**（`requirements.txt` 中按注释单独安装）；不装 torch 时
+`pytest` 会自动跳过模型/训练相关用例，其余服务与数据处理测试照常运行。
+训练出的检查点目前**还未接入推理服务**：替换真实模型的入口仍是实现 `src/inference/service.py`
+的 `load_model` 与 `predict_text`，加载成功后接口契约不变、`method` 自动变成模型名。
+**近期还要做什么、做到什么程度算完成**，见下方「短期实现目标」一节。
 
 ## 六、前后端接口契约
 
@@ -324,18 +339,25 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 
 ## 十一、短期实现目标
 
-> 现状：**演示链路已完整可跑**（界面 → 接口 → 落盘 → 查看），但链路上的**智能部分是规则占位**，
-> 且训练侧（词向量 / 深度模型 / 评估 / 可视化）还没写。下面 6 项是接下来要完成的事，
-> 按建议顺序排列，每项都给了「完成标准」以便自查。
+> 现状（2026-10-17 更新）：**演示链路已完整可跑**，训练侧（词向量 / 深度模型 / 训练 / 评估 / 可视化）
+> 也已实现并通过小样本端到端验证；剩下的三件事是：真实数据达标、真实模型接入推理、上传接真实爬取。
+> 每项都给了「完成标准」以便自查。
+
+### 已完成（2026-10-17）
+
+| # | 目标 | 完成情况 |
+| --- | --- | --- |
+| 1 | **模型骨架落地**：`src/models` 的 TextCNN / BiLSTM-Attention，以及 `src/training/` 训练循环 | ✅ 两个模型均能前向出 logits（BiLSTM 另返回注意力权重，`<pad>` 权重为 0）；`python -m src.training.cli --model textcnn` 可在小样本上训练并保存 `best.pt` |
+| 2 | **训练与评估闭环**：早停 + 检查点 + 日志；Accuracy / Precision / Recall / F1 / 混淆矩阵 / 错误分析 | ✅ `outputs/logs/train_*.json` 逐轮 loss/acc；`outputs/stats/metrics_<模型>.json`、`model_comparison.csv`、`outputs/predictions/error_cases_<模型>.csv` 均产出；安装 torch 且训练出检查点后 `GET /api/models` 会读真实数值 |
+| 6 | **可视化出图**：训练曲线、混淆矩阵热力图、正负词云、Attention 热力图 | ✅ 训练 CLI 默认自动写入 `outputs/figures/`（曲线同时保留按模型命名的版本），见 `tests/test_visualization.py` |
+
+### 待完成
 
 | # | 目标 | 为什么优先 | 完成标准（验收方式） | 依赖 |
 | --- | --- | --- | --- | --- |
-| 1 | **模型骨架落地**：实现 `src/models/cnn.py`（TextCNN）与 `src/models/bilstm_attention.py`（BiLSTM-Attention）的 `build/forward`，以及 `src/training/` 的训练循环 | 这是课程评分的大头（模型实现 30 分），也是所有后续的前置 | 两个模型都能前向出 `logits`（BiLSTM 另返回注意力权重）；`python -m src.training.cli --model textcnn` 能在一份小样本上跑通并保存 `best.pt` | 无 |
-| 2 | **训练与评估闭环**：`src/training` 早停 + 检查点 + 日志；`src/evaluation` 输出 Accuracy / Precision / Recall / F1 与混淆矩阵 | 报告第 5、6 章的直接依据 | `outputs/logs/` 有逐轮 loss/acc；`outputs/stats/metrics_<模型>.json` 产出，且 `GET /api/models` 能读出真实指标（`ready=true`） | 1 |
 | 3 | **真实数据达标**：用爬虫采够规模，跑 train 模式管线出 7:1:2 划分 | 课程硬指标：训练 ≥ 8000、测试 ≥ 2000、正负均衡；管线已就绪，缺的是数据 | `python -m src.preprocessing --input <已标注CSV>` 一次通过（**不加** `--allow-small-dataset`），`outputs/stats/dataset_stats.json` 里 `course_requirements_met=true` | 需要有标注语料（公开数据集或人工标注） |
 | 4 | **真实模型接入推理**：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text` | 一处改动即可让**单条/批量预测、视频任务、数据项目**三处的「规则占位」标识全部变成模型名 | 页面上的「规则占位」标识消失；`POST /api/predict` 返回的 `method` 变成模型名；`/api/models` 显示 `ready=true` | 2、3 |
 | 5 | **上传接真实爬取**：让 `src/artifacts` 的「采集评论」阶段调用 `src/crawler/bilibili.py`，替代"手工先爬再传" | 打通「输入 BV 号 → 自动爬取 → 出结果」的完整体验 | 上传/提交后能自动爬到真实评论；`src/videos/placeholder.py` 与 `src/artifacts` 的占位数据可删 | 爬虫可跑（已具备） |
-| 6 | **可视化出图**：`src/visualization` 输出训练曲线、混淆矩阵热力图、正负词云、Attention 热力图 | 课程要求四项可视化（报告配图 + 加分项） | `outputs/figures/` 下 6 张 PNG 齐备，且报告里能引用 | 2 |
 
 ### 同时要清掉的两个合规/质量问题
 
@@ -346,7 +368,7 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 
 ### 明确不在短期范围内
 
-- BERT 微调（加分项，等前 4 项完成后视时间决定）；
+- BERT 微调（加分项，等上面 3 项完成后视时间决定）；
 - 多 worker 部署与外部队列（当前单进程，课程演示足够）；
 - `analyze` 的 `train` 模式、Attention 权重的交互式可视化等增强项。
 

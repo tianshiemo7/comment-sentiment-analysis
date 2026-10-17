@@ -24,8 +24,8 @@ scikit-learn>=1.4         # 划分、评估与基线模型
 # 注意：PyTorch 体积大，按平台单独安装，例如：
 #   CPU ： python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   CUDA： python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
-# 骨架阶段不强制安装，src/ 中所有 torch 导入都放在函数内部或 try/except 里，
-# 因此无 torch 环境也能跑通 tests/。
+# 训练 / 模型相关测试需要 PyTorch（体积大，未放进默认依赖，需单独安装）：
+# 未安装时 pytest 会自动跳过模型/训练用例，服务与数据处理测试仍可运行。
 # torch>=2.2
 # transformers>=4.40     # BERT 微调（可选加分项）
 

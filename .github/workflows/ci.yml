@@ -42,13 +42,20 @@ jobs:
           python -c "import src.videos.service; print('videos ok')"
           python -c "import src.preprocessing; print('preprocessing ok')"
           python -c "import src.crawler; print('crawler ok')"
+          python -c "import src.models.cnn, src.models.bilstm_attention; print('models ok')"
+          python -c "import src.training.cli, src.training.trainer; print('training ok')"
+          python -c "import src.evaluation.metrics, src.evaluation.report; print('evaluation ok')"
+          python -c "import src.visualization; print('visualization ok')"
+          python -c "import src.embeddings, src.embeddings.__main__; print('embeddings ok')"
 
       # 爬虫与预处理没有独立测试覆盖时，至少保证模块可编译、可导入、CLI 可 --help
-      - name: 校验爬虫模块（无测试覆盖，防语法/依赖回归）
+      - name: 校验爬虫与训练/词向量 CLI（防语法/依赖回归）
         run: |
           python -m py_compile src/crawler/bilibili.py
           python -c "import ast,sys; ast.parse(open('src/crawler/bilibili.py',encoding='utf-8').read()); print('bilibili.py 语法 ok')"
           python -m src.crawler.bilibili --help > /dev/null && echo "爬虫 CLI --help ok"
+          python -m src.training.cli --help > /dev/null && echo "训练 CLI --help ok"
+          python -m src.embeddings --help > /dev/null && echo "词向量 CLI --help ok"
 
       - name: 运行测试
         run: python -m pytest tests/ -q

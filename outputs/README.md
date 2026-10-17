@@ -2,10 +2,10 @@
 
 | 子目录 | 内容 | 对应课程要求 |
 | --- | --- | --- |
-| `figures/` | 图表：`loss_curve.png`、`accuracy_curve.png`、`confusion_matrix_cnn.png`、`wordcloud_positive.png`、`wordcloud_negative.png`、`attention_heatmap.png` | 结果可视化四项要求 |
+| `figures/` | 图表：`loss_curve.png` / `accuracy_curve.png`（最新一次训练）、`loss_curve_<模型>.png` / `accuracy_curve_<模型>.png`、`confusion_matrix_<模型>.png`、`wordcloud_positive.png`、`wordcloud_negative.png`、`attention_heatmap.png` | 结果可视化四项要求 |
 | `logs/` | 训练日志（每个模型一份，含每轮 loss / acc） | 实验分析 |
-| `predictions/` | 批量预测导出结果 `batch_prediction_YYYYMMDD_HHMMSS.csv` | 批量预测并导出 |
-| `stats/` | 数据统计 `dataset_stats.json`：词表规模、平均文本长度、标签分布；`metrics_<模型>.json` 指标 | 预处理统计完整性 |
+| `predictions/` | 批量预测导出结果 `batch_prediction_YYYYMMDD_HHMMSS.csv`；错误分析 `error_cases_<模型>.csv` | 批量预测并导出 / 错误分析 |
+| `stats/` | 数据统计 `dataset_stats.json`：词表规模、平均文本长度、标签分布；`metrics_<模型>.json` 指标；`model_comparison.csv` 多模型对比表 | 预处理统计完整性 |
 | `videos/` | B 站视频分析任务的落盘数据：`index.json`（任务列表）+ 每个视频一个 `<bvid>.json`（详情） | 主流程状态与结果持久化 |
 
 文件默认不入库（可由 `scripts/` 重新生成），但**报告中引用的最终图表建议一并提交**，
