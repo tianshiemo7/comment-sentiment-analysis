@@ -31,16 +31,16 @@
 | `matrices.py` | 混淆矩阵热力图、Attention 热力图 |
 | `wordclouds.py` | 正负词云 |
 
-## 待实现清单（TODO）
+## 实现状态（已完成）
 
-- [ ] `curves.py:plot_loss_curve` / `plot_accuracy_curve` —— 双折线 + 图例 + 训练/验证对比
-- [ ] `matrices.py:plot_confusion_matrix` —— seaborn heatmap，标注数值与坐标轴标签
-- [ ] `matrices.py:plot_attention_heatmap` —— 词 × 权重条形/热力图（加分项）
-- [ ] `wordclouds.py:plot_wordcloud` —— 词频字典 → 词云图，中文字体需显式指定
-- [ ] `wordclouds.py:plot_wordclouds_by_label` —— 按正负标签分别统计词频并各出一张
+- [x] `curves.py:plot_loss_curve` / `plot_accuracy_curve` —— 训练 vs 验证双折线；缺少 `train_acc` 时只画验证集
+- [x] `curves.py:load_history` —— 读取训练日志 JSON 的 `history`
+- [x] `matrices.py:plot_confusion_matrix` —— seaborn heatmap，缺 seaborn 时退回 imshow + 手动标注；支持按行归一化
+- [x] `matrices.py:plot_attention_heatmap` —— Attention 权重 Top-K 横向条形图（加分项）
+- [x] `wordclouds.py:word_frequencies` / `plot_wordcloud` / `plot_wordclouds_by_label` —— 正负词云，自动探测中文字体
 
-> 中文乱码排查：matplotlib 未指定中文字体时会出现方块，需
-> ``plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]`` 且 ``axes.unicode_minus=False``。
+训练 CLI（默认 `--no-figures` 可关闭）会把曲线、混淆矩阵、正负词云写入 `outputs/figures/`：
+曲线同时产出 `loss_curve.png`（最新一次）与 `loss_curve_<model>.png`（按模型保留）。
 
 ## 关联
 
