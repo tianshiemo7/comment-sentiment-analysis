@@ -30,10 +30,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import NUM_CLASSES, require_torch
+from .base import NUM_CLASSES, TorchModelMixin, require_torch
 
 
-class BiLSTMAttention:
+class BiLSTMAttention(TorchModelMixin):
     """BiLSTM-Attention 骨架：``__init__`` 只记录超参，张量构建在 :meth:`build` 内完成。"""
 
     name = "bilstm_attention"
@@ -100,38 +100,82 @@ class BiLSTMAttention:
         )
 
     def build(self) -> Any:
-        """构建网络并返回 ``torch.nn.Module``。
+        """构建网络并返回 ``torch.nn.Module``（重复调用返回同一实例）。"""
+        if self.net is not None:
+            return self.net
+        torch = require_torch()
+        import torch.nn as nn
 
-        TODO(实现):
-            1. ``torch = require_torch()``，``import torch.nn as nn``；
-            2. ``nn.Embedding``（同 TextCNN，含 ``padding_idx`` 与预训练初始化）；
-            3. ``nn.LSTM(embed_dim, hidden_dim, num_layers, batch_first=True,
-               bidirectional=..., dropout=...)``；
-            4. 注意力：``nn.Linear(output_dim, attention_dim)`` + 可学习打分向量
-               ``nn.Parameter(torch.randn(attention_dim))``；
-            5. 分类头：``nn.Dropout`` + ``nn.Linear(output_dim, num_classes)``。
-        """
-        raise NotImplementedError("TODO: 尚未实现 BiLSTM-Attention 网络搭建")
+        hp = self.hyperparams
+        pretrained = self.pretrained_embeddings
+        output_dim = self.output_dim
+        lstm_dropout = hp["dropout"] if hp["num_layers"] > 1 else 0.0
+
+        class _BiLSTMAttentionModule(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embedding = nn.Embedding(
+                    hp["vocab_size"], hp["embed_dim"], padding_idx=hp["padding_idx"]
+                )
+                if pretrained is not None:
+                    weight = torch.as_tensor(pretrained, dtype=torch.float32)
+                    expected = (hp["vocab_size"], hp["embed_dim"])
+                    if tuple(weight.shape) != expected:
+                        raise ValueError(
+                            f"预训练词向量矩阵形状 {tuple(weight.shape)} 与模型期望 {expected} 不一致"
+                        )
+                    with torch.no_grad():
+                        self.embedding.weight.copy_(weight)
+                if hp["freeze_embeddings"]:
+                    self.embedding.weight.requires_grad = False
+                self.lstm = nn.LSTM(
+                    hp["embed_dim"],
+                    hp["hidden_dim"],
+                    num_layers=hp["num_layers"],
+                    batch_first=True,
+                    bidirectional=hp["bidirectional"],
+                    dropout=lstm_dropout,
+                )
+                self.attention_proj = nn.Linear(output_dim, hp["attention_dim"])
+                self.attention_vector = nn.Parameter(torch.randn(hp["attention_dim"]))
+                self.dropout = nn.Dropout(hp["dropout"])
+                self.classifier = nn.Linear(output_dim, hp["num_classes"])
+                self.padding_idx = int(hp["padding_idx"])
+
+            def forward(self, x, attention_mask=None):
+                if attention_mask is None:
+                    mask = (x != self.padding_idx).to(torch.float32)
+                else:
+                    mask = attention_mask.to(torch.float32)
+                embeddings = self.embedding(x) * mask.unsqueeze(-1)
+                outputs, _ = self.lstm(embeddings)
+                projected = torch.tanh(self.attention_proj(outputs))
+                scores = torch.matmul(projected, self.attention_vector)
+                scores = scores.masked_fill(mask == 0, -1e9)
+                weights = torch.softmax(scores, dim=1)
+                sentence = torch.bmm(weights.unsqueeze(1), outputs).squeeze(1)
+                logits = self.classifier(self.dropout(sentence))
+                return logits, weights
+
+        self.net = _BiLSTMAttentionModule()
+        return self.net
 
     def forward(self, x: Any, attention_mask: Any = None):
         """前向传播。
 
         Args:
             x: ``LongTensor``，形状 ``[batch, max_len]``。
-            attention_mask: 可选 ``[batch, max_len]`` 的 0/1 掩码，``<pad>`` 位为 0；
-                传入时应把对应位置的注意力打分置为 ``-inf``（或用极小值）
+            attention_mask: 可选 ``[batch, max_len]`` 的 0/1 掩码；传入时 ``<pad>``
+                位置的注意力打分被置为极小值，权重为 0。
 
         Returns:
             ``(logits, attn_weights)``：logits ``[batch, num_classes]``，
             attn_weights ``[batch, max_len]``（每行和为 1，供可视化）。
-
-        TODO(实现):
-            1. ``self.net`` 为空时先 :meth:`build`；
-            2. LSTM 取 ``output, (h_n, c_n) = lstm(emb)``；
-            3. 按 :meth:`build` 的注意力公式算 ``u_t`` → ``a_t``（应用 mask）；
-            4. 加权求和得句子表示 → dropout → 全连接 → 返回 ``(logits, attn_weights)``。
         """
-        raise NotImplementedError("TODO: 尚未实现 BiLSTM-Attention 前向传播")
+        net = self.net
+        if net is None:
+            net = self.build()
+        return net(x, attention_mask=attention_mask)
 
     def estimate_params(self) -> dict[str, int]:
         """估算参数量（不含偏置项），返回分项与总数。

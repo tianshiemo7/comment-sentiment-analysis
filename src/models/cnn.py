@@ -25,10 +25,10 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from .base import NUM_CLASSES, require_torch
+from .base import NUM_CLASSES, TorchModelMixin, require_torch
 
 
-class TextCNN:
+class TextCNN(TorchModelMixin):
     """TextCNN 骨架：``__init__`` 只记录超参，张量构建在 :meth:`build` 内完成。"""
 
     name = "textcnn"
@@ -81,18 +81,63 @@ class TextCNN:
         )
 
     def build(self) -> Any:
-        """构建网络并返回 ``torch.nn.Module``。
+        """构建网络并返回 ``torch.nn.Module``（重复调用返回同一实例）。"""
+        if self.net is not None:
+            return self.net
+        torch = require_torch()
+        import torch.nn as nn
 
-        TODO(实现):
-            1. ``torch = require_torch()``，``import torch.nn as nn``；
-            2. ``nn.Embedding(vocab_size, embed_dim, padding_idx=padding_idx)``，
-               若 ``pretrained_embeddings`` 非空则 ``weight.data.copy_`` 初始化，
-               ``freeze_embeddings`` 为真时置 ``requires_grad=False``；
-            3. 每种 ``k in filter_sizes``：``nn.Conv1d(embed_dim, num_filters, k)``；
-            4. ``nn.Dropout`` + ``nn.Linear(num_filters * len(filter_sizes), num_classes)``；
-            5. 用 :class:`torch.nn.Module` 子类或 ``nn.Module`` 容器封装，赋值给 ``self.net`` 并返回。
-        """
-        raise NotImplementedError("TODO: 尚未实现 TextCNN 网络搭建")
+        hp = self.hyperparams
+        pretrained = self.pretrained_embeddings
+        filter_sizes = tuple(hp["filter_sizes"])
+
+        class _TextCNNModule(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embedding = nn.Embedding(
+                    hp["vocab_size"], hp["embed_dim"], padding_idx=hp["padding_idx"]
+                )
+                if pretrained is not None:
+                    weight = torch.as_tensor(pretrained, dtype=torch.float32)
+                    expected = (hp["vocab_size"], hp["embed_dim"])
+                    if tuple(weight.shape) != expected:
+                        raise ValueError(
+                            f"预训练词向量矩阵形状 {tuple(weight.shape)} 与模型期望 {expected} 不一致"
+                        )
+                    with torch.no_grad():
+                        self.embedding.weight.copy_(weight)
+                if hp["freeze_embeddings"]:
+                    self.embedding.weight.requires_grad = False
+                self.convs = nn.ModuleList(
+                    nn.Conv1d(hp["embed_dim"], hp["num_filters"], kernel_size)
+                    for kernel_size in filter_sizes
+                )
+                self.dropout = nn.Dropout(hp["dropout"])
+                self.classifier = nn.Linear(
+                    hp["num_filters"] * len(filter_sizes), hp["num_classes"]
+                )
+                self.padding_idx = int(hp["padding_idx"])
+
+            def forward(self, x):
+                token_mask = (x != self.padding_idx).to(torch.float32)
+                embeddings = self.embedding(x) * token_mask.unsqueeze(-1)
+                embeddings = embeddings.transpose(1, 2)  # [B, E, L] 供 Conv1d 使用
+                pooled = []
+                for conv in self.convs:
+                    kernel_size = conv.kernel_size[0]
+                    features = torch.relu(conv(embeddings))
+                    if features.size(2) == 0:
+                        continue
+                    # 窗口内全为 <pad> 的位置不参与 max-over-time，避免补齐位伪造 n-gram 信号
+                    valid = token_mask.unfold(1, kernel_size, 1).sum(dim=-1) > 0
+                    features = features.masked_fill(~valid.unsqueeze(1), -1e9)
+                    pooled.append(features.max(dim=2).values)
+                if not pooled:
+                    raise ValueError("输入序列长度小于最小卷积核宽度，无法提取 n-gram 特征")
+                return self.classifier(self.dropout(torch.cat(pooled, dim=1)))
+
+        self.net = _TextCNNModule()
+        return self.net
 
     def forward(self, x: Any):
         """前向传播。
@@ -102,14 +147,11 @@ class TextCNN:
 
         Returns:
             logits ``[batch, num_classes]``（顺序 ``[negative, positive]``）。
-
-        TODO(实现):
-            1. ``self.net`` 为空时先调用 :meth:`build`；
-            2. ``emb = embedding(x)`` → ``[B, L, E]``，转置为 ``[B, E, L]`` 供 Conv1d 使用；
-            3. 每个卷积核 ``conv(emb)`` → ``relu`` → ``max(dim=2)`` 取 max-over-time；
-            4. 拼接各尺寸特征 → dropout → 全连接 → 返回 logits。
         """
-        raise NotImplementedError("TODO: 尚未实现 TextCNN 前向传播")
+        net = self.net
+        if net is None:
+            net = self.build()
+        return net(x)
 
     def estimate_params(self) -> dict[str, int]:
         """估算参数量（不含偏置项），返回分项与总数。

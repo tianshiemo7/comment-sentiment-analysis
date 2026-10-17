@@ -34,13 +34,18 @@
 | `cnn.py` | `TextCNN` 类骨架（超参记录 + 参数量估算） |
 | `bilstm_attention.py` | `BiLSTMAttention` 类骨架（含注意力说明） |
 
-## 待实现清单（TODO）
+## 实现状态（已完成）
 
-- [ ] `cnn.py:TextCNN.build` —— 卷积层 / 池化层 / 全连接层搭建
-- [ ] `cnn.py:TextCNN.forward` —— 前向传播（含 mask 处理）
-- [ ] `bilstm_attention.py:BiLSTMAttention.build` —— Embedding + 双向 LSTM + 注意力 + 分类头
-- [ ] `bilstm_attention.py:BiLSTMAttention.forward` —— 返回 ``(logits, attn_weights)``
-- [ ] `base.py:save_checkpoint` / `load_checkpoint` —— ``torch.save`` / ``torch.load``（函数内导入 torch）
+- [x] `cnn.py:TextCNN.build` / `forward` —— 多尺寸 Conv1d + max-over-time + dropout + 全连接，按 `<pad>` 掩码过滤补齐位置
+- [x] `bilstm_attention.py:BiLSTMAttention.build` / `forward` —— Embedding + 双向 LSTM + 加性注意力（返回 `(logits, attn_weights)`，`<pad>` 权重为 0）
+- [x] `base.py:save_checkpoint` / `load_checkpoint` —— `torch.save` / `torch.load`，同目录附 `config.json` / `metadata.json`
+- [x] `base.py:TorchModelMixin` —— 让两个包装类支持 `model(x)` / `train()` / `eval()` / `state_dict()` / `load_state_dict()`
+
+快速自检：
+
+```bash
+python -m pytest tests/test_models.py -q
+```
 
 ## 关联
 

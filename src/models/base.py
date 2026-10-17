@@ -15,6 +15,47 @@ NUM_CLASSES = len(LABELS)
 CHECKPOINT_DIR = Path("models") / "checkpoints"
 
 
+class TorchModelMixin:
+    """让「只记录超参的模型包装类」像一个轻量 nn.Module 使用。
+
+    骨架设计里 __init__ 不创建张量，真正的网络在 build 里构建并赋给 self.net。
+    本混入类补齐训练/推理侧真正要用的几个转发方法，使模型对象可按普通 nn.Module 调用。
+    """
+
+    #: 由 build 赋值；未构建时为 None
+    net: Any = None
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def module(self):
+        """返回底层 nn.Module，必要时先 build。"""
+        net = getattr(self, "net", None)
+        if net is None:
+            net = self.build()
+        return net
+
+    def train(self, mode: bool = True):
+        self.module().train(mode)
+        return self
+
+    def eval(self):
+        return self.train(False)
+
+    def to(self, device):
+        self.module().to(device)
+        return self
+
+    def parameters(self):
+        return self.module().parameters()
+
+    def state_dict(self):
+        return self.module().state_dict()
+
+    def load_state_dict(self, state_dict, strict: bool = True):
+        return self.module().load_state_dict(state_dict, strict=strict)
+
+
 @runtime_checkable
 class SentimentModel(Protocol):
     """情感分类模型协议：两个模型类都实现这两个方法即可被训练循环复用。"""
@@ -59,18 +100,47 @@ def save_checkpoint(state: dict, path: str | Path) -> Path:
         state: 至少包含 ``model_state`` / ``config`` / ``vocab``；建议同时存
             ``epoch`` / ``optimizer_state`` / ``metrics`` 以便断点续训。
 
-    TODO(实现):
-        1. ``torch = require_torch()``；
-        2. ``torch.save(state, path)``，自动创建父目录；
-        3. 同时在同目录写一份 ``config.json``（``ensure_ascii=False``）便于人工查看。
+    Returns:
+        写入的检查点文件路径（`.pt`）。同目录下另写一份 `config.json` 与
+        `metadata.json`，不依赖 torch 也能查看超参和最优指标。
     """
-    raise NotImplementedError("TODO: 尚未实现检查点保存")
+    import json  # noqa: PLC0415 - 仅保存时需要
+
+    torch = require_torch()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(state, path)
+
+    # 便于人工查看与报告引用：超参与指标单独落一份纯文本（不含张量）
+    config = state.get("config") or {}
+    metadata = {
+        "model_name": state.get("model_name"),
+        "model_type": state.get("model_type"),
+        "epoch": state.get("epoch"),
+        "metrics": state.get("metrics") or {},
+        "hyperparams": state.get("hyperparams") or {},
+        "labels": list(LABELS),
+    }
+    (path.parent / "config.json").write_text(
+        json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (path.parent / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return path
 
 
 def load_checkpoint(path: str | Path, map_location: str = "cpu") -> dict:
     """加载训练检查点。
 
-    TODO(实现): ``torch.load(path, map_location=map_location, weights_only=False)``；
-    文件不存在抛 ``FileNotFoundError`` 并提示检查点目录约定。
+    Raises:
+        FileNotFoundError: 检查点不存在（提示目录约定与训练命令）。
     """
-    raise NotImplementedError("TODO: 尚未实现检查点加载")
+    torch = require_torch()
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"检查点不存在：{path}。约定路径为 models/checkpoints/<model_name>/best.pt，"
+            "请先运行 `python -m src.training.cli --model <model_name>` 或 `bash scripts/train.sh`。"
+        )
+    return torch.load(path, map_location=map_location, weights_only=False)

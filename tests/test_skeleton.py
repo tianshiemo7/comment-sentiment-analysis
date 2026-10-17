@@ -111,14 +111,18 @@ def test_bilstm_attention_records_hyperparams_and_estimates_params():
     )
 
 
-def test_model_forward_is_explicit_todo():
+def test_model_forward_runs_on_long_tensor():
+    """实现后模型可直接前向：TextCNN 返回 logits，BiLSTM 返回 (logits, attn)。"""
+    torch = pytest.importorskip("torch")
     from src.models.bilstm_attention import BiLSTMAttention
     from src.models.cnn import TextCNN
 
-    with pytest.raises(NotImplementedError):
-        TextCNN(vocab_size=10).forward([[1, 2, 3]])
-    with pytest.raises(NotImplementedError):
-        BiLSTMAttention(vocab_size=10).forward([[1, 2, 3]])
+    ids = torch.tensor([[2, 3, 4, 5, 0, 0]])
+    logits = TextCNN(vocab_size=10, embed_dim=4, num_filters=2, filter_sizes=(2,)).forward(ids)
+    assert tuple(logits.shape) == (1, 2)
+    logits2, attention = BiLSTMAttention(vocab_size=10, embed_dim=4, hidden_dim=2).forward(ids)
+    assert tuple(logits2.shape) == (1, 2)
+    assert tuple(attention.shape) == (1, 6)
 
 
 def test_bilstm_attention_validates_num_layers():
