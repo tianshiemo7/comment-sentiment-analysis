@@ -29,14 +29,21 @@
 | `trainer.py` | `train_model` 训练主循环、`EarlyStopping`、`set_seed` |
 | `cli.py` | `python -m src.training.cli --model textcnn` 命令行入口 |
 
-## 待实现清单（TODO）
+## 实现状态（已完成）
 
-- [ ] `trainer.py:set_seed` —— 同时固定 `random` / `numpy` / `torch`（含 cuDNN 确定性）
-- [ ] `trainer.py:build_dataloader` —— 把 `Record` 转成 `TensorDataset` + `DataLoader`
-- [ ] `trainer.py:train_one_epoch` —— 单轮训练，返回平均 loss
-- [ ] `trainer.py:evaluate` —— 验证集 loss 与 accuracy
-- [ ] `trainer.py:train_model` —— 主循环：早停、保存 best、写日志 JSON
-- [ ] `cli.py:main` —— argparse 解析数据集/模型/超参并调用 `train_model`
+- [x] `trainer.py:set_seed` —— 固定 `random` / `numpy` / `torch`（含 cuDNN 确定性）
+- [x] `trainer.py:build_dataloader` —— `Record` + 词表 → `TensorDataset(input_ids, attention_mask, lengths, labels)`
+- [x] `trainer.py:train_one_epoch` / `evaluate` / `predict_loader` —— 单轮训练、验证、完整预测（返回 y_true / y_pred / 正类概率 / 注意力）
+- [x] `trainer.py:train_model` —— 早停、best 检查点、训练日志 JSON、结束后恢复最优权重
+- [x] `cli.py:main` —— 加载预处理产物 → 训练 → 测试集评估 → 指标 / 对比表 / 错误样例落盘 → 曲线、混淆矩阵、词云出图
+
+一键训练（未生成 `data/splits` 时会先跑预处理）：
+
+```bash
+bash scripts/train.sh                       # 两模型顺序训练
+MODELS=textcnn bash scripts/train.sh        # 只训练一个
+python -m src.training.cli --model textcnn --epochs 20
+```
 
 ## 关联
 
