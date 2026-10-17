@@ -31,12 +31,12 @@
 | 前后端页面与接口 `frontend/` + `src/inference/` + `src/videos/` + `src/artifacts/` | ✅ 已实现 |
 | 数据项目（右上传爬虫数据 → clean 管线 → 三张表 + 逐条评论情感） | ✅ 已实现（`src/artifacts/`）· ⚠️ 情感为规则占位 |
 | 单独评论（单条预测结果存入左栏②段，无图表） | ✅ 已实现 |
-| `/api/videos` 链路中的爬取与情感推理 | ✅ 默认占位；`VIDEO_REAL_CRAWL=1` 时**真实爬取评论**（情感仍为规则占位），采集失败落 `failed`；见第十二节与 `src/videos/README.md` |
+| `/api/videos` 链路中的爬取与情感推理 | ✅ 默认占位；任务设置 `real_crawl=true`（或 `VIDEO_REAL_CRAWL=1`）时**真实爬取评论**（情感仍为规则占位），支持分步执行，采集失败落 `failed`；见第十二、十四节 |
 | 词向量 / 深度模型 / 训练 / 评估 / 可视化 | ✅ 已实现（Word2Vec、TextCNN、BiLSTM-Attention、训练/早停/日志、指标与四项出图；需装 torch，见第六节） |
 
 数据处理支持无标签爬虫 CSV 到待预测 CSV 的交接，也支持已标注数据到训练集、词表和模型输入数组的制备。
 B 站视频分析链路（输入 BV 号 → 状态跟踪 → 图表词云详情）的前后端与接口契约已落地；
-真实爬取已做成 opt-in（`VIDEO_REAL_CRAWL=1`），真实模型尚未接入，接口契约不变（见 `docs/API契约.md`）。
+真实爬取可按任务设置或 `VIDEO_REAL_CRAWL=1` 开启；真实模型尚未接入，接口契约不变（见 `docs/API契约.md`）。
 
 ---
 
@@ -94,7 +94,7 @@ comment-sentiment-analysis/
 
 | 课程要求 | 对应位置 | 状态 |
 | --- | --- | --- |
-| 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | 骨架就绪，待放数据 |
+| 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | ✅ 已达标：公开语料合并均衡 **18,644 条**（train 13,029 / test 3,723，正负各 ~9.3k）；数据文件不入库，复现命令见第四节 |
 | 数据来源：公开数据集或爬虫（遵守 robots，注明来源与采集时间） | `src/crawler/` | ✅ 爬虫已实现 WBI 签名 / 限速 / robots 校验 / 来源登记（`data/raw/来源说明.md`），实测见第十二节 |
 | 划分 7 : 1 : 2 | `src/preprocessing/split.py` | 已实现 分层或按视频分组 |
 | 中文 jieba 分词、英文分词小写化；去停用词/URL/HTML/特殊符号 | `src/preprocessing/` | 已实现 保护否定词与表情信息 |
@@ -105,8 +105,8 @@ comment-sentiment-analysis/
 | 指标 Accuracy / Precision / Recall / F1 / 混淆矩阵 | `src/evaluation/` | ✅ 已实现（含宏平均与错误分析） |
 | 损失 / 准确率曲线、混淆矩阵热力图、正负词云、Attention 可视化 | `src/visualization/` → `outputs/figures/` | ✅ 已实现（训练 CLI 自动出图） |
 | 可运行入口：CLI 或 Web 界面 | `src/inference/` + `frontend/` | 已实现 |
-| **B 站视频评论分析主流程**（输入 BV 号 → 状态跟踪 → 图表词云详情） | `frontend/` + `src/videos/` + `docs/API契约.md` | 前后端与契约均已实现（爬取/推理为占位） |
-| **设置入口 + 爬虫参数弹窗 + 分步流水线**（账号 Cookie / 参数确认 / 待清洗 / 待分析） | `frontend/` + `src/videos/settings.py` + `docs/API契约.md` | ✅ 已实现（2026-10-17，见[第十四节](#十四设置入口与分步执行2026-10-17)） |
+| **B 站视频评论分析主流程**（输入 BV 号 → 状态跟踪 → 图表词云详情） | `frontend/` + `src/videos/` + `docs/API契约.md` | 已实现；真实爬取按任务设置 opt-in（默认占位演示），情感仍规则占位 |
+| **设置入口 + 爬虫参数弹窗 + 分步流水线**（账号 Cookie / 参数确认 / 待清洗 / 待分析） | `frontend/` + `src/videos/settings.py` + `docs/API契约.md` | ✅ 已实现（见[第十四节](#十四设置入口与分步执行2026-10-17)） |
 | **爬虫数据上传 → 处理结果项目**（初始数据 / 筛选后结果 / 排除记录 + 逐条评论情感） | `src/artifacts/` + 前端左栏①段 | 已实现（情感为规则占位） |
 | **单独评论集中管理**（单条预测结果存入左栏②段） | `src/artifacts/` + 前端②段 | 已实现 |
 | 输入一条评论 → 情感极性与置信度 | `POST /api/predict` | 已实现 |
@@ -283,7 +283,7 @@ VIDEO_REAL_CRAWL=1 VIDEO_CRAWL_MAX_PAGES=1 VIDEO_CRAWL_DELAY=2.5 \
 | 批量上传解析与结果导出下载 | ✅ 可用（csv / txt / tsv / xlsx，导出 UTF-8 BOM CSV） |
 | 前端页面（B站分析主界面 + 单条预测 / 批量预测 / 实验可视化 / 模型对比） | ✅ 可运行（`npm run dev`），真实调用后端接口 |
 | B 站分析主流程接口 `/api/videos*` | ✅ 已实现（`src/videos/`），任务状态机 + 详情接口；默认占位，`VIDEO_REAL_CRAWL=1` 时真实爬取评论（情感仍规则占位）；2026-10-17 起支持按任务 `settings` 分步执行（`crawled` / `cleaned` 等待态 + `continue`） |
-| 设置入口与分步流水线 | ✅ 已实现（2026-10-17）：左上角「设置」弹窗（账号 Cookie / 采集参数 / 自动流程）、**人工登录窗口**（后端本机弹浏览器，人完成扫码/登录，可选 Playwright）、开始分析前的「爬虫参数」弹窗、`crawled`/`cleaned` 等待态与「开始清洗 / 开始分析」按钮；后端 `GET/PUT /api/settings`、`POST /api/crawler/session/check`、`POST /api/account/login/{start,status,cancel}`、`POST /api/videos/{bvid}/continue`。详见[第十四节](#十四设置入口与分步执行2026-10-17) |
+| 设置入口与分步流水线 | ✅ 已实现：左上角设置弹窗（账号 / 采集参数 / 自动流程）、人工登录窗口、爬虫参数弹窗、`crawled`/`cleaned` 等待态与继续按钮；详见[第十四节](#十四设置入口与分步执行2026-10-17) |
 | 情感预测逻辑 | ⚠️ **规则占位**：`src/inference/service.py:predict_rule_based`，内置 140 词情感词表（含程度副词与否定词翻转）。它能对明显正面/负面的评论给出方向正确的结果，用于打通链路，**不是深度学习模型** |
 | 数据读写 / 清洗分词 / 去重冲突审计 / 划分 / 词表 / 编码 / 统计 | ✅ 已实现，含训练与推理共用资源及防泄漏校验 |
 | B 站爬虫 `src/crawler/` | ✅ 可采集：WBI 签名 / 限速抖动 / 风控退避 / 文本标准化 / robots 校验 / 来源登记 / 断点续爬；`python -m src.crawler bilibili --help`，实测见第十二节 |
@@ -469,37 +469,36 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
   状态机、分步流水线与真实的进度推进），真实后端就绪后删除 `vite.config.js` 中的该插件即可
   （或 `VITE_USE_MOCK=0` 关闭），业务代码无需改动。
 
-## 十一、短期实现目标
+## 十一、实现目标与剩余工作
 
-> 现状（2026-10-17 更新）：**演示链路已完整可跑**，训练侧（词向量 / 深度模型 / 训练 / 评估 / 可视化）
-> 也已实现并通过小样本端到端验证；真实数据获取/标注与 `/api/videos` 真实爬取已在第二轮补齐；
-> 设置入口 + 爬虫参数弹窗 + 分步流水线已在第三轮补齐。
-> 剩下的核心两件事仍是：真实模型接入推理、真实数据规模持续扩充。
+> 演示链路、爬虫（含真实登录态 / Web 分步流水线）、训练/评估/可视化均已实现；
+> 目前**唯一影响交付质量的代码缺口是「真实模型接入推理」**，其余为报告与增强项。
 
-### 已完成（2026-10-17）
+### 已具备的能力（详细交付见对应文档与提交记录）
 
-| # | 目标 | 完成情况 |
-| --- | --- | --- |
-| 1 | **模型骨架落地**：`src/models` 的 TextCNN / BiLSTM-Attention，以及 `src/training/` 训练循环 | ✅ 两个模型均能前向出 logits（BiLSTM 另返回注意力权重，`<pad>` 权重为 0）；`python -m src.training.cli --model textcnn` 可在小样本上训练并保存 `best.pt` |
-| 2 | **训练与评估闭环**：早停 + 检查点 + 日志；Accuracy / Precision / Recall / F1 / 混淆矩阵 / 错误分析 | ✅ `outputs/logs/train_*.json` 逐轮 loss/acc；`outputs/stats/metrics_<模型>.json`、`model_comparison.csv`、`outputs/predictions/error_cases_<模型>.csv` 均产出；安装 torch 且训练出检查点后 `GET /api/models` 会读真实数值 |
-| 6 | **可视化出图**：训练曲线、混淆矩阵热力图、正负词云、Attention 热力图 | ✅ 训练 CLI 默认自动写入 `outputs/figures/`（曲线同时保留按模型命名的版本），见 `tests/test_visualization.py` |
-| 7 | **爬虫审查与改进**：审查 PR #2 提交的 988 行爬虫，补齐反爬稳健性 / 标准化 / robots / 来源登记 / 可复用接口 / 效率基准 | ✅ 拆为 10 个实现模块 + 统一 CLI；爬虫测试 81 条（含大规模采集）；本机真实联网与离线 mock 效率见 [第十二节](#十二爬虫模块改进与实测效率)；审查记录见 [`docs/爬虫代码审查与改进-2026-10-17.md`](docs/爬虫代码审查与改进-2026-10-17.md) |
-| 8 | **第二轮全面改进**：公开数据集获取 / 标注工作流 / `/api/videos` 真实爬取 / 长跑稳健性 / 可重复基准 | ✅ 3 个并行子代理交付；全量测试全过；详见 [`docs/第二轮全面改进-2026-10-17.md`](docs/第二轮全面改进-2026-10-17.md) |
-| 9 | **真实数据规模达标**：公开语料下载 → 统一格式 → 合并均衡 → train 预处理 | ✅ 实测 `waimai_10k` + `ChnSentiCorp` 合并均衡 **18,644 条**（正负各 9,322），预处理 `course_requirements_met=true`：train 13,029 / val 1,861 / test 3,723；命令见第四节，数据文件不入库 |
-| 10 | **设置入口 + 爬虫参数弹窗 + 分步流水线**：左上角设置弹窗、人工登录窗口 / B 站 Cookie 账号模式、开始分析前参数确认、`crawled`/`cleaned` 等待态与「继续」、自动连续开关 | ✅ 2026-10-17 交付：后端 `GET/PUT /api/settings`、`POST /api/crawler/session/check`、`POST /api/account/login/{start,status,cancel}`、`POST /api/videos/{bvid}/continue`；前端设置/参数两个弹窗与等待态按钮；详见[第十四节](#十四设置入口与分步执行2026-10-17) |
+- **模型与训练**：TextCNN / BiLSTM-Attention + 统一训练循环 / 早停 / 检查点，
+  `python -m src.training.cli --model textcnn` 可训练并保存 `best.pt`；
+- **评估与可视化**：Accuracy / Precision / Recall / F1、混淆矩阵、错误分析，
+  训练曲线 / 热力图 / 词云自动写入 `outputs/figures/`；
+- **数据**：公开语料合并均衡 **18,644 条**（train 13,029 / val 1,861 / test 3,723，
+  正负均衡，`course_requirements_met=true`），复现命令见第四节，数据文件不入库；
+- **爬虫**：WBI 签名 / 限速 / robots / 来源登记 / 断点续采 / 大规模清单 / 真实登录态，
+  详见[第十二节](#十二爬虫模块改进与实测效率)；
+- **系统**：前端五页 + FastAPI 接口 + 设置入口 / 人工登录窗口 / 爬虫参数弹窗 / 分步执行，
+  详见[第十四节](#十四设置入口与分步执行2026-10-17)。
 
 ### 待完成
 
 | # | 目标 | 为什么优先 | 完成标准（验收方式） | 依赖 |
 | --- | --- | --- | --- | --- |
-| 4 | **真实模型接入推理**：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text` | 一处改动即可让**单条/批量预测、视频任务、数据项目**三处的「规则占位」标识全部变成模型名 | 页面上的「规则占位」标识消失；`POST /api/predict` 返回的 `method` 变成模型名；`/api/models` 显示 `ready=true` | 2、9 |
-| 5 | **上传接真实爬取**：`/api/videos` 已在 `VIDEO_REAL_CRAWL=1` 时调用真实爬虫；`src/artifacts` 的「采集评论」阶段仍待接入 | 打通「输入 BV 号 → 自动爬取 → 出结果」与「上传数据项目」两条链路 | 页面视频任务可显示真实评论；上传项目不依赖手工先爬 | 爬虫与视频链路已具备，artifacts 待接 |
+| 1 | **真实模型接入推理**：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text` | 一处改动即可让**单条/批量预测、视频任务、数据项目**三处的「规则占位」标识全部变成模型名 | 页面上的「规则占位」标识消失；`POST /api/predict` 返回的 `method` 变成模型名；`/api/models` 显示 `ready=true` | 已训练检查点 |
+| 2 | **artifacts 上传链路接真实爬取**：`src/artifacts` 的「采集评论」阶段仍未接爬虫（`/api/videos` 已支持真实爬取） | 打通「上传爬取数据项目」与「输入 BV 自动采集」两条链路 | 上传项目不依赖手工先爬 | 爬虫与视频链路已具备 |
+| 3 | **课程设计报告正文**：按 `docs/课程设计报告大纲.md` 撰写 ≥ 5000 字、8 章 | 课程硬性交付物，目前只有大纲 | 报告文档完整、图表与实验数据引用齐全 | 现有实验产物 |
 
-### 同时要清掉的合规/质量问题
+### 仍需处理的质量问题
 
 | 事项 | 说明 | 位置 |
 | --- | --- | --- |
-| ~~**爬虫 robots 校验与来源登记**~~ | ✅ 2026-10-17 已解决：`src/crawler/robots.py` + `sources.py`，采集时自动校验并写入 `data/raw/来源说明.md`；API 主机 `Disallow: /` 的处理策略见第十二节 | Issue [#4](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/4)（可关闭） |
 | **预处理模块 4 项必修** | 英文否定被清洗摧毁、`remove_html` 吞正文、manifest 不记达标判决、标签空间二/三分类口径冲突 | Issue [#3](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/3) |
 
 ### 明确不在短期范围内
@@ -636,58 +635,22 @@ python -m src.preprocessing --input data/raw/BV1GJ411x7h7_comments.csv --mode cl
 `rpid→comment_id`）无需改动；`tests/test_preprocessing.py:test_bilibili_crawler_schema_*`
 继续通过。
 
-### 8. 第二轮全面改进（2026-10-17 下午，3 个子代理并行）
+### 8. 第二轮改进与真实数据闭环（已完成）
 
-第一轮解决的是「爬虫本身是否合规、稳健、可复用」；第二轮针对第一轮评估出的三个真实短板
-（数据规模/标注、`/api/videos` 未接真实爬取、长跑边界条件）并行改进：
+- **数据获取 / 标注**：`src/crawler/datasets.py`（4 个公开中文语料、流式下载、来源登记）
+  与 `src/crawler/labeling.py`（分层抽样 + 合并校验）；`waimai_10k` + `ChnSentiCorp`
+  合并均衡得到 **18,644 条（正负各 9,322）**，预处理后 train 13,029 / val 1,861 /
+  test 3,723，`course_requirements_met=true`（数据文件不入库，命令见第四节）；
+- **长跑稳健性**：BV 去重、楼中楼分页自适应、`sub_done` 断点、`--max-seconds` 时间预算；
+- **`/api/videos` 真实爬取**：`crawler_adapter.py` + 逐任务采集参数；采集失败落 `failed`
+  不卡 `crawling`；真实评论进入 detail（`placeholder=false`，情感仍 `rule_placeholder`）；
+- **验证**：离线测试覆盖下载 / 标签 / 断点 / 真实分支；真实联网冒烟与规模测试见下一节。
 
-| 子任务 | 交付 | 验收 |
-| --- | --- | --- |
-| **A. 数据获取 + 标注闭环** | `src/crawler/datasets.py`（4 个公开中文语料注册表；流式下载 + 可选 SHA256 + `.part` 原子改名 + 来源登记；`import_labeled_csv` 统一 `text,label`；`merge_balance` 合并均衡）；`src/crawler/labeling.py`（分层确定性抽样 + manifest；标注合并校验标签/重复/冲突/缺失） | 47 条离线测试（本地 http.server 模拟下载，checksum 成功/失败、404、标签映射、抽样确定性、合并校验、类别均衡） |
-| **B. 爬虫长跑稳健性** | BV 输入去重；楼中楼分页不再写死 20（`page.size/count` 自适应）；`sub_done` 断点（恢复时跳过已处理根评论）；`--max-seconds` 时间预算与 `timed_out` | 70 条爬虫测试（原 60 + 新 10） |
-| **C. `/api/videos` 接真实爬取** | `src/videos/crawler_adapter.py`；`PipelineConfig.real_crawl` 与 6 个 `VIDEO_CRAWL_*` 环境变量；采集失败落 `failed` 不卡 `crawling`；真实评论进入 detail（`placeholder=false`，情感仍 `rule_placeholder`） | 15 条离线测试（默认占位不变、真实分支、失败分支、HTTP 契约） |
+> 详细分工与设计见 [`docs/第二轮全面改进-2026-10-17.md`](docs/第二轮全面改进-2026-10-17.md)；
+> 数据来源与 SHA256 写入 `data/raw/来源说明.md` / `sources.json`；该语料为「酒店 + 外卖」
+> 跨领域混合，模型跨域效果仍需评估（报告可讨论）。
 
-另外 Lead 集成时补强：
-- **安全校验**：数据集 URL 仅允许 `http(s)`，`filename` 拒绝目录穿越（防 `file://` 读取本机文件）；
-- **真实 detail 质量**：词云关键词过滤 URL / 域名 / `@提及` / `[B站表情]` 噪声；
-- **效率基准**：离线默认 `--repeat 3` 取中位数 + 报告进程 RSS（`psutil` 可选，无则跳过）；
-- **真实端到端冒烟**（本机联网，未入库）：`VIDEO_REAL_CRAWL=1` 跑 `BV1GJ411x7h7`，
-  1 页采集到 **19 条真实评论**，任务 `completed`，`comment_count=19`、`placeholder=false`、
-  detail 标题/词云/趋势来自真实数据，耗时约 26 s（其中真实采集约 8 s，其余为流水线阶段时序）。
-
-**验收结果**：全量 **462 passed**（原 319 + 新增 143），耗时约 125 s；
-`python -m src.crawler.datasets --help` / `labeling --help` / `bash -n scripts/get_data.sh`
-/ `py_compile src/crawler/*.py src/videos/*.py` 均通过；`git diff --check` 干净。
-真实 `/api/videos` 冒烟与 `tests/test_videos_real_crawl.py` 证明默认路径零回归。
-
-> 详细分工、设计、命令输出与风险见
-> [`docs/第二轮全面改进-2026-10-17.md`](docs/第二轮全面改进-2026-10-17.md)。
-
-### 9. 真实数据闭环验证（2026-10-17）
-
-除了爬虫效率，本轮还用公开语料跑通了「下载 → 统一 → 合并均衡 → 训练预处理」全链路：
-
-| 步骤 | 命令 / 结果 |
-| --- | --- |
-| 下载 | `bash scripts/get_data.sh --dataset waimai_10k`、`--dataset chnsenticorp`；自动登记来源 |
-| 统一 | `python -m src.crawler.datasets --import-csv ...`：外卖 11,987 条（正 4,000 / 负 7,980）、ChnSentiCorp 7,766 条（正 5,322 / 负 2,443） |
-| 合并均衡 | `--merge-balance ... --seed 42`：**18,644 条，正负各 9,322**（按较小类别下采样，跨文件文本去重） |
-| 训练预处理 | `python -m src.preprocessing --input data/raw/comments_labeled_balanced.csv`：accepted 18,613 / excluded 31（同文本异标签 13、重复文本 18）；`course_requirements_met=true` |
-
-`outputs/stats/dataset_stats.json` 关键结果：
-
-```json
-{"splits": {"train": 13029, "val": 1861, "test": 3723},
- "labels": {"negative": 9305, "positive": 9308},
- "vocab_size": 9308,
- "course_requirements_met": true}
-```
-
-> 数据文件体积大且被 `.gitignore` 排除，因此不入库；按上面命令可在联网环境复现。
-> 来源说明与 SHA256 已写入 `data/raw/来源说明.md` / `sources.json`。
-> 该语料是「酒店 + 外卖」跨领域混合，训练出的模型跨域效果仍需评估（报告可讨论）。
-
-### 10. 大规模采集能力（正确性优先，速度次要）
+### 9. 大规模采集能力（正确性优先，速度次要）
 
 面向「上万条 BV、反复跑到全部完成」的场景，补齐了以下能力（操作手册见
 [`docs/大规模采集运行手册.md`](docs/大规模采集运行手册.md)）：
@@ -731,25 +694,26 @@ python -m src.crawler.bilibili \
   已完成断点零请求跳过（`requests=0`）、`--merge-output` 合并 59 行；
 - 测试见 `tests/test_crawler.py` 的 `test_large_batch_scale_and_zero_request_resume` 等。
 
-> 说明：真实登录态下的深层分页/楼中楼全量需要使用者提供 Cookie，本次未用真实账号验证；
+> 说明：真实登录态已验证——2026-10-17 通过「人工登录窗口」登录账号，单视频采集到
+> 20 条真实评论并完成分步流水线；深层分页 / 楼中楼全量仍未大规模验证；
 > 合规限速下大规模采集耗时以「小时/天」计，详见运行手册的容量估算。
 
-### 11. 结论与局限
+### 10. 结论与局限
 
-- **结论**：提交版本的核心链路正确，但在合规、风控恢复、标准化与可复用性上不足；
-  第一轮已补齐这些缺口；第二轮又补上了公开数据获取/标注、`/api/videos` 真实爬取与
-  长跑边界条件，并用公开语料把训练数据做到了课程硬指标（18,644 条、正负均衡、
-  `course_requirements_met=true`），通过全量测试 + 本机真实联网 + 离线 mock 基准验证。
+- **结论**：爬虫的合规、风控恢复、标准化与可复用性已补齐；公开数据获取/标注、
+  `/api/videos` 真实爬取（含任务级参数与分步执行）与长跑边界条件已落地；
+  训练数据达到课程硬指标（18,644 条、正负均衡、`course_requirements_met=true`）；
+  当前全量测试 **522 passed**，并做过本机真实联网与离线 mock 基准验证。
 - **局限**：
   - 匿名账号可见评论量随接口策略波动（实测单视频 3~200+ 条，且未必能到全量），
-    大规模采集建议配置 `BILI_SESSDATA`/`BILI_COOKIE`，并用 `--require-login` 校验；
-  - 真实登录态下的深层分页/楼中楼全量未用真实账号验证（能力与离线规模测试已具备，
-    见[运行手册](docs/大规模采集运行手册.md)）；
-  - 公开数据集内置 URL/SHA256 未在本次联网环境逐个验证（测试禁止联网），首次下载前建议
+    大规模采集建议登录后使用 `--require-login` 校验；
+  - 真实登录态已验证单视频采集，但深层分页 / 楼中楼全量仍未大规模验证
+    （能力与离线规模测试已具备，见[运行手册](docs/大规模采集运行手册.md)）；
+  - 公开数据集内置 URL/SHA256 未在联网环境逐个验证（测试禁止联网），首次下载前建议
     `bash scripts/get_data.sh --dataset <name>` 复核并记录实际校验和；
   - 真实采集只影响评论数据，情感极性仍是 `predict_rule_based` 规则占位，真实模型未接入；
-  - `src/artifacts` 的上传链路仍未接真实爬取（`/api/videos` 已 opt-in 接入）；
-  - 单进程串行、单机测量；基准已改为 3 次中位数，但仍受网络波动影响。
+  - `src/artifacts` 的上传链路仍未接真实爬取（`/api/videos` 已接入）；
+  - 单进程串行、单机测量；基准取 3 次中位数，但仍受网络波动影响。
 
 ## 十三、许可证
 
