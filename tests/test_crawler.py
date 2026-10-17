@@ -1489,6 +1489,26 @@ def test_bili_cookie_env_parsing(monkeypatch):
 
 
 
+def test_crawl_bilibili_continues_after_unexpected_error(tmp_path):
+    """单个视频的意外异常不能中断整批（大规模清单的容错）。"""
+
+    class FlakyClient(StubBiliClient):
+        def get_video_meta(self, bvid):
+            if bvid.endswith("000"):
+                raise RuntimeError("模拟磁盘/解析意外错误")
+            return super().get_video_meta(bvid)
+
+    report = crawl_bilibili(
+        ["BV1GJ411x000", "BV1GJ411x001"], client=FlakyClient(),
+        max_pages=1, include_replies=False, out_dir=tmp_path,
+        write_source_note=False,
+    )
+    assert len(report.videos) == 2
+    assert report.videos[0].error and "模拟磁盘" in report.videos[0].error
+    assert report.videos[1].error is None
+    assert report.failed == 1
+
+
 def test_large_batch_scale_and_zero_request_resume(tmp_path):
     """30 个视频 × 3 页 × 20 条：批量落盘、全量合并、重跑零请求跳过。"""
 

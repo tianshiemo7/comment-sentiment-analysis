@@ -138,5 +138,5 @@ outputs/videos/
 ```bash
 python -m pytest tests/test_videos_api.py tests/test_videos_pipeline.py -q
 python -m pytest tests/test_videos_real_crawl.py -q    # 真实采集的离线用例（monkeypatch，不联网）
-python -m pytest tests/ -q                           # 全量（当前 460 项）
+python -m pytest tests/ -q                           # 全量（当前 461 项）
 ```

@@ -1661,6 +1661,11 @@ def crawl_bilibili(
             except CrawlStopped as exc:
                 result = VideoCrawlResult(bvid=bvid, error=str(exc))
                 logger.warning("视频 %s 采集停止：%s", bvid, exc)
+            except Exception as exc:  # noqa: BLE001 - 单视频意外错误不应中断整批
+                result = VideoCrawlResult(
+                    bvid=bvid, error=f"意外错误：{type(exc).__name__}: {exc}"
+                )
+                logger.exception("视频 %s 发生意外错误，跳过并继续后续视频", bvid)
             report.videos.append(result)
             done = len(report.videos)
             if done % 100 == 0:
