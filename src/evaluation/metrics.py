@@ -1,6 +1,6 @@
-"""评估指标骨架。
+"""评估指标：Accuracy / Precision / Recall / F1、混淆矩阵与错误分析。
 
-标签顺序固定为 ``LABELS = ("negative", "positive")``，与 `src/models/base.py`
+标签顺序固定为 LABELS = ("negative", "positive")，与 `src/models/base.py`
 和 `src/inference/service.py` 保持一致，不得调换。
 """
 
@@ -24,6 +24,13 @@ def _require_sklearn():
     return metrics
 
 
+def _validate_pair(y_true: Sequence[int], y_pred: Sequence[int]) -> None:
+    if len(y_true) != len(y_pred):
+        raise ValueError(f"真实标签数 {len(y_true)} 与预测标签数 {len(y_pred)} 不一致")
+    if not len(y_true):
+        raise ValueError("评估集为空，无法计算指标")
+
+
 def compute_metrics(
     y_true: Sequence[int],
     y_pred: Sequence[int],
@@ -33,20 +40,30 @@ def compute_metrics(
     """计算二分类指标。
 
     Args:
-        y_true: 真实标签（``0 = negative``，``1 = positive``）。
-        y_pred: 预测标签，与 ``y_true`` 等长。
-        average: ``"binary"`` 直接算正类指标；``"macro"`` 算宏平均（两个类一起看）。
+        y_true: 真实标签（0 = negative，1 = positive）。
+        y_pred: 预测标签，与 y_true 等长。
+        average: "binary" 直接算正类指标；"macro" 算宏平均（两个类一起看）。
 
     Returns:
-        ``{"accuracy": float, "precision": float, "recall": float, "f1": float}``
-
-    TODO(实现):
-        - ``accuracy_score``、``precision_score``、``recall_score``、``f1_score``
-          （``zero_division=0`` 避免除零告警）；
-        - 额外记录宏平均版 ``macro_precision`` 等键，便于报告对比；
-        - 断言 ``len(y_true) == len(y_pred)``，不等时抛 ``ValueError``。
+        正类指标 accuracy / precision / recall / f1，外加 macro_* 宏平均版，便于报告对比。
     """
-    raise NotImplementedError("TODO: 尚未实现指标计算")
+    _validate_pair(y_true, y_pred)
+    if average not in {"binary", "macro"}:
+        raise ValueError("average 只支持 binary 或 macro")
+    metrics = _require_sklearn()
+    result = {
+        "accuracy": float(metrics.accuracy_score(y_true, y_pred)),
+        "precision": float(metrics.precision_score(y_true, y_pred, average=average, zero_division=0)),
+        "recall": float(metrics.recall_score(y_true, y_pred, average=average, zero_division=0)),
+        "f1": float(metrics.f1_score(y_true, y_pred, average=average, zero_division=0)),
+    }
+    # 报告里同时给出宏平均，便于观察类别平衡时两种口径的差异
+    result.update({
+        "macro_precision": float(metrics.precision_score(y_true, y_pred, average="macro", zero_division=0)),
+        "macro_recall": float(metrics.recall_score(y_true, y_pred, average="macro", zero_division=0)),
+        "macro_f1": float(metrics.f1_score(y_true, y_pred, average="macro", zero_division=0)),
+    })
+    return result
 
 
 def confusion_matrix(y_true: Sequence[int], y_pred: Sequence[int]) -> dict:
@@ -54,12 +71,20 @@ def confusion_matrix(y_true: Sequence[int], y_pred: Sequence[int]) -> dict:
 
     Returns:
         ``{"matrix": [[tn, fp], [fn, tp]], "tn": int, "fp": int, "fn": int, "tp": int,
-           "labels": ("negative", "positive")}``
-
-    TODO(实现): 用 ``sklearn.metrics.confusion_matrix(labels=[0, 1])``，
-    注意返回顺序是行=真实、列=预测，需按 ``LABELS`` 顺序填写。
+        "labels": ("negative", "positive")}``（行 = 真实，列 = 预测）。
     """
-    raise NotImplementedError("TODO: 尚未实现混淆矩阵")
+    _validate_pair(y_true, y_pred)
+    metrics = _require_sklearn()
+    matrix = metrics.confusion_matrix(y_true, y_pred, labels=[0, 1])
+    tn, fp, fn, tp = (int(matrix[0][0]), int(matrix[0][1]), int(matrix[1][0]), int(matrix[1][1]))
+    return {
+        "matrix": [[tn, fp], [fn, tp]],
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
+        "tp": tp,
+        "labels": LABELS,
+    }
 
 
 def error_analysis(
@@ -70,28 +95,47 @@ def error_analysis(
     *,
     top_k: int = 50,
 ) -> list[dict]:
-    """挑出预测错误的样本，返回错误明细列表。
+    """挑出预测错误的样本，按置信度从高到低排序（高置信度错误最能说明问题）。
 
     Args:
         texts: 原文。
         y_true / y_pred: 真实与预测标签 id。
-        probs: 可选，正类预测概率（用于按「错得离谱」程度排序）。
+        probs: 可选，正类预测概率；预测为 positive 时取它，否则取 1-p。
         top_k: 最多返回多少条。
 
     Returns:
-        ``[{"text": str, "true_label": str, "pred_label": str, "confidence": float}, ...]``
-        按置信度从高到低排序（高置信度错误最能说明问题）。
-
-    TODO(实现):
-        - 遍历筛选 ``y_true != y_pred`` 的位置；
-        - 置信度取预测类概率（若只给正类概率，预测为 positive 时用它，否则用 1-p）；
-        - 排序后截断 ``top_k``。
+        ``[{"text", "true_label", "pred_label", "confidence"}, ...]``。
     """
-    raise NotImplementedError("TODO: 尚未实现错误分析")
+    _validate_pair(y_true, y_pred)
+    if len(texts) != len(y_true):
+        raise ValueError(f"文本数 {len(texts)} 与标签数 {len(y_true)} 不一致")
+    if probs is not None and len(probs) != len(y_true):
+        raise ValueError(f"概率数 {len(probs)} 与标签数 {len(y_true)} 不一致")
+    rows: list[dict] = []
+    for index, (text, true_label, pred_label) in enumerate(zip(texts, y_true, y_pred)):
+        if int(true_label) == int(pred_label):
+            continue
+        if probs is None:
+            confidence = 1.0
+        else:
+            probability = float(probs[index])
+            confidence = probability if int(pred_label) == 1 else 1.0 - probability
+        rows.append(
+            {
+                "text": str(text),
+                "true_label": LABELS[int(true_label)],
+                "pred_label": LABELS[int(pred_label)],
+                "confidence": round(confidence, 6),
+            }
+        )
+    rows.sort(key=lambda row: row["confidence"], reverse=True)
+    if top_k is not None and top_k >= 0:
+        rows = rows[:top_k]
+    return rows
 
 
 def labels_to_ids(labels: Sequence[str]) -> list[int]:
-    """把 ``positive`` / ``negative`` 字符串标签转成 0/1（未知标签抛 ValueError）。"""
+    """把 positive / negative 字符串标签转成 0/1（未知标签抛 ValueError）。"""
     mapping = {name: idx for idx, name in enumerate(LABELS)}
     result: list[int] = []
     for label in labels:
@@ -103,5 +147,5 @@ def labels_to_ids(labels: Sequence[str]) -> list[int]:
 
 
 def ids_to_labels(ids: Sequence[int]) -> list[str]:
-    """把 0/1 转回 ``positive`` / ``negative``。"""
+    """把 0/1 转回 positive / negative。"""
     return [LABELS[int(i)] for i in ids]

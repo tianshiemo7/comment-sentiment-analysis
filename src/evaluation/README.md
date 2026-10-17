@@ -37,13 +37,16 @@
 | `metrics.py` | 指标、混淆矩阵、错误分析 |
 | `report.py` | 对比表与 JSON 落盘 |
 
-## 待实现清单（TODO）
+## 实现状态（已完成）
 
-- [ ] `metrics.py:compute_metrics` —— accuracy / precision / recall / f1（宏平均 + 正类）
-- [ ] `metrics.py:confusion_matrix` —— 2×2 混淆矩阵与 TN/FP/FN/TP 明细
-- [ ] `metrics.py:error_analysis` —— 错误样本导出（含置信度）
-- [ ] `report.py:compare_models` —— 多模型指标汇总成对比表
-- [ ] `report.py:save_metrics_table` / `save_metrics_json` —— 落盘
+- [x] `metrics.py:compute_metrics` —— accuracy / precision / recall / f1（正类 + 宏平均 `macro_*`）
+- [x] `metrics.py:confusion_matrix` —— 2×2 混淆矩阵与 TN/FP/FN/TP 明细（行 = 真实，列 = 预测）
+- [x] `metrics.py:error_analysis` —— 错误样本按置信度降序（预测类概率）
+- [x] `report.py:compare_models` —— 多模型指标汇总，`notes` 自动标注各列最优
+- [x] `report.py:save_metrics_json` / `save_metrics_table` / `save_error_cases` —— 落盘（CSV 带 UTF-8 BOM）
+
+训练 CLI 会自动产出 `metrics_<model>.json`、`model_comparison.csv`、`error_cases_<model>.csv`；
+`/api/models` 会读取 `metrics_<model>.json` 展示真实指标。
 
 ## 关联
 
