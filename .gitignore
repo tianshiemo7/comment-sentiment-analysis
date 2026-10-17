@@ -43,6 +43,8 @@ data/uploads/*
 !data/splits/.gitkeep
 !data/uploads/.gitkeep
 !data/raw/README.md
+!data/raw/来源说明.md
+!data/raw/sources.json
 !data/processed/README.md
 !data/splits/README.md
 !data/uploads/README.md
@@ -69,6 +71,7 @@ outputs/predictions/*
 outputs/figures/*
 outputs/stats/*
 outputs/videos/*
+outputs/benchmarks/*
 !outputs/**/.gitkeep
 !outputs/README.md
 

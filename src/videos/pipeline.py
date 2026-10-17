@@ -1,14 +1,14 @@
 """后台处理流水线：`queued → crawling → processing → completed`（失败则 `failed`）。
 
-**本阶段是占位流水线**：真实爬虫（`src/crawler/spider.py`）与真实模型推理尚未实现，
-这里只负责「按可配置时长推进状态机 + 生成占位 detail」，让前端把状态、进度条、
-子步骤走通，绝不让任务永远卡在 `crawling`。
+**本阶段是占位流水线**：真实爬虫已在 `src/crawler/` 实现，但本流水线尚未切换；
+真实模型推理也尚未接入。这里只负责「按可配置时长推进状态机 + 生成占位 detail」，
+让前端把状态、进度条、子步骤走通，绝不让任务永远卡在 `crawling`。
 
 真实接入点（后续只需替换 `_collect_stage` / `run_pipeline` 内的数据来源，结构不变）：
 
 | 阶段 | 现在的占位实现 | 真实接入点 |
 | --- | --- | --- |
-| 采集评论 | 按确定性种子「假装」爬到 N 条评论，`comment_count` 逐步增长 | `src.crawler.spider.is_allowed_by_robots` → `fetch_html` → `parse_comments` → `crawl` → `save_raw` |
+| 采集评论 | 按确定性种子「假装」爬到 N 条评论，`comment_count` 逐步增长 | `src.crawler.fetch_video_comments` / `crawl_video`（已实现 robots + 限速 + 风控退避 + 标准化） |
 | 文本清洗 | 无实际操作，只推时间 | `src.preprocessing.clean`（清洗 + 去重 + 分词） |
 | 情感推理 | 无实际操作，只推时间 | `src.inference.service.load_model` + `predict_text`（真实前向） |
 | 统计分析 | 无实际操作，只推时间 | `src.evaluation` / 词频统计，产出 sentiment / trend / keywords |

@@ -20,7 +20,7 @@
 
 | 部分 | 状态 |
 | --- | --- |
-| B 站评论爬虫 `src/crawler/bilibili.py` | ✅ 已实现（WBI 签名、断点续爬、去重）· ⚠️ robots 校验与来源登记**尚未接入** |
+| B 站评论爬虫 `src/crawler/bilibili.py` | ✅ 已实现（WBI 签名 / 风控退避 / 文本标准化 / robots 校验 / 来源登记 / 断点续爬 / 效率基准）· 本机真实联网实测见 [十二、爬虫模块改进与实测效率](#十二爬虫模块改进与实测效率) |
 | 数据处理管线 `src/preprocessing/` | ✅ 已实现（清洗 / 分词 / 划分 / 词表 / 编码 / 统计） |
 | 前后端页面与接口 `frontend/` + `src/inference/` + `src/videos/` + `src/artifacts/` | ✅ 已实现 |
 | 数据项目（右上传爬虫数据 → clean 管线 → 三张表 + 逐条评论情感） | ✅ 已实现（`src/artifacts/`）· ⚠️ 情感为规则占位 |
@@ -86,7 +86,7 @@ comment-sentiment-analysis/
 | 课程要求 | 对应位置 | 状态 |
 | --- | --- | --- |
 | 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | 骨架就绪，待放数据 |
-| 数据来源：公开数据集或爬虫（遵守 robots，注明来源与采集时间） | `src/crawler/bilibili.py` | 爬虫已实现；robots 校验与来源登记待接入（见 Issue #4） |
+| 数据来源：公开数据集或爬虫（遵守 robots，注明来源与采集时间） | `src/crawler/` | ✅ 爬虫已实现 WBI 签名 / 限速 / robots 校验 / 来源登记（`data/raw/来源说明.md`），实测见第十二节 |
 | 划分 7 : 1 : 2 | `src/preprocessing/split.py` | 已实现 分层或按视频分组 |
 | 中文 jieba 分词、英文分词小写化；去停用词/URL/HTML/特殊符号 | `src/preprocessing/` | 已实现 保护否定词与表情信息 |
 | 统一 max_len（如 200）截断补齐 | `src/preprocessing/processor.py` | 已实现 同时输出有效长度及掩码 |
@@ -179,6 +179,34 @@ bash scripts/train.sh
 标签统一为 `negative=0、positive=1`。后续预测应加载这套资源，不能重新建立词表。
 详细字段、参数、验收策略与下游调用示例见 [数据处理说明](src/preprocessing/README.md)。
 
+### 4. 数据采集（爬虫）
+
+```bash
+# B 站评论：采集 2 页一级评论 + 楼中楼；默认 2.5 秒/请求、遵守 robots、自动登记来源
+python -m src.crawler bilibili --bvid BV1GJ411x7h7 --max-pages 2 --include-replies
+
+# 机器可读报告（请求数 / 重试 / 延迟分位 / 风控恢复次数）
+python -m src.crawler bilibili --bvid BV1GJ411x7h7 --max-pages 1 --json
+
+# 或使用统一脚本（参数见脚本头部注释）
+bash scripts/get_data.sh BV1GJ411x7h7
+
+# 通用 HTML 页面（robots + 限速 + CSS 选择器）
+python -m src.crawler html --url https://example.com/post --source 示例站点 \
+    --selector ".comment-content" --max-items 100
+
+# 采集后：来源登记在 data/raw/来源说明.md 与 sources.json；
+# 再交给预处理清洗
+python -m src.preprocessing --input data/raw/BV1GJ411x7h7_comments.csv --mode clean
+```
+
+爬虫单元测试与效率基准（离线 mock，不访问真实站点）：
+
+```bash
+python -m pytest tests/test_crawler.py -q
+python scripts/bench_crawler.py offline --pages 5 --per-page 20 --include-replies
+```
+
 ## 五、当前实现状态（开发中）
 
 服务与界面已可运行，但**预测结果为占位实现，不是训练出来的模型**：
@@ -191,7 +219,7 @@ bash scripts/train.sh
 | B 站分析主流程接口 `/api/videos*` | ✅ 已实现（`src/videos/`），任务状态机 + 详情接口；爬取与情感推理为占位数据 |
 | 情感预测逻辑 | ⚠️ **规则占位**：`src/inference/service.py:predict_rule_based`，内置 140 词情感词表（含程度副词与否定词翻转）。它能对明显正面/负面的评论给出方向正确的结果，用于打通链路，**不是深度学习模型** |
 | 数据读写 / 清洗分词 / 去重冲突审计 / 划分 / 词表 / 编码 / 统计 | ✅ 已实现，含训练与推理共用资源及防泄漏校验 |
-| B 站爬虫 `src/crawler/bilibili.py` | ✅ 可采集（WBI 签名 / 断点续爬 / 去重）· ⚠️ robots 校验与来源登记待接入 |
+| B 站爬虫 `src/crawler/` | ✅ 可采集：WBI 签名 / 限速抖动 / 风控退避 / 文本标准化 / robots 校验 / 来源登记 / 断点续爬；`python -m src.crawler bilibili --help`，实测见第十二节 |
 | 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ✅ 已实现：Word2Vec（`src/embeddings/`）+ TextCNN / BiLSTM-Attention（`src/models/`）+ 早停/检查点/日志（`src/training/`）+ 指标/混淆矩阵/错误分析（`src/evaluation/`）+ 曲线/热力图/词云（`src/visualization/`）。**需要 PyTorch**；用真实数据训练后 `metrics_<模型>.json` 会让 `/api/models` 显示真实指标 |
 
 训练链路已实现（`bash scripts/train.sh`）：预处理产物 → DataLoader → TextCNN / BiLSTM-Attention
@@ -282,6 +310,11 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 > 上传到「数据项目」时，预处理会自动做列名映射：`bvid → video_id`、`rpid → comment_id`、
 > `ctime_utc → posted_at`、`collected_at_utc → collected_at`，因此按视频分组划分能直接生效。
 > 详见 `data/uploads/README.md` 与 `src/artifacts/README.md`。
+>
+> 爬虫落盘前会做**统一标准化**：HTML 实体还原、全角字母数字转半角（保留中文标点）、
+> 删除零宽/控制字符、空白归一、纯标点与空文本过滤；emoji 与 `[笑哭]` 等 B 站表情保留。
+> 每次采集的「站点 / URL / 采集时间 / 条数 / 合规说明」自动写入
+> [`data/raw/来源说明.md`](data/raw/来源说明.md)，同时保留机器可读的 `data/raw/sources.json`。
 
 ## 八、目录职责
 
@@ -350,6 +383,7 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 | 1 | **模型骨架落地**：`src/models` 的 TextCNN / BiLSTM-Attention，以及 `src/training/` 训练循环 | ✅ 两个模型均能前向出 logits（BiLSTM 另返回注意力权重，`<pad>` 权重为 0）；`python -m src.training.cli --model textcnn` 可在小样本上训练并保存 `best.pt` |
 | 2 | **训练与评估闭环**：早停 + 检查点 + 日志；Accuracy / Precision / Recall / F1 / 混淆矩阵 / 错误分析 | ✅ `outputs/logs/train_*.json` 逐轮 loss/acc；`outputs/stats/metrics_<模型>.json`、`model_comparison.csv`、`outputs/predictions/error_cases_<模型>.csv` 均产出；安装 torch 且训练出检查点后 `GET /api/models` 会读真实数值 |
 | 6 | **可视化出图**：训练曲线、混淆矩阵热力图、正负词云、Attention 热力图 | ✅ 训练 CLI 默认自动写入 `outputs/figures/`（曲线同时保留按模型命名的版本），见 `tests/test_visualization.py` |
+| 7 | **爬虫审查与改进**：审查 PR #2 提交的 988 行爬虫，补齐反爬稳健性 / 标准化 / robots / 来源登记 / 可复用接口 / 效率基准 | ✅ 拆分为 9 个模块；新增 60 条离线测试；本机真实联网与离线 mock 效率见 [第十二节](#十二爬虫模块改进与实测效率)；审查记录见 [`docs/爬虫代码审查与改进-2026-10-17.md`](docs/爬虫代码审查与改进-2026-10-17.md) |
 
 ### 待完成
 
@@ -359,11 +393,11 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 | 4 | **真实模型接入推理**：实现 `src/inference/service.py` 的 `load_model` 与 `predict_text` | 一处改动即可让**单条/批量预测、视频任务、数据项目**三处的「规则占位」标识全部变成模型名 | 页面上的「规则占位」标识消失；`POST /api/predict` 返回的 `method` 变成模型名；`/api/models` 显示 `ready=true` | 2、3 |
 | 5 | **上传接真实爬取**：让 `src/artifacts` 的「采集评论」阶段调用 `src/crawler/bilibili.py`，替代"手工先爬再传" | 打通「输入 BV 号 → 自动爬取 → 出结果」的完整体验 | 上传/提交后能自动爬到真实评论；`src/videos/placeholder.py` 与 `src/artifacts` 的占位数据可删 | 爬虫可跑（已具备） |
 
-### 同时要清掉的两个合规/质量问题
+### 同时要清掉的合规/质量问题
 
 | 事项 | 说明 | 位置 |
 | --- | --- | --- |
-| **爬虫 robots 校验与来源登记** | 课程明确要求「遵守 robots 协议、注明数据来源与采集时间」，目前文档宣称有、代码没有 | Issue [#4](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/4) |
+| ~~**爬虫 robots 校验与来源登记**~~ | ✅ 2026-10-17 已解决：`src/crawler/robots.py` + `sources.py`，采集时自动校验并写入 `data/raw/来源说明.md`；API 主机 `Disallow: /` 的处理策略见第十二节 | Issue [#4](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/4)（可关闭） |
 | **预处理模块 4 项必修** | 英文否定被清洗摧毁、`remove_html` 吞正文、manifest 不记达标判决、标签空间二/三分类口径冲突 | Issue [#3](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/3) |
 
 ### 明确不在短期范围内
@@ -372,7 +406,138 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 - 多 worker 部署与外部队列（当前单进程，课程演示足够）；
 - `analyze` 的 `train` 模式、Attention 权重的交互式可视化等增强项。
 
-## 十二、许可证
+## 十二、爬虫模块改进与实测效率
+
+> 审查对象：PR [#2](https://github.com/tianshiemo7/comment-sentiment-analysis/pull/2)
+> 「添加B站评论爬虫模块」（提交 `7533862`，988 行单文件脚本）。
+> 完整审查记录见 [`docs/爬虫代码审查与改进-2026-10-17.md`](docs/爬虫代码审查与改进-2026-10-17.md)；
+> 模块说明见 [`src/crawler/README.md`](src/crawler/README.md)。
+
+### 1. 审查结论
+
+提交版本是一个**能跑通的可用原型**：WBI 签名、分页游标、楼中楼、rpid 去重、断点续爬、
+BV 号解析均实现正确，作为第一次爬虫提交质量合格。但它更接近一次性脚本，
+在五个方面存在缺口：
+
+| 维度 | 提交版本的问题 | 后果 |
+| --- | --- | --- |
+| 合规 | 无 robots 校验、无来源登记 | 与课程验收要求及 README 宣称不一致（Issue #4） |
+| 反爬稳健性 | 401/403/412/429 直接停止；WBI 密钥永不过期；固定 sleep 无抖动；忽略 `Retry-After` | 一次风控就中断，无法自动恢复 |
+| 数据质量 | 评论原文直接落盘，仅 `strip()` | HTML 实体 / 零宽字符 / 纯标点进入训练集 |
+| 可复用性 | 988 行单文件、`print` 为主、无导入 API | 其它模块（`src/videos` / `src/artifacts`）无法直接接入 |
+| 可观测性 | 无请求数 / 重试 / 延迟 / 字节数指标，无测试 | 无法回答「采集效率如何、失败在哪」 |
+
+### 2. 改进内容
+
+| 方向 | 具体改动 |
+| --- | --- |
+| **反爬稳健性** | ① `RateLimiter`：最小间隔 + 30% 抖动 + 风控后自适应降速/恢复；② `transport.py`：连接池复用、超时、5xx/429 指数退避、尊重 `Retry-After`；③ HTTP 412/403 与业务码 -352/-509/-799 → 冷却 + 刷新 WBI + 有限重试；④ WBI 密钥 TTL 缓存 + 强制刷新；⑤ 可选 buvid3/4（默认关闭，原因见第 6 节）；⑥ 重试耗尽才 `CrawlStopped`，已落盘数据与断点保留 |
+| **正规化** | `normalize.py`：HTML 实体还原 → 逐字符 NFKC（全角字母数字转半角、**保留中文标点**）→ 统一换行 → 删除零宽/控制字符 → 空白归一；空文本 / 纯标点过滤；emoji 与 `[笑哭]` 保留；字段类型统一（rpid 字符串、likes/rcount int、UTC ISO 时间） |
+| **接口适配** | 拆分为 `bilibili / spider / transport / rate_limit / robots / normalize / sources / errors`；提供 `BiliClient` / `crawl_video` / `crawl_bilibili` / `fetch_video_comments` 可导入 API；`crawl_bilibili` 返回带效率指标的 `CrawlReport.as_dict()`；CSV 列名与旧版完全兼容，`src/preprocessing` 列名映射零改动 |
+| **合规闭环** | `robots.py` 按主机缓存校验（404 允许、异常 fail-closed）；视频页 robots 允许；`api.bilibili.com/robots.txt` 当前为 `Disallow: /`，默认 `warn`（日志告警 + 来源说明记录 + 匿名低速），`BILI_API_ROBOTS_POLICY=enforce` 可强制拒绝；每次采集自动写 `data/raw/来源说明.md` + `sources.json` |
+| **可观测性 / 测试** | 请求数、重试、延迟 avg/p50/p95/max、响应字节、评论吞吐、风控恢复次数；新增 60 条离线单测（本地 HTTP 服务 + 假会话，不访问真实站点）；`scripts/bench_crawler.py` 提供离线 mock 与真实联网两种基准 |
+
+### 3. 实测环境与方法
+
+- **时间**：2026-10-17 04:34 UTC（北京时间 12:34）
+- **机器**：Windows 11（10.0.26200），Python 3.13.9，18 核 CPU，单进程串行
+- **网络**：本机家宽直连 B 站（未使用代理）
+- **命令**：
+  - 真实联网：`python scripts/bench_crawler.py live --bvid BV1GJ411x7h7 --max-pages 2 --max-items 60 --delay 2.5`
+  - 离线 mock：`python scripts/bench_crawler.py offline --pages 5 --per-page 20 --include-replies --risk-mode 412`
+- **口径**：`业务请求数` 不含 robots.txt（单独计数）；`总耗时` 为进程内 wall clock；延迟为单次 HTTP 往返；
+  `评论吞吐` 包含保守限速等待，**反映合规采集速度而非客户端性能上限**。
+- 原始 JSON 写入 `outputs/benchmarks/`（gitignored，避免把一次性测量当产物提交），本节保留数值与命令以便复现。
+
+### 4. 真实联网轻量实测
+
+| 指标 | 数值 |
+| --- | --- |
+| 目标 | `BV1GJ411x7h7`（站点评论总数 237,738，匿名可见子集） |
+| 采集配置 | 2 页一级评论，不采楼中楼，最多 60 条，2.5 秒/请求 |
+| 总耗时 | **10.458 s** |
+| 业务请求数 / robots 拉取 | 4 / 2 |
+| 采集评论数 | **39**（2 页） |
+| 评论吞吐 | **3.73 条/s** |
+| 请求延迟 avg / p50 / p95 / max | **126.01 / 90.31 / 273.69 / 273.69 ms** |
+| 重试 / 风控恢复 | 0 / 0 |
+| 限速等待合计 | 8.04 s（占总耗时约 77%） |
+| 响应字节数 | 215,490 B |
+
+**解读**：耗时主要来自**主动限速**（8.04s），不是客户端瓶颈；单请求客户端开销约 126ms，
+其中包含 DNS/TLS 复用后的往返与接口处理。旧版对同一视频首页采集 19 条、3 次请求
+（无 robots、无指标、风控即停）；新版首页同样 19 条，额外完成 2 次 robots 判定、
+0 重试，并输出完整指标与来源登记 —— **有效吞吐与旧版相当，稳健性与可解释性提升**。
+
+### 5. 离线 mock 基准（排除网络与限速）
+
+本地 mock 服务完整模拟 nav / view / WBI 校验 / 分页 / 楼中楼，并注入 1 次 HTTP 412 风控：
+
+| 指标 | 数值 |
+| --- | --- |
+| 总耗时 | **0.446 s** |
+| 业务请求数 | 29（5 页 × 20 条 + 楼中楼 + 风控恢复请求） |
+| 采集评论数 | **135** |
+| 评论吞吐 | **302.55 条/s** |
+| 请求吞吐 | 64.99 次/s |
+| 单请求平均耗时 | 15.387 ms |
+| 请求延迟 avg / p50 / p95 / max | 13.29 / 15.55 / 28.2 / 28.87 ms |
+| WBI 校验失败 | 0 |
+| 风控触发 / 恢复 | **1 / 1（自动恢复，任务继续）** |
+| 文本标准化 | **99,370 条/s** |
+| CSV 写入 | **237,314 行/s** |
+| 限速模拟（500 次请求） | 间隔 2.502~3.25 s，均值 2.878 s，359 种不同间隔（抖动生效） |
+
+**解读**：客户端层开销约 15ms/请求，标准化与 CSV 写入均不是瓶颈；注入 412 后
+任务自动恢复并完成全部 135 条，验证了「风控 → 刷新 → 重试 → 继续」链路。
+离线基准 `delay=0` 仅用于测客户端开销，**实际采集 CLI 强制 `--delay ≥ 2`**。
+
+### 6. 实测发现（反爬相关）
+
+1. **buvid3 反而收紧匿名评论配额**：同一接口、同一 UA，不带 buvid3 时首页返回
+   **19 条且可继续翻页**；带上 buvid3/buvid4 后只返回 **3 条且 `is_end=true`**。
+   因此新版默认**不**自动初始化 buvid，仅保留 `BILI_INIT_BUVID=1` / `--init-buvid`
+   显式开关（需要设备指纹的接口可自行开启）。
+2. **robots.txt 的 Cookie 污染**：用同一个 `requests.Session` 拉取
+   `www.bilibili.com/robots.txt` 会收到 `buvid3` cookie，随后评论配额被限制为 3 条。
+   新版为 robots 检查使用**独立会话**，避免合规检查改变业务会话状态。
+3. **API 主机 robots 为 `Disallow: /`**：`api.bilibili.com/robots.txt` 当前禁止通用抓取。
+   本项目把它视为「视频页数据通道」，默认 `warn` 模式并保持匿名、低速、小规模；
+   如要求严格禁止，设置 `BILI_API_ROBOTS_POLICY=enforce` 后采集会直接停止。
+4. **匿名可见评论有限**：该视频站点评论 237,738 条，匿名 2 页仅见 39 条。
+   需要完整语料时必须由使用者自行通过 `BILI_SESSDATA` 提供登录态（源码不含任何凭据）。
+
+### 7. 复现命令与验证
+
+```bash
+# 单元测试（离线，不访问真实站点）
+python -m pytest tests/test_crawler.py -q          # 60 passed
+
+# 离线效率基准（本地 mock，含 WBI 校验 / 风控恢复）
+python scripts/bench_crawler.py offline --pages 5 --per-page 20 --include-replies
+
+# 真实联网轻量测试（请保持保守频率）
+python scripts/bench_crawler.py live --bvid BV1GJ411x7h7 --max-pages 2
+
+# 采集 + 来源登记 + 下游清洗
+python -m src.crawler bilibili --bvid BV1GJ411x7h7 --max-pages 1
+python -m src.preprocessing --input data/raw/BV1GJ411x7h7_comments.csv --mode clean
+```
+
+下游交接实测：clean 模式 **accepted 38 / excluded 1**，列名映射（`bvid→video_id`、
+`rpid→comment_id`）无需改动；`tests/test_preprocessing.py:test_bilibili_crawler_schema_*`
+继续通过。
+
+### 8. 结论与局限
+
+- **结论**：提交版本的核心链路正确，但在合规、风控恢复、标准化与可复用性上不足；
+  改进版已补齐这些缺口，并通过离线 60 条测试 + 本机真实联网轻量测试 + 离线 mock 基准验证。
+- **局限**：匿名账号可见评论有限，真实数据规模仍依赖登录态或公开数据集；单进程串行、
+  单机单次测量，网络波动会影响绝对数值；通用 HTML 爬虫的默认选择器只适配常见结构，
+  实际站点需传 `--selector`；`src/videos` / `src/artifacts` 尚未切换到真实爬取（适配器
+  `fetch_video_comments` 已就绪）。
+
+## 十三、许可证
 
 本项目代码：[MIT](LICENSE)
 

@@ -1,7 +1,7 @@
 """⚠️ **占位数据生成器（不是真实爬取 + 真实模型的结果）**。
 
-真实爬虫尚未实现（`src/crawler/spider.py` 里 `is_allowed_by_robots` / `fetch_html` /
-`parse_comments` / `crawl` 全是 `NotImplementedError` 的 TODO 骨架），因此本模块用
+真实爬虫已在 `src/crawler/` 实现（B 站接口版 + 通用 HTML 版，含 robots / 限速 / 风控退避），
+但本模块**尚未接入真实爬取**：`src/videos/pipeline.py` 仍按确定性种子造占位数据。因此本模块用
 **确定性伪随机**（种子来自 `sha256(bvid)`，同一 BV 号每次结果完全一致）造出一份
 **结构完整、字段齐全**的 detail，让前端在真实数据接入前就能联调。
 
@@ -10,8 +10,8 @@
 1. 详情响应带顶层 ``placeholder: true``，如实标注数据由占位逻辑生成；
 2. 标题 / UP 主带「占位」字样，一眼可辨，不会让人误以为是真实视频；
 3. 真实接入点：把 :func:`build_detail` 的数据来源换成
-   ``src/crawler.spider.crawl`` 的产物 + 真实模型推理结果，并把
-   ``placeholder`` 置为 ``False``（字段结构无需改动）。
+   ``src.crawler.fetch_video_comments`` / ``src.crawler.crawl_video`` 的产物 + 真实模型推理结果，
+   并把 ``placeholder`` 置为 ``False``（字段结构无需改动）。
 
 `model` 字段的取值规则：优先读 ``GET /api/models``（即
 ``outputs/stats/metrics_<model>.json``）里的**真实指标**；尚未训练（指标全 0）时退回

@@ -1,3 +1,37 @@
+"""B 站视频评论采集（接口版，含反爬稳健性、标准化、断点续爬与来源登记）。
+
+原实现（本文件旧版）已经能跑通 WBI 签名 + 分页 + 去重，但存在以下问题，本版逐项修复：
+
+====================================  ==========================================
+原问题                                 本版改进
+====================================  ==========================================
+固定 ``sleep``、无抖动                  令牌式最小间隔 + 30% 抖动 + 风控后自适应降速
+412 / -352 / -509 直接终止             识别风控 → 刷新 WBI 密钥（可选刷新 buvid）
+                                       → 指数退避重试；重试耗尽才安全停止并保留数据
+429 忽略 ``Retry-After``                传输层尊重 ``Retry-After``，再做指数退避
+WBI 密钥只在进程内取一次                带 TTL 缓存；风控 / 签名失败时强制刷新
+无设备指纹，匿名请求易触发 -352          支持 buvid3/buvid4（``BILI_INIT_BUVID=1`` 或
+                                       ``--init-buvid`` 开启）。**默认关闭**：实测
+                                       携带 buvid3 时匿名账号只能看到 3 条评论
+                                       （见 README「实测效率」），与采集目标冲突
+评论原文直接落盘                        标准化：HTML 实体、NFKC、零宽字符、控制
+                                       字符、空白；纯符号/空文本过滤
+无 robots 校验                          采集前校验视频页 robots；API 主机单独判定
+                                       并如实记录（``Disallow: /`` 时默认告警）
+无来源登记                              自动写入 ``data/raw/sources.json`` 与
+                                       ``data/raw/来源说明.md``
+不可被其它模块复用                     提供 ``BiliClient`` / ``crawl_video`` /
+                                       ``crawl_bilibili`` / ``fetch_video_comments``
+                                       等可导入 API，CLI 只是薄封装
+无效率指标                             统计请求数、重试、延迟分位、字节数、
+                                       评论吞吐与风控恢复次数，供 README 实测表
+====================================  ==========================================
+
+合规约定：本模块不内置任何 Cookie/账号凭据；如需登录态必须由使用者通过环境变量
+``BILI_SESSDATA`` 显式提供。默认请求间隔 2.5 秒、单进程串行、不抓取登录后受限内容。
+"""
+
+from __future__ import annotations
 
 import argparse
 import csv
@@ -5,30 +39,48 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import sys
 import time
-
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Iterable, Mapping
 from urllib.parse import quote, urlencode, urlparse
 
-import requests
+from . import sources
+from .errors import (
+    ApiError,
+    CommentClosed,
+    ConfigError,
+    CrawlStopped,
+    RiskControlError,
+    RobotsDenied,
+)
+from .normalize import normalize_comment, normalize_oneline, to_int, utc_iso
+from .rate_limit import RateLimiter
+from .robots import RobotsChecker
+from .sources import SourceRecord
+from .transport import (
+    DEFAULT_USER_AGENT,
+    RequestMetrics,
+    RetryPolicy,
+    build_session,
+    request_with_retry,
+)
 
-
-# =========================
-# 基础配置
-# =========================
-
-LOG = logging.getLogger("bili_crawler")
+logger = logging.getLogger("bili_crawler")
 
 API = "https://api.bilibili.com"
+WEB = "https://www.bilibili.com"
 
 ROOT = Path(__file__).resolve().parents[2]
-
 SAVE_DIR = ROOT / "data" / "raw"
 
-# WBI 签名混淆表
+DEFAULT_DELAY_SECONDS = float(os.getenv("CRAWL_DELAY_SECONDS", "2.5"))
+DEFAULT_TIMEOUT = float(os.getenv("CRAWL_TIMEOUT", "15"))
+
+#: WBI 签名混淆表（官方前端固定表，非本项目可配置项）
 MIXIN_KEY_ENC_TAB = (
     46, 47, 18, 2, 53, 8, 23, 32,
     15, 50, 10, 31, 58, 3, 45, 35,
@@ -37,9 +89,10 @@ MIXIN_KEY_ENC_TAB = (
     37, 48, 7, 16, 24, 55, 40, 61,
     26, 17, 0, 1, 60, 51, 30, 4,
     22, 25, 54, 21, 56, 59, 6, 63,
-    57, 62, 11, 36, 20, 34, 44, 52
+    57, 62, 11, 36, 20, 34, 44, 52,
 )
 
+#: 原始 CSV 列（保持稳定，下游 ``src/preprocessing`` 按这些列名做映射）
 COLUMNS = [
     "bvid",
     "aid",
@@ -52,937 +105,1236 @@ COLUMNS = [
     "likes",
     "reply_count",
     "ctime_utc",
-    "collected_at_utc"
+    "collected_at_utc",
 ]
 
-BVID_RE = re.compile(
-    r"(?<![0-9A-Za-z])BV[0-9A-Za-z]{10}(?![0-9A-Za-z])"
-)
+BVID_RE = re.compile(r"(?<![0-9A-Za-z])BV[0-9A-Za-z]{10}(?![0-9A-Za-z])")
+
+#: 风控类业务码：应退避、刷新密钥后重试，而不是直接终止
+RISK_CODES = {
+    -352: "风控校验失败",
+    -509: "请求过于频繁",
+    -799: "请求过于频繁",
+}
+#: 不可重试的业务码（视频不存在 / 评论关闭等）
+FATAL_CODES = {
+    -101: "未登录或凭据失效",
+    -400: "请求参数错误",
+    -403: "访问权限不足",
+    -404: "视频不存在",
+    12002: "评论区已关闭",
+    62002: "视频不可见",
+    62004: "视频审核中",
+}
+
+#: ``Retry-After`` 之外的风控冷却时间（秒），按重试次数递增
+DEFAULT_RISK_COOLDOWN = 8.0
 
 
-class CrawlStopped(Exception):
-    pass
+# =========================================================================
+# 基础工具
+# =========================================================================
 
+def parse_bvid(value: str) -> str:
+    """解析 BV 号，支持直接输入视频 URL。"""
 
-# =========================
-# 工具函数
-# =========================
-
-def utc_iso(ts=None):
-    """时间戳转 UTC 时间字符串"""
-
-    if ts is None:
-        return datetime.now(
-            timezone.utc
-        ).isoformat(timespec="seconds")
-
-    try:
-        return datetime.fromtimestamp(
-            int(ts),
-            tz=timezone.utc
-        ).isoformat(timespec="seconds")
-
-    except (ValueError, TypeError, OverflowError, OSError):
-        return ""
-
-
-def parse_bvid(value):
-    """解析 BV 号，支持直接输入视频 URL"""
-
-    value = value.strip()
-
+    value = (value or "").strip()
     if value.startswith(("http://", "https://")):
         parsed = urlparse(value)
-
-        if parsed.hostname not in {
-            "www.bilibili.com",
-            "bilibili.com",
-            "m.bilibili.com"
-        }:
+        if parsed.hostname not in {"www.bilibili.com", "bilibili.com", "m.bilibili.com"}:
             raise ValueError("不是有效的 B站视频网址")
-
         value = parsed.path
-
     match = BVID_RE.search(value)
-
     if not match:
         raise ValueError(f"无法识别 BV 号：{value}")
-
     return match.group()
 
 
-# =========================
-# WBI 签名
-# =========================
-
-def get_mixin_key(img_key, sub_key):
-    """生成 WBI 混合密钥"""
+def get_mixin_key(img_key: str, sub_key: str) -> str:
+    """由 ``img_key + sub_key`` 生成本次会话的 WBI 混合密钥。"""
 
     raw = img_key + sub_key
-
     if len(raw) != 64:
         raise CrawlStopped("WBI 密钥格式异常")
-
-    key = "".join(
-        raw[i] for i in MIXIN_KEY_ENC_TAB
-    )
-
-    return key[:32]
+    return "".join(raw[index] for index in MIXIN_KEY_ENC_TAB)[:32]
 
 
-def sign_wbi(params, mixin_key):
-    """对请求参数进行 WBI 签名"""
+def sign_wbi(
+    params: Mapping[str, Any],
+    mixin_key: str,
+    *,
+    timestamp: int | None = None,
+) -> dict[str, str]:
+    """对请求参数做 WBI 签名，返回包含 ``wts`` 与 ``w_rid`` 的新字典。"""
 
-    params = {
-        str(k): "".join(
-            c for c in str(v)
-            if c not in "!'()*"
-        )
-        for k, v in params.items()
+    cleaned = {
+        str(key): "".join(char for char in str(value) if char not in "!'()*")
+        for key, value in params.items()
     }
-
-    params["wts"] = str(int(time.time()))
-
-    params = dict(sorted(params.items()))
-
-    query = urlencode(
-        params,
-        quote_via=quote,
-        safe=""
-    )
-
-    w_rid = hashlib.md5(
-        (query + mixin_key).encode("utf-8")
-    ).hexdigest()
-
-    params["w_rid"] = w_rid
-
-    return params
+    cleaned["wts"] = str(int(time.time()) if timestamp is None else int(timestamp))
+    ordered = dict(sorted(cleaned.items()))
+    query = urlencode(ordered, quote_via=quote, safe="")
+    w_rid = hashlib.md5((query + mixin_key).encode("utf-8")).hexdigest()
+    ordered["w_rid"] = w_rid
+    return ordered
 
 
-# =========================
-# B站 API 客户端
-# =========================
+# =========================================================================
+# B 站 API 客户端
+# =========================================================================
 
 class BiliClient:
+    """B 站评论接口客户端。
 
-    def __init__(self, delay=2.5, timeout=15):
+    Args:
+        delay: 两次请求的最小间隔（秒）。CLI 会强制 ≥ 2，直接调用时可传 0 做
+            本地 mock 基准。
+        timeout: 单次请求超时。
+        max_attempts: 网络 / 5xx 重试次数。
+        user_agent: 请求 UA，默认项目标识 UA（可通过环境变量覆盖）。
+        api_base: API 根地址；测试/基准可指向本地 mock 服务。
+        web_base: 网页根地址（仅用于 robots 校验）。
+        session: 可注入的会话（测试用）。
+        respect_robots: 是否校验 robots.txt（默认开启）。
+        api_robots_policy: ``api.bilibili.com`` 的 robots 处理策略：
+            ``"warn"``（默认，记录并告警后继续）、``"enforce"``（禁止则拒绝）、
+            ``"ignore"``（不检查）。
+        risk_control_retries: 风控触发的额外重试次数。
+        risk_control_cooldown: 首次风控冷却秒数，后续按次数递增。
+        wbi_ttl: WBI 密钥缓存有效期（秒）。
+        clock / sleep / rng / time_fn: 可注入，便于离线基准与单元测试。
+    """
 
-        self.delay = delay
+    def __init__(
+        self,
+        *,
+        delay: float = DEFAULT_DELAY_SECONDS,
+        timeout: float = DEFAULT_TIMEOUT,
+        max_attempts: int = 3,
+        user_agent: str | None = None,
+        api_base: str = API,
+        web_base: str = WEB,
+        session: Any = None,
+        robots_session: Any = None,
+        respect_robots: bool = True,
+        api_robots_policy: str | None = None,
+        risk_control_retries: int = 2,
+        risk_control_cooldown: float = DEFAULT_RISK_COOLDOWN,
+        wbi_ttl: float = 6 * 3600,
+        init_buvid: bool | None = None,
+        jitter_ratio: float = 0.3,
+        retry_base_delay: float = 1.0,
+        retry_max_delay: float = 20.0,
+        clock=time.monotonic,
+        sleep=time.sleep,
+        rng: random.Random | None = None,
+        time_fn=time.time,
+    ) -> None:
+        if delay < 0:
+            raise ConfigError("delay 不能为负数（限速是硬性要求）")
+        if timeout <= 0:
+            raise ConfigError("timeout 必须为正数")
+        if api_robots_policy is None:
+            api_robots_policy = os.getenv("BILI_API_ROBOTS_POLICY", "warn").strip().lower()
+        if api_robots_policy not in {"warn", "enforce", "ignore"}:
+            raise ConfigError("api_robots_policy 只能是 warn / enforce / ignore")
+        if init_buvid is None:
+            init_buvid = os.getenv("BILI_INIT_BUVID", "").strip().lower() in {"1", "true", "yes", "on"}
+
+        self.api_base = api_base.rstrip("/")
+        self.web_base = web_base.rstrip("/")
         self.timeout = timeout
+        self.user_agent = user_agent or DEFAULT_USER_AGENT
+        self.respect_robots = respect_robots
+        self.api_robots_policy = api_robots_policy
+        self.init_buvid = bool(init_buvid)
+        self.risk_control_retries = max(0, int(risk_control_retries))
+        self.risk_control_cooldown = max(0.0, float(risk_control_cooldown))
+        self.wbi_ttl = max(0.0, float(wbi_ttl))
 
-        self.session = requests.Session()
+        self._clock = clock
+        self._sleep = sleep
+        self._time_fn = time_fn
+        self._rng = rng or random.Random()
+        self._session = session or build_session(self.user_agent)
+        self._session.headers.update(
+            {
+                "User-Agent": self.user_agent,
+                "Referer": f"{self.web_base}/",
+                "Origin": self.web_base,
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            }
+        )
+        self._limiter = RateLimiter(
+            delay,
+            jitter=jitter_ratio,
+            clock=clock,
+            sleep=sleep,
+            rng=random.Random(self._rng.random()),
+        )
+        self._robots_session = (
+            robots_session
+            or (build_session(self.user_agent) if session is None else session)
+        )
+        self._robots = RobotsChecker(self.user_agent, session=self._robots_session)
+        self._policy = RetryPolicy(
+            max_attempts=max_attempts,
+            base_delay=retry_base_delay,
+            max_delay=retry_max_delay,
+            jitter=jitter_ratio,
+        )
+        self.metrics = RequestMetrics()
+        self.risk_control_hits = 0
+        self.wbi_refreshes = 0
+        self.robots_checks: list[dict[str, Any]] = []
+        self.api_robots_decision: dict[str, Any] | None = None
+        self._wbi_key: str | None = None
+        self._wbi_fetched_at: float = 0.0
+        self._buvid_ready = False
+        self._refreshing = False
 
-        self.session.headers.update({
-            "User-Agent": (
-                "CommentSentimentCourseProject/1.0"
-            ),
-            "Referer": "https://www.bilibili.com/",
-            "Accept": "application/json"
-        })
+        self._load_env_cookies()
 
-        # 仅在有合法访问权限时使用凭据
-        # 不要把 Cookie 直接写在源码里
-        sessdata = os.environ.get("BILI_SESSDATA")
+    # ------------------------------------------------------------------ setup
+    def _load_env_cookies(self) -> None:
+        """仅从环境变量读取凭据，绝不把 Cookie 写进源码。"""
 
-        if sessdata:
-            self.session.cookies.set(
-                "SESSDATA",
-                sessdata,
-                domain=".bilibili.com"
-            )
-
-        self.last_request = 0.0
-        self.mixin_key = None
-
-    def request(self, path, params=None, allow_nav=False):
-        """统一请求方法"""
-
-        url = API + path
-
-        for attempt in range(3):
-
-            elapsed = (
-                time.monotonic() - self.last_request
-            )
-
-            if elapsed < self.delay:
-                time.sleep(self.delay - elapsed)
-
+        cookies = {
+            "SESSDATA": os.getenv("BILI_SESSDATA", "").strip(),
+            "bili_jct": os.getenv("BILI_BILI_JCT", "").strip(),
+            "DedeUserID": os.getenv("BILI_DEDEUSERID", "").strip(),
+            "buvid3": os.getenv("BILI_BUVID3", "").strip(),
+        }
+        for name, value in cookies.items():
+            if not value:
+                continue
             try:
-                self.last_request = time.monotonic()
+                self._session.cookies.set(name, value, domain=".bilibili.com")
+            except Exception:  # pragma: no cover - 注入的假会话可能不支持
+                pass
+        if cookies["buvid3"]:
+            self._buvid_ready = True
 
-                LOG.info(
-                    "正在请求 %s（第 %d/3 次尝试，超时设置 %s 秒）",
-                    path, attempt + 1, self.timeout
-                )
-                response = self.session.get(
-                    url,
-                    params=params,
-                    timeout=self.timeout
-                )
+    def close(self) -> None:
+        close = getattr(self._session, "close", None)
+        if callable(close):
+            close()
+        if self._robots_session is not self._session:
+            robots_close = getattr(self._robots_session, "close", None)
+            if callable(robots_close):
+                robots_close()
 
-                # 遇到权限或限流问题立即停止
-                if response.status_code in (
-                    401, 403, 412, 429
-                ):
-                    raise CrawlStopped(
-                        f"HTTP {response.status_code}："
-                        "权限不足或访问受限"
-                    )
+    # ------------------------------------------------------------------ public
+    def check_content_page_robots(self, bvid: str) -> dict[str, Any] | None:
+        """校验视频网页的 robots.txt 判定（API 作为该页面数据通道另行判定）。"""
 
-                if response.status_code >= 500:
-                    raise requests.HTTPError(
-                        f"服务器错误：{response.status_code}"
-                    )
+        if not self.respect_robots:
+            return None
+        url = f"{self.web_base}/video/{bvid}"
+        decision = self._robots.check(url)
+        self.robots_checks.append(decision.as_dict())
+        if not decision.allowed:
+            raise RobotsDenied(url, decision.reason or "视频页被 robots.txt 禁止")
+        return decision.as_dict()
 
-                response.raise_for_status()
+    def check_api_robots(self) -> dict[str, Any] | None:
+        """判定 API 主机的 robots 规则，并如实记录（默认 warn，不静默忽略）。"""
 
-                result = response.json()
+        if not self.respect_robots or self.api_robots_policy == "ignore":
+            return None
+        if self.api_robots_decision is not None:
+            return self.api_robots_decision
+        url = f"{self.api_base}/x/web-interface/nav"
+        decision = self._robots.check(url)
+        self.api_robots_decision = decision.as_dict()
+        self.robots_checks.append(decision.as_dict())
+        if not decision.allowed:
+            message = (
+                f"api.bilibili.com/robots.txt 当前禁止通用抓取（{decision.reason or 'Disallow: /'}）。"
+                "本项目把它视为视频页的数据通道，仅在课程/研究用途下匿名、低速、小规模访问；"
+                "设置 BILI_API_ROBOTS_POLICY=enforce 可改为直接拒绝。"
+            )
+            if self.api_robots_policy == "enforce":
+                raise RobotsDenied(url, "api.bilibili.com robots.txt Disallow: /（enforce 模式）")
+            logger.warning(message)
+        return self.api_robots_decision
 
-                if not isinstance(result, dict):
-                    raise CrawlStopped("返回数据格式异常")
+    def get_video_meta(self, bvid: str) -> dict[str, Any]:
+        """获取视频元信息（aid / 标题 / UP 主 / 评论总数等），供下游详情页适配。"""
 
-                code = result.get("code")
-
-                if code != 0:
-
-                    # 导航接口在匿名状态下可能返回 -101
-                    if not (allow_nav and code == -101):
-                        raise CrawlStopped(
-                            f"接口错误：{code} "
-                            f"{result.get('message')}"
-                        )
-
-                return result
-
-            except CrawlStopped:
-                raise
-
-            except (
-                requests.Timeout,
-                requests.ConnectionError,
-                requests.HTTPError
-            ) as e:
-
-                if isinstance(e, requests.HTTPError):
-                    status = getattr(
-                        getattr(e, "response", None),
-                        "status_code",
-                        500
-                    )
-                    if status < 500:
-                        raise CrawlStopped(
-                            f"请求失败：{e}"
-                        ) from e
-
-                if attempt == 2:
-                    raise CrawlStopped(
-                        f"网络请求失败：{e}"
-                    ) from e
-
-                LOG.warning(
-                    "网络异常，进行第 %d 次重试",
-                    attempt + 1
-                )
-
-                time.sleep(2 * (attempt + 1))
-
-            except (
-                ValueError,
-                requests.RequestException
-            ) as e:
-                raise CrawlStopped(
-                    f"响应解析或请求失败：{e}"
-                ) from e
-
-        raise CrawlStopped("请求失败")
-
-    def get_video_info(self, bvid):
-        """BV 号获取视频信息"""
-
-        result = self.request(
-            "/x/web-interface/view",
-            {"bvid": bvid}
-        )
-
+        result = self._api("/x/web-interface/view", {"bvid": bvid})
         data = result.get("data") or {}
-
         aid = data.get("aid")
-
         if not aid:
-            raise CrawlStopped("无法获取视频 aid")
+            raise ApiError(None, "无法获取视频 aid", url="/x/web-interface/view")
+        stat = data.get("stat") or {}
+        owner = data.get("owner") or {}
+        return {
+            "bvid": bvid,
+            "aid": int(aid),
+            "title": normalize_oneline(data.get("title")),
+            "owner": normalize_oneline(owner.get("name")),
+            "cover_url": str(data.get("pic") or ""),
+            "comment_count": to_int(stat.get("reply")),
+            "view_count": to_int(stat.get("view")),
+            "pubdate": utc_iso(data.get("pubdate")),
+        }
 
-        title = data.get("title", "")
+    def get_video_info(self, bvid: str) -> tuple[int, str]:
+        """兼容旧接口：返回 ``(aid, title)``。"""
 
-        return int(aid), title
+        meta = self.get_video_meta(bvid)
+        return int(meta["aid"]), str(meta["title"])
 
-    def get_wbi_key(self):
-        """获取 WBI 密钥"""
+    def get_wbi_key(self, *, force: bool = False) -> str:
+        """获取并缓存 WBI 混合密钥。"""
 
-        if self.mixin_key:
-            return self.mixin_key
-
-        result = self.request(
-            "/x/web-interface/nav",
-            allow_nav=True
-        )
-
+        now = self._clock()
+        if (
+            not force
+            and self._wbi_key
+            and (now - self._wbi_fetched_at) < self.wbi_ttl
+        ):
+            return self._wbi_key
+        result = self._api("/x/web-interface/nav", allow_nav=True)
         data = result.get("data") or {}
         images = data.get("wbi_img") or {}
-
-        img_url = images.get("img_url", "")
-        sub_url = images.get("sub_url", "")
-
+        img_url = str(images.get("img_url") or "")
+        sub_url = str(images.get("sub_url") or "")
         if not img_url or not sub_url:
-            raise CrawlStopped(
-                "无法获取 WBI 密钥，请检查访问权限"
-            )
+            raise CrawlStopped("无法获取 WBI 密钥，请检查访问权限")
+        img_key = Path(urlparse(img_url).path).stem
+        sub_key = Path(urlparse(sub_url).path).stem
+        self._wbi_key = get_mixin_key(img_key, sub_key)
+        self._wbi_fetched_at = self._clock()
+        self.wbi_refreshes += 1
+        return self._wbi_key
 
-        img_key = Path(
-            urlparse(img_url).path
-        ).stem
+    def get_main_comments(self, aid: int | str, offset: str = "", mode: int = 2) -> dict[str, Any]:
+        """获取一页一级评论（WBI 签名）。"""
 
-        sub_key = Path(
-            urlparse(sub_url).path
-        ).stem
-
-        self.mixin_key = get_mixin_key(
-            img_key,
-            sub_key
-        )
-
-        return self.mixin_key
-
-    def get_main_comments(self, aid, offset="", mode=2):
-        """获取一级评论"""
-
-        params = {
-            "type": 1,
-            "oid": aid,
-            "mode": mode
-        }
-
+        params: dict[str, Any] = {"type": 1, "oid": aid, "mode": mode}
         if offset:
             params["pagination_str"] = json.dumps(
-                {"offset": offset},
-                separators=(",", ":")
+                {"offset": offset}, separators=(",", ":")
             )
-
-        params = sign_wbi(
-            params,
-            self.get_wbi_key()
-        )
-
-        result = self.request(
-            "/x/v2/reply/wbi/main",
-            params
-        )
-
+        signed = sign_wbi(params, self.get_wbi_key(), timestamp=int(self._time_fn()))
+        result = self._api("/x/v2/reply/wbi/main", signed)
         return result.get("data") or {}
 
-    def get_sub_comments(self, aid, root, page=1):
-        """获取楼中楼评论"""
+    def get_sub_comments(
+        self,
+        aid: int | str,
+        root: str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        """获取一页楼中楼评论。"""
 
-        params = {
-            "type": 1,
-            "oid": aid,
-            "root": root,
-            "pn": page,
-            "ps": 20
-        }
-
-        result = self.request(
-            "/x/v2/reply/reply",
-            params
-        )
-
+        params = {"type": 1, "oid": aid, "root": root, "pn": page, "ps": page_size}
+        result = self._api("/x/v2/reply/reply", params)
         return result.get("data") or {}
 
+    def stats_summary(self) -> dict[str, Any]:
+        """返回客户端级效率指标（供报告与 CLI 汇总）。"""
 
-# =========================
-# 评论数据整理
-# =========================
+        summary = self.metrics.summary()
+        summary.update(
+            {
+                "risk_control_hits": self.risk_control_hits,
+                "wbi_refreshes": self.wbi_refreshes,
+                "limiter_interval": round(self._limiter.interval, 3),
+                "limiter_total_wait": round(self._limiter.total_wait, 2),
+                "robots_fetches": self._robots.fetches,
+                "robots_checks": self._robots.checks,
+                "buvid_enabled": self.init_buvid,
+            }
+        )
+        return summary
 
-def normalize_comment(
-    item,
-    bvid,
-    aid,
-    title,
-    level=1,
-    forced_root=""
-):
-    """统一一级评论和二级评论格式"""
+    # ----------------------------------------------------------------- private
+    def _ensure_buvid(self) -> None:
+        """可选地初始化匿名设备指纹（buvid3/buvid4）。
 
-    rpid = str(
-        item.get("rpid_str")
-        or item.get("rpid")
-        or ""
+        默认关闭：实测携带 buvid3 时 B 站匿名账号只能看到 3 条评论（且
+        ``is_end=true``），不携带时同接口可正常分页。需要时可用
+        ``BILI_INIT_BUVID=1`` / ``--init-buvid`` 显式开启。
+        """
+
+        if not self.init_buvid or self._buvid_ready:
+            return
+        try:
+            response = request_with_retry(
+                self._session,
+                "GET",
+                f"{self.api_base}/x/frontend/finger/spi",
+                limiter=self._limiter,
+                policy=self._policy,
+                metrics=self.metrics,
+                timeout=self.timeout,
+                headers={"User-Agent": self.user_agent, "Referer": f"{self.web_base}/"},
+                sleep=self._sleep,
+                clock=self._clock,
+            )
+            payload = response.json()
+            data = payload.get("data") or {}
+            buvid3 = str(data.get("b_3") or "")
+            buvid4 = str(data.get("b_4") or "")
+            if buvid3:
+                self._session.cookies.set("buvid3", buvid3, domain=".bilibili.com")
+            if buvid4:
+                self._session.cookies.set("buvid4", buvid4, domain=".bilibili.com")
+            self._buvid_ready = bool(buvid3)
+        except Exception as exc:  # 设备指纹是增强项，失败不阻塞采集
+            logger.warning("获取 buvid 失败（继续匿名请求）：%s", exc)
+
+    def _refresh_session(self) -> None:
+        """风控后刷新 WBI 密钥（可选刷新设备指纹）。
+
+        风控可能发生在刷新密钥的 nav 请求上；用 ``_refreshing`` 防止
+        「刷新 → 风控 → 再刷新」的递归，最终由重试次数耗尽安全停止。
+        """
+
+        self._wbi_key = None
+        self._wbi_fetched_at = 0.0
+        if self._refreshing:
+            return
+        self._refreshing = True
+        try:
+            if self.init_buvid:
+                self._buvid_ready = False
+                try:
+                    for cookie in ("buvid3", "buvid4"):
+                        try:
+                            self._session.cookies.clear(domain=".bilibili.com", path="/", name=cookie)
+                        except Exception:
+                            pass
+                except Exception:  # pragma: no cover - 防御式
+                    pass
+                self._ensure_buvid()
+            self.get_wbi_key(force=True)
+        finally:
+            self._refreshing = False
+
+    def _cooldown(self, attempt: int, reason: str) -> None:
+        """风控冷却：按重试次数递增，并同步拉长限速间隔。"""
+
+        self.risk_control_hits += 1
+        self._limiter.penalize(1.5)
+        cooldown = self.risk_control_cooldown * (attempt + 1)
+        logger.warning("触发风控（%s），冷却 %.1fs 并刷新会话", reason, cooldown)
+        if cooldown > 0:
+            self._sleep(cooldown)
+
+    def _api(
+        self,
+        path: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        allow_nav: bool = False,
+    ) -> dict[str, Any]:
+        """调用一个 API 并统一处理传输重试、风控与业务码。"""
+
+        url = f"{self.api_base}{path}"
+        self._ensure_buvid()
+        self.check_api_robots()
+
+        risk_attempt = 0
+        while True:
+            response = request_with_retry(
+                self._session,
+                "GET",
+                url,
+                limiter=self._limiter,
+                policy=self._policy,
+                metrics=self.metrics,
+                timeout=self.timeout,
+                headers={
+                    "User-Agent": self.user_agent,
+                    "Referer": f"{self.web_base}/",
+                    "Origin": self.web_base,
+                },
+                params=params,
+                passthrough_statuses=(401, 403, 412),
+                sleep=self._sleep,
+                clock=self._clock,
+            )
+            status = int(getattr(response, "status_code", 0) or 0)
+
+            if status in (401, 403, 412):
+                if risk_attempt >= self.risk_control_retries:
+                    raise RiskControlError(
+                        f"HTTP {status}：访问受限，已重试 {risk_attempt} 次",
+                        status_code=status,
+                    )
+                self._cooldown(risk_attempt, f"HTTP {status}")
+                self._refresh_session()
+                risk_attempt += 1
+                continue
+
+            try:
+                payload = response.json()
+            except ValueError:
+                if risk_attempt >= self.risk_control_retries:
+                    raise CrawlStopped("接口返回非 JSON 数据（可能被风控/拦截）") from None
+                self._cooldown(risk_attempt, "响应不是 JSON")
+                self._refresh_session()
+                risk_attempt += 1
+                continue
+
+            if not isinstance(payload, dict):
+                raise CrawlStopped("返回数据格式异常")
+
+            code = payload.get("code")
+            if code == 0 or (allow_nav and code == -101):
+                return payload
+
+            if code in RISK_CODES:
+                reason = f"业务码 {code} {RISK_CODES[code]}"
+                if risk_attempt >= self.risk_control_retries:
+                    raise RiskControlError(
+                        f"{reason}，已重试 {risk_attempt} 次", code=code
+                    )
+                self._cooldown(risk_attempt, reason)
+                self._refresh_session()
+                risk_attempt += 1
+                continue
+
+            message = str(payload.get("message") or "")
+            if code == 12002 or code in (62002, 62004):
+                raise CommentClosed(f"{FATAL_CODES.get(code, message)}（code={code}）")
+            if code in FATAL_CODES:
+                raise ApiError(code, FATAL_CODES[code] or message, url=path)
+            raise ApiError(code, message or "未知业务错误", url=path)
+
+
+# =========================================================================
+# 评论数据整理（兼容旧函数名）
+# =========================================================================
+
+def normalize_comment_item(
+    item: Mapping[str, Any],
+    bvid: str,
+    aid: int | str,
+    title: str,
+    level: int = 1,
+    forced_root: str = "",
+    *,
+    strip_urls: bool = False,
+    collected_at: str | None = None,
+) -> dict[str, Any] | None:
+    """兼容旧代码的薄封装，实际实现在 :mod:`src.crawler.normalize`。"""
+
+    return normalize_comment(
+        item,
+        bvid,
+        aid,
+        title,
+        level,
+        forced_root,
+        strip_urls=strip_urls,
+        collected_at=collected_at,
     )
 
-    content = item.get("content") or {}
 
-    message = str(
-        content.get("message") or ""
-    )
-
-    if not rpid or not message.strip():
-        return None
-
-    root = str(
-        item.get("root_str")
-        or item.get("root")
-        or "0"
-    )
-
-    parent = str(
-        item.get("parent_str")
-        or item.get("parent")
-        or "0"
-    )
-
-    if level == 1:
-        root = ""
-        parent = ""
-
-    else:
-        root = forced_root or root
-
-        if parent == "0":
-            parent = root
-
-    return {
-        "bvid": bvid,
-        "aid": aid,
-        "video_title": title,
-        "rpid": rpid,
-        "level": level,
-        "root_rpid": root,
-        "parent_rpid": parent,
-        "text": message,
-        "likes": item.get("like", 0),
-        "reply_count": item.get("rcount", 0),
-        "ctime_utc": utc_iso(item.get("ctime")),
-        "collected_at_utc": utc_iso()
-    }
-
-
-# =========================
-# CSV 保存与去重
-# =========================
+# =========================================================================
+# CSV 保存、断点续爬
+# =========================================================================
 
 class CsvStore:
+    """按 ``rpid`` 去重的增量 CSV 存储（UTF-8 BOM，Excel 可直接打开）。"""
 
-    def __init__(self, path):
-
+    def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
-        self.path.parent.mkdir(
-            parents=True,
-            exist_ok=True
-        )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.ids: set[str] = set()
+        self.duplicates = 0
+        self.empty = 0
 
-        self.ids = set()
-
-        if self.path.exists():
-
-            with self.path.open(
-                "r",
-                encoding="utf-8-sig",
-                newline=""
-            ) as f:
-
-                reader = csv.DictReader(f)
-
-                self.ids = {
-                    row["rpid"]
-                    for row in reader
-                    if row.get("rpid")
-                }
-
+        if self.path.exists() and self.path.stat().st_size > 0:
+            with self.path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                header = reader.fieldnames or []
+                if header and header != COLUMNS:
+                    raise ConfigError(
+                        f"CSV 表头与当前版本不一致：{self.path}\n"
+                        f"  期望：{','.join(COLUMNS)}\n"
+                        f"  实际：{','.join(header)}\n"
+                        "请改名或删除旧文件后重试（旧数据可先备份）。"
+                    )
+                self.ids = {row["rpid"] for row in reader if row.get("rpid")}
         else:
+            self._write_rows([], header_only=True)
 
-            with self.path.open(
-                "w",
-                encoding="utf-8-sig",
-                newline=""
-            ) as f:
-
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=COLUMNS
-                )
-
+    def _write_rows(self, rows: list[dict[str, Any]], *, header_only: bool = False) -> None:
+        if header_only:
+            with self.path.open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=COLUMNS)
                 writer.writeheader()
+            return
+        with self.path.open("a", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=COLUMNS)
+            writer.writerows(rows)
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:  # pragma: no cover - 某些文件系统不支持
+                pass
 
-    def add(self, records):
-        """追加保存，自动根据评论 ID 去重"""
+    def add(self, records: Iterable[dict[str, Any] | None]) -> int:
+        """追加保存并返回新增条数；重复 rpid 与空记录会被跳过。"""
 
-        new_rows = []
-
+        new_rows: list[dict[str, Any]] = []
         for row in records:
-
             if row is None:
+                self.empty += 1
                 continue
-
-            rpid = row["rpid"]
-
+            rpid = str(row.get("rpid") or "")
+            if not rpid:
+                self.empty += 1
+                continue
             if rpid in self.ids:
+                self.duplicates += 1
                 continue
-
             self.ids.add(rpid)
             new_rows.append(row)
-
         if new_rows:
-
-            with self.path.open(
-                "a",
-                encoding="utf-8",
-                newline=""
-            ) as f:
-
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=COLUMNS
-                )
-
-                writer.writerows(new_rows)
-
+            self._write_rows(new_rows)
         return len(new_rows)
 
+    @property
+    def total(self) -> int:
+        return len(self.ids)
 
-# =========================
-# 断点续爬
-# =========================
+
+def read_csv_records(path: str | Path) -> list[dict[str, Any]]:
+    """读取爬虫 CSV，返回 ``dict`` 列表（供下游适配器使用）。"""
+
+    target = Path(path)
+    if not target.exists():
+        return []
+    with target.open("r", encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
 
 def load_state(
-    path,
-    mode,
-    include_replies,
-    max_sub_pages,
-    reset=False
-):
+    path: Path,
+    mode: int,
+    include_replies: bool,
+    max_sub_pages: int,
+    reset: bool = False,
+) -> dict[str, Any]:
+    """读取断点；配置不一致时拒绝续爬（避免把两种口径的数据混在一起）。"""
 
     if path.exists() and not reset:
-
-        with path.open("r", encoding="utf-8") as f:
-            state = json.load(f)
-
+        with path.open("r", encoding="utf-8") as handle:
+            state = json.load(handle)
         if (
             state.get("mode") != mode
             or state.get("include_replies") != include_replies
             or state.get("max_sub_pages") != max_sub_pages
         ):
-            raise ValueError(
-                "本次配置与断点配置不同，"
-                "如需重新扫描请使用 --reset-state"
+            raise ConfigError(
+                "本次配置与断点配置不同，如需重新扫描请使用 --reset-state"
             )
-
         return state
-
     return {
         "mode": mode,
         "include_replies": include_replies,
         "max_sub_pages": max_sub_pages,
         "offset": "",
         "pages_done": 0,
-        "finished": False
+        "finished": False,
     }
 
 
-def save_state(path, state):
+def save_state(path: Path, state: Mapping[str, Any]) -> None:
+    """原子写入断点文件。"""
 
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
+    path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_suffix(".tmp")
-
-    with temp_path.open(
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        json.dump(
-            state,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
-
+    with temp_path.open("w", encoding="utf-8") as handle:
+        json.dump(dict(state), handle, ensure_ascii=False, indent=2)
     temp_path.replace(path)
 
 
-# =========================
-# 核心爬虫
-# =========================
+# =========================================================================
+# 采集结果与核心流程
+# =========================================================================
 
-def crawl_video(
-    client,
-    bvid,
-    max_pages=5,
-    include_replies=True,
-    max_sub_pages=3,
-    mode=2,
-    reset_state=False
-):
+@dataclass
+class VideoCrawlResult:
+    """单个视频的采集结果。"""
 
-    print("\n" + "=" * 55)
-    print(f"开始采集视频：{bvid}")
+    bvid: str
+    aid: int | None = None
+    title: str = ""
+    owner: str = ""
+    comment_total_on_site: int = 0
+    pages_crawled: int = 0
+    comments_new: int = 0
+    comments_total: int = 0
+    duplicates: int = 0
+    empty: int = 0
+    elapsed_seconds: float = 0.0
+    csv_path: str | None = None
+    state_path: str | None = None
+    requests: int = 0
+    retries: int = 0
+    risk_control_hits: int = 0
+    finished: bool = False
+    error: str | None = None
 
-    aid, title = client.get_video_info(bvid)
-
-    print(f"视频标题：{title}")
-    print(f"视频 aid：{aid}")
-
-    csv_path = SAVE_DIR / f"{bvid}_comments.csv"
-
-    state_path = (
-        SAVE_DIR / ".checkpoints" / f"{bvid}.json"
-    )
-
-    store = CsvStore(csv_path)
-
-    state = load_state(
-        state_path,
-        mode,
-        include_replies,
-        max_sub_pages,
-        reset=reset_state
-    )
-
-    if state["finished"]:
-        print("该视频上次已采集到分页末尾")
-        print("重新扫描请添加 --reset-state")
-        return
-
-    offset = state["offset"]
-
-    total_new = 0
-
-    for page_index in range(max_pages):
-
-        print(f"\n正在采集第 {page_index + 1} 页一级评论")
-
-        data = client.get_main_comments(
-            aid,
-            offset=offset,
-            mode=mode
-        )
-
-        replies = data.get("replies") or []
-        cursor = data.get("cursor") or {}
-
-        if not isinstance(replies, list):
-            raise CrawlStopped("一级评论格式异常")
-
-        if not replies and not cursor.get("is_end"):
-            raise CrawlStopped(
-                "当前页没有评论，但未收到结束标记"
-            )
-
-        # 保存一级评论
-        main_rows = []
-
-        for item in replies:
-
-            row = normalize_comment(
-                item,
-                bvid,
-                aid,
-                title,
-                level=1
-            )
-
-            main_rows.append(row)
-
-        added = store.add(main_rows)
-
-        total_new += added
-
-        print(f"一级评论新增：{added} 条")
-
-        # =========================
-        # 获取二级评论
-        # =========================
-
-        if include_replies:
-
-            sub_added = 0
-
-            for item in replies:
-
-                root_id = str(
-                    item.get("rpid_str")
-                    or item.get("rpid")
-                    or ""
-                )
-
-                if not root_id:
-                    continue
-
-                reply_count = int(
-                    item.get("rcount") or 0
-                )
-
-                if reply_count <= 0 and not item.get("replies"):
-                    continue
-
-                for sub_page in range(
-                    1,
-                    max_sub_pages + 1
-                ):
-
-                    sub_data = client.get_sub_comments(
-                        aid,
-                        root_id,
-                        page=sub_page
-                    )
-
-                    sub_replies = (
-                        sub_data.get("replies") or []
-                    )
-
-                    if not isinstance(sub_replies, list):
-                        raise CrawlStopped(
-                            "二级评论格式异常"
-                        )
-
-                    rows = []
-
-                    for sub_item in sub_replies:
-
-                        row = normalize_comment(
-                            sub_item,
-                            bvid,
-                            aid,
-                            title,
-                            level=2,
-                            forced_root=root_id
-                        )
-
-                        rows.append(row)
-
-                    count = store.add(rows)
-
-                    sub_added += count
-
-                    page_info = (
-                        sub_data.get("page") or {}
-                    )
-
-                    sub_total = int(
-                        page_info.get("count") or 0
-                    )
-
-                    if not sub_replies:
-                        break
-
-                    if len(sub_replies) < 20:
-                        break
-
-                    if (
-                        sub_total > 0
-                        and sub_page * 20 >= sub_total
-                    ):
-                        break
-
-            total_new += sub_added
-
-            print(f"二级评论新增：{sub_added} 条")
-
-        # =========================
-        # 获取下一页游标
-        # =========================
-
-        pagination = (
-            cursor.get("pagination_reply") or {}
-        )
-
-        next_offset = pagination.get(
-            "next_offset"
-        )
-
-        is_end = bool(
-            cursor.get("is_end")
-        )
-
-        if (
-            not is_end
-            and (
-                not next_offset
-                or next_offset == offset
-            )
-        ):
-            raise CrawlStopped(
-                "无法获取下一页游标，"
-                "已保存的数据不会丢失"
-            )
-
-        # 保存当前进度
-        state = {
-            "mode": mode,
-            "include_replies": include_replies,
-            "max_sub_pages": max_sub_pages,
-            "offset": "" if is_end else next_offset,
-            "pages_done": state["pages_done"] + 1,
-            "finished": is_end
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "bvid": self.bvid,
+            "aid": self.aid,
+            "title": self.title,
+            "owner": self.owner,
+            "comment_total_on_site": self.comment_total_on_site,
+            "pages_crawled": self.pages_crawled,
+            "comments_new": self.comments_new,
+            "comments_total": self.comments_total,
+            "duplicates": self.duplicates,
+            "empty": self.empty,
+            "elapsed_seconds": round(self.elapsed_seconds, 3),
+            "comments_per_second": round(self.comments_new / self.elapsed_seconds, 3)
+            if self.elapsed_seconds > 0
+            else 0.0,
+            "csv_path": self.csv_path,
+            "state_path": self.state_path,
+            "requests": self.requests,
+            "retries": self.retries,
+            "risk_control_hits": self.risk_control_hits,
+            "finished": self.finished,
+            "error": self.error,
         }
 
-        save_state(state_path, state)
 
-        offset = state["offset"]
+@dataclass
+class CrawlReport:
+    """一次批量采集的汇总报告（含效率数据）。"""
 
-        print(
-            f"当前 CSV 已保存：{len(store.ids)} 条评论"
+    videos: list[VideoCrawlResult] = field(default_factory=list)
+    started_at: str = ""
+    finished_at: str = ""
+    elapsed_seconds: float = 0.0
+    metrics: dict[str, Any] = field(default_factory=dict)
+    source_note_path: str | None = None
+    robots: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def total_new(self) -> int:
+        return sum(video.comments_new for video in self.videos)
+
+    @property
+    def total_saved(self) -> int:
+        return sum(video.comments_total for video in self.videos)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "elapsed_seconds": round(self.elapsed_seconds, 3),
+            "total_new": self.total_new,
+            "total_saved": self.total_saved,
+            "comments_per_second": round(self.total_new / self.elapsed_seconds, 3)
+            if self.elapsed_seconds > 0
+            else 0.0,
+            "videos": [video.as_dict() for video in self.videos],
+            "metrics": self.metrics,
+            "source_note_path": self.source_note_path,
+            "robots": list(self.robots),
+        }
+
+
+def _collect_page_rows(
+    client: BiliClient,
+    replies: list[Mapping[str, Any]],
+    bvid: str,
+    aid: int | str,
+    title: str,
+    *,
+    include_replies: bool,
+    max_sub_pages: int,
+    max_items: int,
+    collected_at: str,
+    strip_urls: bool,
+    budget_remaining: int,
+) -> tuple[list[dict[str, Any]], int, int, int]:
+    """整理一页一级评论（含可选的楼中楼），返回 (记录, 新增候选, 空, 子页请求数)。"""
+
+    rows: list[dict[str, Any]] = []
+    empty = 0
+    sub_pages = 0
+
+    for item in replies:
+        if max_items and len(rows) >= max_items:
+            break
+        if not isinstance(item, Mapping):
+            empty += 1
+            continue
+        row = normalize_comment(
+            item,
+            bvid,
+            aid,
+            title,
+            level=1,
+            strip_urls=strip_urls,
+            collected_at=collected_at,
+        )
+        if row is None:
+            empty += 1
+        else:
+            rows.append(row)
+
+        if not include_replies:
+            continue
+        root_id = str(item.get("rpid_str") or item.get("rpid") or "")
+        if not root_id:
+            continue
+        reply_count = to_int(item.get("rcount"))
+        inline_replies = item.get("replies")
+        if reply_count <= 0 and not inline_replies:
+            continue
+        for sub_page in range(1, max_sub_pages + 1):
+            if max_items and len(rows) >= max_items:
+                break
+            if budget_remaining and len(rows) >= budget_remaining:
+                break
+            try:
+                sub_data = client.get_sub_comments(aid, root_id, page=sub_page)
+            except CommentClosed:
+                break
+            sub_pages += 1
+            sub_replies = sub_data.get("replies") or []
+            if not isinstance(sub_replies, list):
+                raise CrawlStopped("二级评论格式异常")
+            for sub_item in sub_replies:
+                if max_items and len(rows) >= max_items:
+                    break
+                sub_row = normalize_comment(
+                    sub_item,
+                    bvid,
+                    aid,
+                    title,
+                    level=2,
+                    forced_root=root_id,
+                    strip_urls=strip_urls,
+                    collected_at=collected_at,
+                )
+                if sub_row is None:
+                    empty += 1
+                else:
+                    rows.append(sub_row)
+            page_info = sub_data.get("page") or {}
+            sub_total = to_int(page_info.get("count"))
+            if not sub_replies:
+                break
+            if len(sub_replies) < 20:
+                break
+            if sub_total > 0 and sub_page * 20 >= sub_total:
+                break
+    return rows, len(rows), empty, sub_pages
+
+
+def crawl_video(
+    client: BiliClient,
+    bvid: str,
+    *,
+    max_pages: int = 5,
+    include_replies: bool = True,
+    max_sub_pages: int = 3,
+    mode: int = 2,
+    max_items: int = 0,
+    out_dir: str | Path = SAVE_DIR,
+    reset_state: bool = False,
+    strip_urls: bool = False,
+    write_source_note: bool = True,
+    on_page: Any = None,
+) -> VideoCrawlResult:
+    """采集单个视频的一级评论与（可选）楼中楼，支持断点续爬。"""
+
+    started = time.monotonic()
+    started_requests = client.metrics.logical_requests
+    started_retries = client.metrics.retries
+    started_risk = client.risk_control_hits
+    result = VideoCrawlResult(bvid=bvid)
+
+    if client.respect_robots:
+        client.check_content_page_robots(bvid)
+    client.check_api_robots()
+
+    try:
+        meta = client.get_video_meta(bvid)
+    except CommentClosed as exc:
+        result.error = f"{exc}"
+        result.elapsed_seconds = time.monotonic() - started
+        return result
+
+    result.aid = meta["aid"]
+    result.title = meta["title"]
+    result.owner = meta["owner"]
+    result.comment_total_on_site = meta["comment_count"]
+
+    out_dir = Path(out_dir)
+    csv_path = out_dir / f"{bvid}_comments.csv"
+    state_path = out_dir / ".checkpoints" / f"{bvid}.json"
+    result.csv_path = str(csv_path)
+    result.state_path = str(state_path)
+
+    store = CsvStore(csv_path)
+    state = load_state(
+        state_path, mode, include_replies, max_sub_pages, reset=reset_state
+    )
+    if state.get("finished"):
+        result.finished = True
+        result.comments_total = store.total
+        result.elapsed_seconds = time.monotonic() - started
+        result.requests = client.metrics.logical_requests - started_requests
+        return result
+
+    offset = state.get("offset", "")
+    total_new = 0
+    collected_at = utc_iso()
+
+    try:
+        for page_index in range(max_pages):
+            if max_items and total_new >= max_items:
+                break
+            data = client.get_main_comments(result.aid, offset=offset, mode=mode)
+            replies = data.get("replies") or []
+            cursor = data.get("cursor") or {}
+            if not isinstance(replies, list):
+                raise CrawlStopped("一级评论格式异常")
+            if not replies and not cursor.get("is_end"):
+                raise CrawlStopped("当前页没有评论，但未收到结束标记（可能被风控）")
+
+            remaining = max_items - total_new if max_items else 0
+            rows, _candidates, empty, _sub_pages = _collect_page_rows(
+                client,
+                replies,
+                bvid,
+                result.aid,
+                result.title,
+                include_replies=include_replies,
+                max_sub_pages=max_sub_pages,
+                max_items=remaining,
+                collected_at=collected_at,
+                strip_urls=strip_urls,
+                budget_remaining=remaining,
+            )
+            added = store.add(rows)
+            total_new += added
+            result.pages_crawled += 1
+
+            pagination = cursor.get("pagination_reply") or {}
+            next_offset = pagination.get("next_offset")
+            is_end = bool(cursor.get("is_end"))
+            if not is_end and (not next_offset or next_offset == offset):
+                raise CrawlStopped("无法获取下一页游标，已保存的数据不会丢失")
+
+            state = {
+                "mode": mode,
+                "include_replies": include_replies,
+                "max_sub_pages": max_sub_pages,
+                "offset": "" if is_end else next_offset,
+                "pages_done": int(state.get("pages_done") or 0) + 1,
+                "finished": is_end,
+            }
+            save_state(state_path, state)
+            offset = state["offset"]
+            if on_page is not None:
+                try:
+                    on_page(result, page_index + 1, added, store.total)
+                except Exception:  # pragma: no cover - 回调不应影响采集
+                    logger.exception("on_page 回调异常")
+            if is_end:
+                result.finished = True
+                break
+            if max_items and total_new >= max_items:
+                break
+    finally:
+        result.comments_new = total_new
+        result.comments_total = store.total
+        result.duplicates = store.duplicates
+        result.empty = store.empty
+        result.elapsed_seconds = time.monotonic() - started
+        result.requests = client.metrics.logical_requests - started_requests
+        result.retries = client.metrics.retries - started_retries
+        result.risk_control_hits = client.risk_control_hits - started_risk
+
+    if write_source_note and result.comments_total:
+        reply_part = (
+            f"楼中楼=开（每条最多 {max_sub_pages} 页）"
+            if include_replies
+            else "楼中楼=关"
+        )
+        note = (
+            f"mode={'time' if mode == 2 else 'hot'}；"
+            f"一级 {result.pages_crawled} 页；{reply_part}；"
+            f"min-delay={client._limiter.base_interval:g}s+抖动；"
+            f"请求 {result.requests} 次（重试 {result.retries}）；"
+            f"风控 {result.risk_control_hits} 次；耗时 {result.elapsed_seconds:.2f}s；"
+            f"robots：视频页允许，api.bilibili.com="
+            f"{'允许' if (client.api_robots_decision or {}).get('allowed') else 'Disallow（warn 模式，见 README 合规说明）'}"
+        )
+        sources.register_source(
+            SourceRecord(
+                name="B站视频评论",
+                url=f"{client.web_base}/video/{bvid}",
+                collected_at=utc_iso(),
+                count=result.comments_total,
+                labeled=False,
+                note=note,
+            )
         )
 
-        if is_end:
-            print("当前可访问评论已到末尾")
-            break
-
-    print("\n" + "-" * 55)
-    print(f"本次新增：{total_new} 条")
-    print(f"累计保存：{len(store.ids)} 条")
-    print(f"CSV 文件：{csv_path}")
-    print("-" * 55)
+    return result
 
 
-# =========================
+def crawl_bilibili(
+    bvids: Iterable[str],
+    *,
+    client: BiliClient | None = None,
+    delay: float = DEFAULT_DELAY_SECONDS,
+    timeout: float = DEFAULT_TIMEOUT,
+    max_pages: int = 5,
+    include_replies: bool = True,
+    max_sub_pages: int = 3,
+    mode: int = 2,
+    max_items: int = 0,
+    out_dir: str | Path = SAVE_DIR,
+    reset_state: bool = False,
+    strip_urls: bool = False,
+    respect_robots: bool = True,
+    api_robots_policy: str | None = None,
+    write_source_note: bool = True,
+    on_page: Any = None,
+    **client_kwargs: Any,
+) -> CrawlReport:
+    """批量采集多个视频，返回汇总报告。
+
+    遇到 :class:`RiskControlError` 立即停止后续视频（避免继续触发风控）；
+    其它 :class:`CrawlStopped`（评论关闭、视频不存在等）记录到结果后继续下一个。
+    """
+
+    report = CrawlReport(started_at=utc_iso())
+    started = time.monotonic()
+    owned_client = client is None
+    if client is None:
+        client = BiliClient(
+            delay=delay,
+            timeout=timeout,
+            respect_robots=respect_robots,
+            api_robots_policy=api_robots_policy,
+            **client_kwargs,
+        )
+    try:
+        for value in bvids:
+            try:
+                bvid = parse_bvid(value)
+            except ValueError as exc:
+                report.videos.append(
+                    VideoCrawlResult(bvid=str(value), error=str(exc))
+                )
+                continue
+            try:
+                result = crawl_video(
+                    client,
+                    bvid,
+                    max_pages=max_pages,
+                    include_replies=include_replies,
+                    max_sub_pages=max_sub_pages,
+                    mode=mode,
+                    max_items=max_items,
+                    out_dir=out_dir,
+                    reset_state=reset_state,
+                    strip_urls=strip_urls,
+                    write_source_note=write_source_note,
+                    on_page=on_page,
+                )
+            except RiskControlError as exc:
+                result = VideoCrawlResult(bvid=bvid, error=f"风控停止：{exc}")
+                report.videos.append(result)
+                logger.error("触发风控，停止后续视频采集：%s", exc)
+                break
+            except CrawlStopped as exc:
+                result = VideoCrawlResult(bvid=bvid, error=str(exc))
+                logger.warning("视频 %s 采集停止：%s", bvid, exc)
+            report.videos.append(result)
+    finally:
+        report.finished_at = utc_iso()
+        report.elapsed_seconds = time.monotonic() - started
+        report.metrics = client.stats_summary()
+        report.robots = list(client.robots_checks)
+        report.source_note_path = (
+            str(sources.SOURCE_NOTE_PATH)
+            if write_source_note and any(video.comments_total for video in report.videos)
+            else None
+        )
+        if owned_client:
+            client.close()
+    return report
+
+
+def fetch_video_comments(
+    bvid: str,
+    *,
+    client: BiliClient | None = None,
+    max_pages: int = 1,
+    include_replies: bool = False,
+    max_sub_pages: int = 1,
+    mode: int = 2,
+    max_items: int = 0,
+    **client_kwargs: Any,
+) -> list[dict[str, Any]]:
+    """无持久化地抓取一个视频的评论，供 ``src/videos`` / ``src/artifacts`` 适配。
+
+    与 :func:`crawl_video` 使用相同的客户端、限速、robots 校验与标准化逻辑，
+    但不写 ``data/raw`` 与来源说明（调用方自行决定如何落盘）。
+    """
+
+    import tempfile
+
+    owned_client = client is None
+    if client is None:
+        client = BiliClient(**client_kwargs)
+    try:
+        with tempfile.TemporaryDirectory(prefix="bili-crawl-") as temp_dir:
+            result = crawl_video(
+                client,
+                bvid,
+                max_pages=max_pages,
+                include_replies=include_replies,
+                max_sub_pages=max_sub_pages,
+                mode=mode,
+                max_items=max_items,
+                out_dir=temp_dir,
+                write_source_note=False,
+            )
+            if result.error:
+                raise CrawlStopped(result.error)
+            return read_csv_records(result.csv_path) if result.csv_path else []
+    finally:
+        if owned_client:
+            client.close()
+
+
+# =========================================================================
 # 命令行入口
-# =========================
+# =========================================================================
 
-def main():
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="B站视频评论采集工具（WBI 签名 / 风控退避 / 断点续爬 / 来源登记）"
+    )
+    parser.add_argument("--bvid", nargs="+", help="一个或多个视频 BV 号或链接；省略时提示输入")
+    parser.add_argument("--max-pages", type=int, default=5, help="每次最多采集多少页一级评论（1~50）")
+    parser.add_argument("--max-sub-pages", type=int, default=3, help="每条根评论最多采集多少页楼中楼（1~20）")
+    parser.add_argument("--max-items", type=int, default=0, help="本次最多新增多少条（0 表示不限制）")
+    parser.add_argument("--include-replies", action="store_true", help="是否采集楼中楼")
+    parser.add_argument("--mode", choices=["time", "hot"], default="time", help="一级评论排序：time=按时间，hot=按热度")
+    parser.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECONDS, help="请求最小间隔（秒，不得小于 2）")
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="单次请求超时（秒）")
+    parser.add_argument("--out-dir", default=str(SAVE_DIR), help="CSV 与断点输出目录")
+    parser.add_argument("--strip-urls", action="store_true", help="标准化时删除评论中的 URL")
+    parser.add_argument("--api-robots-policy", choices=["warn", "enforce", "ignore"], default=None,
+                        help="api.bilibili.com 的 robots 处理策略（默认读 BILI_API_ROBOTS_POLICY 或 warn）")
+    parser.add_argument("--init-buvid", action="store_true",
+                        help="初始化 buvid3/buvid4 设备指纹（默认关闭；实测会限制匿名可见评论数）")
+    parser.add_argument("--reset-state", action="store_true", help="从第一页重新扫描，保留 CSV 去重")
+    parser.add_argument("--no-source-note", action="store_true", help="不写入 data/raw/来源说明.md（测试用）")
+    parser.add_argument("--json", action="store_true", help="向 stdout 输出机器可读 JSON 报告")
+    parser.add_argument("--verbose", action="store_true", help="输出调试日志")
+    return parser
 
-    # VS Code 输出面板或重定向运行时也及时显示进度。
+
+def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
-            stream.reconfigure(line_buffering=True)
+            stream.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 
-    parser = argparse.ArgumentParser(
-        description="B站视频评论采集工具"
-    )
-
-    parser.add_argument(
-        "--bvid",
-        nargs="+",
-        help="一个或多个视频 BV 号或链接；省略时提示输入"
-    )
-
-    parser.add_argument(
-        "--max-pages",
-        type=int,
-        default=5,
-        help="每次最多采集多少页一级评论"
-    )
-
-    parser.add_argument(
-        "--max-sub-pages",
-        type=int,
-        default=3,
-        help="每条根评论最多采集多少页二级评论"
-    )
-
-    parser.add_argument(
-        "--include-replies",
-        action="store_true",
-        help="是否采集楼中楼"
-    )
-
-    parser.add_argument(
-        "--mode",
-        choices=["time", "hot"],
-        default="time"
-    )
-
-    parser.add_argument(
-        "--delay",
-        type=float,
-        default=2.5
-    )
-
-    parser.add_argument(
-        "--reset-state",
-        action="store_true",
-        help="从第一页重新扫描，保留 CSV 去重"
-    )
-
-    args = parser.parse_args()
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
     if not 1 <= args.max_pages <= 50:
         parser.error("--max-pages 必须为 1~50")
-
     if not 1 <= args.max_sub_pages <= 20:
         parser.error("--max-sub-pages 必须为 1~20")
-
     if args.delay < 2:
-        parser.error("--delay 不能小于 2 秒")
+        parser.error("--delay 不能小于 2 秒（限速是硬性要求）")
+    if args.max_items < 0:
+        parser.error("--max-items 不能为负数")
 
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s %(message)s"
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(message)s",
+        stream=sys.stderr,
     )
 
-    print("B站评论采集工具已启动", flush=True)
+    if not args.json:
+        print("B站评论采集工具已启动", flush=True)
 
     if not args.bvid:
         try:
             value = input("请输入 BV 号或视频链接（多个用空格分隔）：").strip()
         except (EOFError, OSError):
             parser.error(
-                "当前运行窗口无法接收输入。请在 VS Code 终端运行，"
-                "或通过 --bvid BV号 指定视频。"
+                "当前运行窗口无法接收输入。请在 VS Code 终端运行，或通过 --bvid BV号 指定视频。"
             )
         except KeyboardInterrupt:
             print("\n已取消采集", flush=True)
-            return
-
+            return 130
         if not value:
             parser.error("未输入 BV 号或视频链接")
-
         args.bvid = value.split()
 
-    client = BiliClient(delay=args.delay)
+    report = crawl_bilibili(
+        args.bvid,
+        delay=args.delay,
+        timeout=args.timeout,
+        max_pages=args.max_pages,
+        include_replies=args.include_replies,
+        max_sub_pages=args.max_sub_pages,
+        mode=2 if args.mode == "time" else 3,
+        max_items=args.max_items,
+        out_dir=args.out_dir,
+        reset_state=args.reset_state,
+        strip_urls=args.strip_urls,
+        api_robots_policy=args.api_robots_policy,
+        init_buvid=args.init_buvid,
+        write_source_note=not args.no_source_note,
+    )
 
-    mode = 2 if args.mode == "time" else 3
-
-    bvids = []
-
-    for value in args.bvid:
-
-        try:
-            bvid = parse_bvid(value)
-
-        except ValueError as e:
-            print("BV 号错误：", e)
-            return
-
-        if bvid not in bvids:
-            bvids.append(bvid)
-
-    for bvid in bvids:
-
-        try:
-            crawl_video(
-                client=client,
-                bvid=bvid,
-                max_pages=args.max_pages,
-                include_replies=args.include_replies,
-                max_sub_pages=args.max_sub_pages,
-                mode=mode,
-                reset_state=args.reset_state
+    if args.json:
+        print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+    else:
+        print("\n" + "-" * 55)
+        for video in report.videos:
+            if video.error:
+                print(f"[{video.bvid}] 停止：{video.error}")
+                continue
+            print(
+                f"[{video.bvid}] {video.title}\n"
+                f"  页数 {video.pages_crawled}；本次新增 {video.comments_new}；"
+                f"累计 {video.comments_total}；耗时 {video.elapsed_seconds:.2f}s"
             )
+        print(f"合计新增 {report.total_new} 条；累计 {report.total_saved} 条")
+        print(f"总耗时 {report.elapsed_seconds:.2f}s；"
+              f"请求 {report.metrics.get('requests', 0)} 次；"
+              f"重试 {report.metrics.get('retries', 0)} 次；"
+              f"风控 {report.metrics.get('risk_control_hits', 0)} 次")
+        if report.source_note_path:
+            print(f"来源说明：{report.source_note_path}")
+        print("-" * 55)
 
-        except (
-            CrawlStopped,
-            ValueError,
-            OSError
-        ) as e:
-
-            print(f"\n采集停止：{e}")
-            print("已采集的数据和断点会保留")
-            break
+    failed = [video for video in report.videos if video.error]
+    return 0 if not failed else 1
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

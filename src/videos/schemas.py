@@ -7,7 +7,7 @@
 
 - 列表项与提交响应**只含契约里列出的字段**，不多不少；
 - 详情里额外带一个 **顶层** ``placeholder: true`` 字段：诚实标注当前 detail 由
-  占位逻辑生成（真实爬虫尚未接入，见 `src/crawler/spider.py` 的 TODO）。它是
+  占位逻辑生成（真实爬虫已在 `src/crawler/` 实现，但 `/api/videos` 尚未接入）。它是
   **新增字段**而非改名，前端可忽略；真实爬虫接入后置为 ``false``；
 - 详情未完成时（`queued`/`crawling`/`processing`/`failed`）：`sentiment` 为 ``null``，
   `trend` / `top_comments` 为空数组（`[]`），`keywords` 保持对象结构但两个数组为空，

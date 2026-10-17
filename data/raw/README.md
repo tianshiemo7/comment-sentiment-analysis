@@ -1,8 +1,10 @@
 # 原始评论数据登记
 
-> ⚠️ **本文件未入库**：`BV1UB4y1W7Xu_comments.csv` 被根目录忽略规则排除（原始数据不入版本控制）。
-> clone 仓库后**本目录只有本 README**，下面第 3 节的命令需要先自行取得该文件，否则会报
-> `FileNotFoundError`。取得方式见第 4 节。
+> ⚠️ **原始 CSV 未入库**：`data/raw/*.csv` 被根目录忽略规则排除（原始数据不入版本控制）。
+> clone 仓库后本目录只有本 README、`来源说明.md` 与 `sources.json`；第 3 节的命令需要
+> 先自行取得对应 CSV，否则会报 `FileNotFoundError`。取得方式见第 4 节。
+
+## 1. 组内提供的视频评论（BV1UB4y1W7Xu）
 
 文件：BV1UB4y1W7Xu_comments.csv。
 
@@ -25,16 +27,27 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 下游读取data/processed/comments_cleaned.csv，使用已训练模型的预处理器处理text_raw再进行情感预测。
 该CSV及处理产物被.gitignore忽略，不随源码自动提交。
 
-## 如何取得这份数据
+## 2. 爬虫实测样本与来源登记
+
+`data/raw/来源说明.md` 与 `data/raw/sources.json` **会入库**，用于课程验收「数据来源与采集时间已注明」。
+它们由 `src/crawler/sources.py` 在每次采集后自动生成/合并，当前记录了一条 2026-10-17 的本机实测：
+
+- 视频：`BV1GJ411x7h7`（2 页一级评论，39 条，匿名可见子集）；
+- 采集方式：`python -m src.crawler bilibili --bvid BV1GJ411x7h7 --max-pages 2`；
+- 限速 / robots / 重试 / 耗时等合规与效率信息写在表格「备注」列；
+- 对应 CSV（`BV1GJ411x7h7_comments.csv`）属于原始数据，**不入库**，可用同一命令复现
+  （评论会随时间变化，条数可能不同）。
+
+## 3. 如何取得数据
 
 三种方式，任选一种（都能产出同样列名的 CSV）：
 
-1. **自行采集**：用本仓库爬虫，`python -m src.crawler.bilibili --bvid BV1UB4y1W7Xu --max-pages 10`
-   （输出到 `data/raw/BV1UB4y1W7Xu_comments.csv`，列名见 `src/crawler/bilibili.py` 的 COLUMNS）。
+1. **自行采集**：用本仓库爬虫，`python -m src.crawler bilibili --bvid BV1UB4y1W7Xu --max-pages 10`
+   （输出到 `data/raw/BV1UB4y1W7Xu_comments.csv`，列名见 `src/crawler/bilibili.py` 的 `COLUMNS`，
+   并自动登记来源说明）。
 2. **向组内索取**：该文件是组内成员本地采集/整理后手工放入的，找提供者复制。
 3. **换用公开数据集**：按 `data/README.md` 的推荐（ChnSentiCorp / 外卖评论）走公开数据路线，
    并同步更新本文件与 `data/README.md` 的来源说明。
 
 > 说明：这份数据是**无标签**评论，只用于打通「采集 → 清洗 → 待预测」链路，
 > 不能当作监督训练集；训练集仍需另行准备带 `positive`/`negative` 标注的数据。
-

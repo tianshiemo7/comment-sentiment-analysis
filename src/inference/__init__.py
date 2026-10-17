@@ -29,7 +29,8 @@
 本包**不在导入期加载 torch**；Web 层（`app.py`）与模型层（`service.py`）解耦，
 真实模型只需替换 `service.load_model` / `service.predict_text` 两处。
 当前预测是 `service.predict_rule_based` 的**规则 / 词典占位**（非训练模型）；
-`/api/videos` 的评论数据同样是**占位流水线**（真实爬虫见 `src/crawler/spider.py` 的 TODO），
+`/api/videos` 的评论数据同样是**占位流水线**（真实爬虫已在 `src/crawler/` 实现，
+可经 `fetch_video_comments` 接入；当前流水线尚未切换），
 详情响应带 `placeholder: true` 如实标注。
 """
 
