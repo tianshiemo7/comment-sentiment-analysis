@@ -75,6 +75,9 @@ outputs/figures/*
 outputs/stats/*
 outputs/videos/*
 outputs/benchmarks/*
+# 系统设置（含 Cookie 明文！绝不入库）
+outputs/settings.json
+outputs/settings.json.tmp
 # 真实数据闭环验证的中间产物（可复现，不入库）
 outputs/realdata/*
 !outputs/**/.gitkeep

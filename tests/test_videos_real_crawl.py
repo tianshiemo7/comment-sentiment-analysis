@@ -37,7 +37,7 @@ INSTANT = PipelineConfig(0.0, 0.0, 0.0, 0.0)
 #: 真实采集 + 0 秒配置（采集本身由假函数瞬间返回，不联网、不等待限速）
 REAL_INSTANT = PipelineConfig(0.0, 0.0, 0.0, 0.0, real_crawl=True)
 
-#: 详情顶层字段（与 `docs/API契约.md` 第三节 + placeholder 标注一致）
+#: 详情顶层字段（与 `docs/API契约.md` 第三节 + placeholder 标注 + pipeline 一致）
 DETAIL_FIELDS = {
     "video",
     "analysis",
@@ -48,7 +48,11 @@ DETAIL_FIELDS = {
     "top_comments",
     "error",
     "placeholder",
+    "pipeline",
 }
+
+#: `placeholder.build_detail` 的原始产物字段（pipeline 由 service 层组装，不在 payload 里）
+DETAIL_PAYLOAD_FIELDS = DETAIL_FIELDS - {"pipeline"}
 
 
 def _fake_records() -> list[dict]:
@@ -230,7 +234,7 @@ def test_real_crawl_pipeline_uses_injected_records(tmp_path):
     assert detail["video"]["title"] == "真实视频标题（爬虫返回）"
     assert detail["video"]["owner"] is None  # 爬虫 CSV 不含 UP 主 → 诚实置 None
     assert detail["placeholder"] is False  # 评论数据真实
-    assert set(detail) == DETAIL_FIELDS
+    assert set(detail) == DETAIL_PAYLOAD_FIELDS
 
     # sentiment 只由规则占位预测聚合（计数自洽，无中性）
     sentiment = detail["sentiment"]
@@ -329,6 +333,11 @@ def test_real_crawl_via_monkeypatched_crawler(tmp_path, monkeypatch):
         "max_items": 5,
         "delay": 1.0,
         "timeout": 3.0,
+        "page_size": crawler_adapter.DEFAULT_PAGE_SIZE,
+        "mode": 2,
+        "cookie": None,
+        "init_buvid": False,
+        "require_login": False,
     }
     assert store.get_task(BVID)["status"] == "completed"
     assert store.get_task(BVID)["comment_count"] == len(records)
@@ -456,6 +465,15 @@ def test_crawl_config_defaults_are_safe():
     assert config.max_items == 200
     assert config.delay_seconds == pytest.approx(2.5)
     assert config.timeout == pytest.approx(15.0)
+    # 新增的逐任务参数（spec 4.2 / 4.3）
+    assert config.page_size == 20
+    assert config.sort_mode == "time" and config.crawl_mode == 2
+    assert config.init_buvid is False
+    assert config.require_login is False
+    assert config.cookie is None
+    # Cookie 不参与 repr（防止日志 / 任务索引泄密）
+    assert "SESSDATA" not in repr(crawler_adapter.VideoCrawlConfig(cookie="SESSDATA=secret123"))
+    assert crawler_adapter.VideoCrawlConfig(sort_mode="hot").crawl_mode == 3
 
 
 def test_crawl_config_from_env_and_invalid_fallback(monkeypatch):
@@ -572,7 +590,7 @@ def test_build_detail_with_real_comments_is_contract_complete():
     )
     detail = placeholder.build_detail(BVID, finished_at=fixed, comments=records)
 
-    assert set(detail) == DETAIL_FIELDS
+    assert set(detail) == DETAIL_PAYLOAD_FIELDS
     assert detail["placeholder"] is False
     assert detail["error"] is None
     assert detail["analysis"]["status"] == "completed"

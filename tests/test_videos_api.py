@@ -45,7 +45,7 @@ LIST_FIELDS = {
 #: 提交 / 重试响应字段（契约第二节接口 1）
 SUBMIT_FIELDS = {"bvid", "status", "progress", "created_at"}
 
-#: 详情顶层字段（契约第三节 + 新增的 placeholder 标注字段）
+#: 详情顶层字段（契约第三节 + 新增的 placeholder 标注字段 + pipeline（spec 3.4））
 DETAIL_FIELDS = {
     "video",
     "analysis",
@@ -56,6 +56,7 @@ DETAIL_FIELDS = {
     "top_comments",
     "error",
     "placeholder",
+    "pipeline",
 }
 
 LEGACY_PATHS = {
@@ -271,6 +272,17 @@ def test_detail_in_progress_returns_200_with_empty_data(running_client):
     assert body["error"] is None
     assert body["placeholder"] is True
     assert body["video"]["bvid"] == BVID
+    # 新增 additive 字段：detail.pipeline（旧任务也返回）
+    assert set(body["pipeline"]) == {
+        "account_mode",
+        "auto_clean",
+        "auto_analyze",
+        "next_action",
+        "crawl",
+    }
+    assert body["pipeline"]["account_mode"] == "anonymous"
+    assert body["pipeline"]["next_action"] is None
+    assert body["pipeline"]["crawl"]["real_crawl"] is False
 
 
 def test_detail_completed_has_full_contract_fields(fast_client):
@@ -347,6 +359,20 @@ def test_detail_completed_has_full_contract_fields(fast_client):
 
     assert body["error"] is None
     assert body["placeholder"] is True  # 诚实标注：占位数据
+    assert body["pipeline"]["next_action"] is None
+    assert set(body["pipeline"]["crawl"]) == {
+        "real_crawl",
+        "max_pages",
+        "max_sub_pages",
+        "page_size",
+        "include_replies",
+        "sort_mode",
+        "max_items",
+        "delay_seconds",
+        "timeout_seconds",
+        "require_login",
+        "init_buvid",
+    }
 
     # 列表项与详情一致（标题已回填）
     item = client.get("/api/videos").json()["videos"][0]

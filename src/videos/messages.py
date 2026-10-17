@@ -15,6 +15,12 @@ MESSAGE_CRAWLING = "正在爬取评论…"
 #: processing
 MESSAGE_PROCESSING = "正在清洗与情感分析…"
 
+#: crawled（采集完成，等待用户点「开始清洗」）
+MESSAGE_CRAWLED = "采集完成，等待清洗"
+
+#: cleaned（清洗完成，等待用户点「开始分析」）
+MESSAGE_CLEANED = "清洗完成，等待情感分析"
+
 #: completed
 MESSAGE_COMPLETED = "分析完成"
 
@@ -23,6 +29,8 @@ STATUS_MESSAGES: dict[str, str] = {
     "queued": MESSAGE_QUEUED,
     "crawling": MESSAGE_CRAWLING,
     "processing": MESSAGE_PROCESSING,
+    "crawled": MESSAGE_CRAWLED,
+    "cleaned": MESSAGE_CLEANED,
     "completed": MESSAGE_COMPLETED,
 }
 

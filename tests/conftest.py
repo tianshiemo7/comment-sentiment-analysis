@@ -98,3 +98,27 @@ def artifact_opener_recorder():
     yield calls
     opener.set_opener(previous)
 
+
+@pytest.fixture(autouse=True)
+def isolated_settings_path(tmp_path, monkeypatch):
+    """把 ``CSA_SETTINGS_PATH`` 指向本次用例的临时文件（绝不写真实 outputs/settings.json）。"""
+    from src.videos import settings as video_settings
+
+    target = tmp_path / "settings" / "settings.json"
+    monkeypatch.setenv(video_settings.ENV_SETTINGS_PATH, str(target))
+    video_settings.set_session_client_factory(None)
+    yield target
+    video_settings.set_session_client_factory(None)
+
+
+@pytest.fixture(autouse=True)
+def isolated_login_manager():
+    """清理人工登录窗口单例（每条用例后取消可能仍在等待的窗口线程）。"""
+    from src.videos import browser_login
+
+    yield
+    manager = browser_login.peek_login_manager()
+    if manager is not None:
+        manager.shutdown()
+    browser_login.set_login_manager(None)
+

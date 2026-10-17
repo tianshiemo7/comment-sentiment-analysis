@@ -14,7 +14,7 @@ import ProjectListItem from './ProjectListItem.vue'
 import SoloCommentItem from './SoloCommentItem.vue'
 import VideoListItem from './VideoListItem.vue'
 import Icon from './Icon.vue'
-import { isTerminal, statusMeta } from '../utils/videoFormat.js'
+import { isActive as isActiveStatus, isTerminal, statusMeta } from '../utils/videoFormat.js'
 import { SENTIMENT_COLORS } from '../utils/sentimentLabels.js'
 
 const props = defineProps({
@@ -48,7 +48,8 @@ const emit = defineEmits([
 const titleOf = (key, fallback) => props.labels?.[key] || fallback
 
 const activeProjectCount = computed(() => props.projects.filter((item) => !isTerminal(item.status)).length)
-const activeVideoCount = computed(() => props.videos.filter((item) => !isTerminal(item.status)).length)
+/** 进行中的视频任务（crawled / cleaned 等待态不算进行中，避免侧栏显示「有任务在跑」） */
+const activeVideoCount = computed(() => props.videos.filter((item) => isActiveStatus(item.status)).length)
 
 function isActive(kind, id) {
   return props.selected?.kind === kind && props.selected?.id === id
@@ -59,6 +60,8 @@ const STATUS_COLORS = {
   queued: '#94a3b8',
   crawling: '#2563eb',
   processing: '#ea580c',
+  crawled: '#d97706',
+  cleaned: '#7c3aed',
   completed: '#16a34a',
   failed: '#dc2626',
 }

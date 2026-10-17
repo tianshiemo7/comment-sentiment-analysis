@@ -44,3 +44,10 @@ jieba>=0.42.1             # 词云中文分词（与预处理保持一致）
 # ---------- ⑦ 测试 ----------
 pytest>=8.0               # 单元测试
 httpx>=0.27               # FastAPI TestClient 依赖
+
+# ---------- ⑧ 可选：人工登录窗口（2026-10-17） ----------
+# 只有「设置页 → 登录 B 站账号（弹出登录窗口）」需要；未安装时其它功能完全不受影响，
+# POST /api/account/login/start 会返回 503 并给出安装指引。
+# 安装后还需下载浏览器内核（Windows 通常已装 Edge，可直接用 channel="msedge"）：
+#   python -m playwright install chromium
+# playwright>=1.44

@@ -6,6 +6,10 @@
 outputs/videos/
 ├── index.json          # 任务索引（列表接口与恢复逻辑的唯一真相来源）
 ├── BV1xx411c7mD.json   # 该视频的完整 detail（契约第三节的结构）
+├── BV1xx411c7mD/       # 分步流水线的任务级中间产物（settings 提交时才有）
+│   ├── crawl.json      # 采集产物：原始评论记录 / 占位计数
+│   ├── clean.json      # 清洗后评论（clean_text + 去空去重）
+│   └── analyze.json    # 逐条规则预测结果（审计用）
 └── BV1ab411c7mE.json
 ```
 
@@ -17,12 +21,14 @@ outputs/videos/
    时按「无 detail」处理，由 service 层决定是否重建；
 4. **路径安全**：所有 `<bvid>.json` 路径都由 :func:`safe_bvid` 校验过正则后才拼接，
    `..` / 路径分隔符 / 非法字符一律拒绝（防御性，即使调用方漏校验也穿不出去）。
+  阶段产物文件名只接受固定白名单（:data:`STAGE_FILES`），不接受任何外部路径。
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +44,13 @@ INDEX_FILENAME = "index.json"
 
 #: 索引结构版本（将来迁移用）
 INDEX_VERSION = 1
+
+#: 分步流水线的阶段产物文件名（固定白名单；不接受调用方拼路径）
+STAGE_FILES: dict[str, str] = {
+    "crawl": "crawl.json",
+    "clean": "clean.json",
+    "analyze": "analyze.json",
+}
 
 
 def default_root() -> Path:
@@ -153,7 +166,7 @@ class VideoStore:
             return True
 
     def remove_task(self, bvid: str) -> bool:
-        """删除任务记录与其 detail 文件；返回是否真的删掉了索引里的记录。"""
+        """删除任务记录、detail 文件与阶段产物目录；返回是否真的删掉了索引记录。"""
         try:
             safe_bvid(bvid)
         except ValueError:
@@ -168,6 +181,7 @@ class VideoStore:
                     detail.unlink()
             except OSError:
                 pass
+            self.clear_stage_artifacts(bvid)
             return existed
 
     # ------------------------------------------------------------------ #
@@ -198,6 +212,55 @@ class VideoStore:
         with self._lock:
             self._atomic_write_json(path, detail)
         return path
+
+    # ------------------------------------------------------------------ #
+    # 分步流水线中间产物（`outputs/videos/<bvid>/`，不覆盖 `<bvid>.json`）
+    # ------------------------------------------------------------------ #
+    def stage_dir(self, bvid: str) -> Path:
+        """返回任务级中间产物目录 ``<root>/<bvid>/``（bvid 先过正则）。"""
+        return self.root / safe_bvid(bvid)
+
+    def stage_path(self, bvid: str, stage: str) -> Path:
+        """返回 ``<root>/<bvid>/<stage>.json``；阶段名只接受固定白名单。"""
+        filename = STAGE_FILES.get(stage)
+        if filename is None:
+            raise ValueError(f"未知的阶段产物：{stage!r}（只支持 {sorted(STAGE_FILES)}）")
+        return self.stage_dir(bvid) / filename
+
+    def read_stage(self, bvid: str, stage: str) -> dict[str, Any] | None:
+        """读取某阶段中间产物；不存在 / 损坏 / 阶段名非法时返回 ``None``。"""
+        try:
+            path = self.stage_path(bvid, stage)
+        except ValueError:
+            return None
+        with self._lock:
+            if not path.is_file():
+                return None
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                return None
+            return payload if isinstance(payload, dict) else None
+
+    def write_stage(self, bvid: str, stage: str, payload: dict[str, Any]) -> Path:
+        """原子写入某阶段中间产物，返回写出的路径。"""
+        path = self.stage_path(bvid, stage)
+        with self._lock:
+            self._atomic_write_json(path, payload)
+        return path
+
+    def clear_stage_artifacts(self, bvid: str) -> None:
+        """删除该任务的全部中间产物目录（retry / delete 用；不存在时静默忽略）。"""
+        try:
+            directory = self.stage_dir(bvid)
+        except ValueError:
+            return
+        with self._lock:
+            try:
+                if directory.is_dir():
+                    shutil.rmtree(directory, ignore_errors=True)
+            except OSError:  # pragma: no cover - 极端文件系统错误
+                pass
 
     # ------------------------------------------------------------------ #
     # 内部工具

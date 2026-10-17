@@ -8,10 +8,12 @@
 | `config.py` | 流水线阶段时长等可配置参数（环境变量，默认合计 30 秒） |
 | `errors.py` | 400 / 409 / 404 业务异常与契约锁定的错误文案 |
 | `messages.py` | 各状态的 `message` 文案（与前端显示对齐） |
-| `store.py` | 落盘存储：`outputs/videos/index.json` + `<bvid>.json`（线程安全 + 原子写） |
-| `pipeline.py` | 后台流水线：`queued → crawling → processing → completed`（可中断/可失败） |
+| `store.py` | 落盘存储：`outputs/videos/index.json` + `<bvid>.json` + 阶段产物 `<bvid>/`（线程安全 + 原子写） |
+| `pipeline.py` | 后台流水线：旧路径一次跑完；带 settings 时在 `crawled` / `cleaned` 暂停（可继续/可失败） |
+| `settings.py` | 系统设置：账号 / 采集参数 / 自动流程（Cookie 脱敏、原子写、登录态检查） |
+| `browser_login.py` | 人工登录窗口（Playwright，人在本机完成扫码/登录，后端捕获 Cookie） |
 | `placeholder.py` | ⚠️ 占位 detail 生成器（真实爬虫 / 模型未接入，`placeholder: true` 如实标注） |
-| `service.py` | 业务逻辑 + 单工作线程调度 + 启动恢复 + 优雅退出 |
+| `service.py` | 业务逻辑 + 单工作线程调度 + 提交/重试/继续 + 启动恢复 + 优雅退出 |
 
 HTTP 层仍留在 `src/inference/app.py`（只新增 `/api/videos*` 路由，原 5 个接口不动）。
 

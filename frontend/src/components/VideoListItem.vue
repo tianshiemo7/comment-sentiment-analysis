@@ -2,11 +2,12 @@
 /**
  * components/VideoListItem.vue — 左栏单个视频条目
  * 展示：标题（未爬到用 BV 号占位）/ UP 主 / 状态徽章 / 进度条 / 评论数 / 失败原因 + 重试 / 删除
+ * 分步流水线：crawled / cleaned 显示「待清洗 / 待分析」并提示到右侧详情点继续按钮。
  */
 import { computed } from 'vue'
 import VideoStatusBadge from './VideoStatusBadge.vue'
 import Icon from './Icon.vue'
-import { formatNumber, isTerminal, statusMeta } from '../utils/videoFormat.js'
+import { formatNumber, isActive, isTerminal, isWaiting, statusMeta } from '../utils/videoFormat.js'
 
 const props = defineProps({
   video: { type: Object, required: true },
@@ -15,16 +16,18 @@ const props = defineProps({
 
 const emit = defineEmits(['select', 'retry', 'remove'])
 
-const ACTIVE_STATUSES = ['queued', 'crawling', 'processing']
-
 const title = computed(() => props.video.title || props.video.bvid)
 const owner = computed(() => props.video.owner || 'UP 主未获取')
-const showProgress = computed(() => ACTIVE_STATUSES.includes(props.video.status))
+const showProgress = computed(() => isActive(props.video.status))
 const isCompleted = computed(() => props.video.status === 'completed')
 const isFailed = computed(() => props.video.status === 'failed')
+const isPaused = computed(() => isWaiting(props.video.status))
 const tone = computed(() => statusMeta(props.video.status).tone)
 const progress = computed(() => Math.min(100, Math.max(0, Number(props.video.progress) || 0)))
 const finished = computed(() => isTerminal(props.video.status))
+const waitingHint = computed(() =>
+  props.video.status === 'crawled' ? '等待清洗：在右侧点「开始清洗」继续' : '等待分析：在右侧点「开始分析」继续',
+)
 </script>
 
 <template>
@@ -62,6 +65,7 @@ const finished = computed(() => isTerminal(props.video.status))
     <div class="video-item__status">
       <VideoStatusBadge :status="video.status" />
       <span v-if="isCompleted" class="video-item__count">{{ formatNumber(video.comment_count) }} 条评论</span>
+      <span v-else-if="isPaused" class="video-item__count">{{ formatNumber(video.comment_count) }} 条已入库</span>
       <span v-else-if="showProgress" class="video-item__pct">{{ progress }}%</span>
     </div>
 
@@ -77,6 +81,10 @@ const finished = computed(() => isTerminal(props.video.status))
       </button>
     </p>
     <p v-else-if="showProgress" class="video-item__msg">{{ video.message }}</p>
+    <p v-else-if="isPaused" class="video-item__msg video-item__msg--waiting">
+      <Icon :name="video.status === 'crawled' ? 'eraser-line' : 'heart-pulse-line'" :size="12" />
+      {{ waitingHint }}
+    </p>
   </li>
 </template>
 
@@ -112,6 +120,13 @@ const finished = computed(() => isTerminal(props.video.status))
 }
 .video-item--processing {
   border-left-color: #ea580c;
+}
+/* 分步流水线等待态：待清洗琥珀 / 待分析紫，与「处理中」的橙区分 */
+.video-item--crawled {
+  border-left-color: #f59e0b;
+}
+.video-item--cleaned {
+  border-left-color: #7c3aed;
 }
 .video-item--completed {
   border-left-color: #16a34a;
@@ -200,6 +215,17 @@ const finished = computed(() => isTerminal(props.video.status))
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--text-muted);
+}
+/* 等待态提示：图标 + 中文指引，颜色比普通 message 更醒目 */
+.video-item__msg--waiting {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #b45309;
+  font-weight: 600;
+}
+.video-item--cleaned .video-item__msg--waiting {
+  color: #6d28d9;
 }
 .video-item__error {
   margin: 6px 0 0;

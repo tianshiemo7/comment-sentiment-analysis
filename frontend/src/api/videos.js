@@ -1,16 +1,20 @@
 /**
  * src/api/videos.js — B 站视频评论分析接口封装（新增，与既有 client.js 并列）
  *
- * 契约来源：docs/API契约.md（唯一契约来源，字段名不得改名）
- *   1. POST   /api/videos                       {"bvid":str} -> {"bvid","status","progress","created_at"}
+ * 契约来源：docs/API契约.md 与
+ *   docs/superpowers/specs/2026-10-17-settings-and-staged-pipeline-design.md（字段名不得改名）
+ *   1. POST   /api/videos                       {"bvid":str,"settings"?:object} -> {"bvid","status","progress","created_at"}
+ *                                               settings 省略 = 旧行为（一次跑完四个阶段）
  *   2. GET    /api/videos                       -> {"total":int,"videos":[{bvid,title,owner,cover_url,
  *                                                    status,progress,message,phases,comment_count,
  *                                                    created_at,updated_at}]}
  *   3. GET    /api/videos/{bvid}/detail         -> {"video":{...},"analysis":{...},"sentiment":null|{...},
  *                                                    "trend":[],"keywords":{positive,negative},
- *                                                    "model":null|{...},"top_comments":{positive,negative},"error":null|str}
+ *                                                    "model":null|{...},"top_comments":{positive,negative},
+ *                                                    "pipeline"?:{...},"error":null|str}
  *   4. POST   /api/videos/{bvid}/retry          -> 同接口 1
- *   5. DELETE /api/videos/{bvid}                -> {"deleted":true}
+ *   5. POST   /api/videos/{bvid}/continue       -> 同接口 1（仅 crawled / cleaned 可继续，否则 409）
+ *   6. DELETE /api/videos/{bvid}                -> {"deleted":true}
  *
  * 全部使用同源相对路径；开发时由 Vite 代理（或 mock 插件）处理。
  * 错误统一抛出带中文 detail 的 Error，并挂上 err.status 供界面区分 400/404/409。
@@ -54,12 +58,19 @@ async function request(path, options = {}) {
   return data
 }
 
-/** 1) 提交 BV 号，创建分析任务 */
-export function submitVideo(bvid) {
+/**
+ * 1) 提交 BV 号，创建分析任务。
+ * @param {string} bvid
+ * @param {object|null} [settings] 本次任务的爬虫/流水线参数（与已保存设置部分合并，不含 Cookie）；
+ *                                省略即旧行为（后端一次跑完四个阶段，不暂停）
+ */
+export function submitVideo(bvid, settings = null) {
+  const body = { bvid }
+  if (settings && typeof settings === 'object') body.settings = settings
   return request('/api/videos', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ bvid }),
+    body: JSON.stringify(body),
   })
 }
 
@@ -78,9 +89,17 @@ export function retryVideo(bvid) {
   return request(`/api/videos/${encodeURIComponent(bvid)}/retry`, { method: 'POST' })
 }
 
-/** 5) 删除任务 */
+/**
+ * 5) 分步流水线：从「待清洗 / 待分析」继续执行。
+ * 其他状态后端返回 409（detail 形如「任务当前状态 queued，无需继续」）。
+ */
+export function continueVideo(bvid) {
+  return request(`/api/videos/${encodeURIComponent(bvid)}/continue`, { method: 'POST' })
+}
+
+/** 6) 删除任务 */
 export function deleteVideo(bvid) {
   return request(`/api/videos/${encodeURIComponent(bvid)}`, { method: 'DELETE' })
 }
 
-export default { submitVideo, listVideos, getVideoDetail, retryVideo, deleteVideo }
+export default { submitVideo, listVideos, getVideoDetail, retryVideo, continueVideo, deleteVideo }

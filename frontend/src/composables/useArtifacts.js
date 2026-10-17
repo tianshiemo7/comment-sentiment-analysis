@@ -4,11 +4,13 @@
  * 契约（docs/API契约.md 第四点五节）：三段数据全部来自**一次** `GET /api/artifacts`
  * 的 `groups` 数组（projects / solo / videos），不为每段单独发请求。
  *
- * 轮询沿用 usePolling（3 秒、全部终态停止、页面隐藏暂停）：
+ * 轮询沿用 usePolling（3 秒、全部已停时停止、页面隐藏暂停）：
  *   - 终态判断与 utils/videoFormat.js 的 isTerminal 保持一致（completed / failed）；
  *   - 数据项目 status 为 queued / processing 时保持轮询，完成后自动停止；
  *   - 视频段（groups.videos）与 `useVideoAnalysis({ videos })` 共用同一个 ref，
- *     因此视频详情与补拉逻辑完全复用既有实现。
+ *     因此视频详情与补拉逻辑完全复用既有实现；
+ *   - 视频新增的等待态 crawled / cleaned 视为已停（不自动轮询），
+ *     与 useVideoAnalysis 的 isActive 判断保持一致。
  */
 
 import { computed, ref } from 'vue'
@@ -20,7 +22,7 @@ import {
   listArtifacts,
   uploadArtifacts,
 } from '../api/artifacts.js'
-import { isTerminal } from '../utils/videoFormat.js'
+import { isActive, isTerminal } from '../utils/videoFormat.js'
 import { usePolling } from './usePolling.js'
 
 const POLL_INTERVAL = 3000
@@ -47,7 +49,7 @@ export function useArtifacts() {
   const { isPolling, refreshNow, start } = usePolling(refresh, {
     interval: POLL_INTERVAL,
     shouldContinue: () =>
-      projects.value.some((item) => !isTerminal(item.status)) || videos.value.some((item) => !isTerminal(item.status)),
+      projects.value.some((item) => !isTerminal(item.status)) || videos.value.some((item) => isActive(item.status)),
   })
 
   /** 拉一次三段数据；失败保留上一份，仅提示错误。 */
@@ -75,8 +77,8 @@ export function useArtifacts() {
   }))
 
   const activeProjectCount = computed(() => projects.value.filter((item) => !isTerminal(item.status)).length)
-  /** 三段里是否有进行中的任务（状态栏/轮询提示用） */
-  const hasActiveTask = computed(() => activeProjectCount.value > 0 || videos.value.some((item) => !isTerminal(item.status)))
+  /** 三段里是否有进行中的任务（状态栏/轮询提示用；crawled/cleaned 等待态不算进行中） */
+  const hasActiveTask = computed(() => activeProjectCount.value > 0 || videos.value.some((item) => isActive(item.status)))
 
   function clearActionError() {
     actionError.value = ''

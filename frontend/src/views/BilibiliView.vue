@@ -3,7 +3,7 @@
  * views/BilibiliView.vue — 主界面（左栏三段 + 右侧三类详情）
  *
  * 结构：
- *   顶部：BV 输入小框（③段入口，行为不变）+ 右上角「上传爬取数据」/轮询状态/立即刷新
+ *   顶部：BV 输入小框（③段入口；校验通过后先弹「确认本次爬虫参数」）+ 右上角「上传爬取数据」/轮询状态/立即刷新
  *   左栏：数据项目 / 单独评论 / 视频任务 三段（各自可收起，状态记忆到 localStorage）
  *   右侧：按选中类型渲染 —— 视频详情（VideoDetail）/ 数据项目详情（ProjectDetail）/
  *         单独评论详情（SoloCommentDetail，无任何图表）
@@ -12,7 +12,9 @@
  *   - 三段列表统一来自 useArtifacts 的**一次** GET /api/artifacts（groups）；
  *   - 视频详情、失败重试、删除、详情补拉逻辑完全复用 useVideoAnalysis，
  *     只是把 videos 的 ref 交给 useArtifacts（避免两个定时器互相覆盖）；
- *   - 轮询节奏沿用 usePolling（3 秒、全部终态停止、页面隐藏暂停）。
+ *   - 分步流水线：crawled / cleaned 等待态不轮询，详情区点「开始清洗 / 开始分析」
+ *     调用 POST /api/videos/{bvid}/continue 后恢复；
+ *   - 轮询节奏沿用 usePolling（3 秒、全部已停停止、页面隐藏暂停）。
  */
 import { computed, ref, watch } from 'vue'
 import BvInput from '../components/BvInput.vue'
@@ -21,10 +23,12 @@ import VideoDetail from '../components/VideoDetail.vue'
 import ProjectDetail from '../components/ProjectDetail.vue'
 import SoloCommentDetail from '../components/SoloCommentDetail.vue'
 import UploadArtifactsDialog from '../components/UploadArtifactsDialog.vue'
+import CrawlLaunchDialog from '../components/CrawlLaunchDialog.vue'
 import Icon from '../components/Icon.vue'
 import { useArtifacts } from '../composables/useArtifacts.js'
 import { useVideoAnalysis } from '../composables/useVideoAnalysis.js'
-import { isTerminal } from '../utils/videoFormat.js'
+import { useSettings } from '../composables/useSettings.js'
+import { isActive, statusMeta } from '../utils/videoFormat.js'
 import '../assets/video.css'
 
 const COLLAPSE_KEY = 'csa.bilibili.sidebarCollapsed'
@@ -77,6 +81,7 @@ const {
 // 视频详情 / 重试 / 删除 / 详情补拉：复用既有实现，列表 ref 由上面统一提供
 const {
   submitting,
+  continuing,
   actionError: videoActionError,
   clearActionError: clearVideoActionError,
   selectedBvid,
@@ -90,22 +95,27 @@ const {
   reloadDetail,
   submit,
   retry,
+  continueTask,
   remove: removeVideo,
   refreshNow: refreshVideoNow,
   start: startVideoPoll,
 } = useVideoAnalysis({ videos })
 
+/** 共享设置：爬虫参数弹窗用它预填；账号模式在 App 顶栏也会展示 */
+const { settings, load: loadSettings } = useSettings()
+
 const isPolling = computed(() => artifactsPolling.value || videoPolling.value)
 
 /**
  * ③段详情轮询的兜底启动：
- * useVideoAnalysis 挂载时外部 videos ref 还是空数组，它的 usePolling 会因「没有非终态任务」
+ * useVideoAnalysis 挂载时外部 videos ref 还是空数组，它的 usePolling 会因「没有进行中的任务」
  * 立刻停止；等 useArtifacts 的第一次 /api/artifacts 返回后，列表里才出现进行中的视频。
  * 这里在「第一次出现进行中的视频且轮询已停」时把它拉起来，保证详情仍按 3 秒刷新，
  * 并保留「非终态 → 终态」那一次补拉（task-6 记录的缺陷不得复活）。
+ * 注意用 isActive：crawled / cleaned 是等待态，不算进行中，不会误拉轮询。
  */
 watch(
-  () => videos.value.some((item) => !isTerminal(item.status)),
+  () => videos.value.some((item) => isActive(item.status)),
   (active) => {
     if (active && !videoPolling.value) startVideoPoll()
   },
@@ -118,6 +128,14 @@ const selection = ref({ kind: '', id: '' })
 const uploadOpen = ref(false)
 const retrying = ref(false)
 const bvInput = ref(null)
+
+/**
+ * 「开始分析」前的爬虫参数确认弹窗：
+ * BvInput 校验通过 → 记录 BV 号并打开弹窗（预填服务端设置）→ 确认后带 settings 提交；
+ * 取消则不提交、保留输入框内容，方便改完再试。
+ */
+const launchOpen = ref(false)
+const pendingBvid = ref('')
 
 const selectedProject = computed(() =>
   selection.value.kind === 'project' ? projects.value.find((item) => item.id === selection.value.id) || null : null,
@@ -183,13 +201,44 @@ function onSelectVideo(bvid) {
   selectVideo(bvid)
 }
 
+/** BvInput 校验通过：不再直接提交，先弹出「确认本次爬虫参数」 */
 async function onSubmit(bvid) {
   clearActionError()
-  const ok = await submit(bvid)
+  pendingBvid.value = bvid
+  launchOpen.value = true
+  // 确保弹窗预填的是服务端最新设置（已加载过则立即返回；失败自动回退默认值）
+  await loadSettings()
+}
+
+/** 爬虫参数弹窗确认：带 settings 提交任务；失败保持弹窗并展示中文错误 */
+async function onLaunchConfirm(settingsPayload) {
+  const bvid = pendingBvid.value
+  if (!bvid) return
+  const ok = await submit(bvid, settingsPayload)
   if (ok) {
+    launchOpen.value = false
+    pendingBvid.value = ''
     bvInput.value?.reset() // 提交成功才清空输入框
     selection.value = { kind: 'video', id: selectedBvid.value }
     await refreshArtifacts() // ③段列表来自 /api/artifacts
+    startArtifacts()
+  }
+}
+
+/** 取消弹窗：不提交、不清空输入框 */
+function onLaunchCancel() {
+  if (submitting.value) return
+  launchOpen.value = false
+  pendingBvid.value = ''
+  clearActionError()
+}
+
+/** 分步流水线：待清洗 → 开始清洗 / 待分析 → 开始分析（continue 后恢复轮询） */
+async function onContinueVideo(bvid) {
+  clearActionError()
+  const ok = await continueTask(bvid)
+  if (ok) {
+    await refreshArtifacts()
     startArtifacts()
   }
 }
@@ -346,8 +395,10 @@ const counts = computed(() => ({
           :loading="detailLoading"
           :error="detailError"
           :retrying="retrying"
+          :continuing="continuing"
           @retry="onRetryVideo"
           @reload="reloadDetail"
+          @continue="onContinueVideo"
         />
         <!-- 未选中：沿用既有引导空态，不渲染任何图表 -->
         <VideoDetail v-else :has-selection="false" />
@@ -367,7 +418,7 @@ const counts = computed(() => ({
                 : '—'
         }}
       </span>
-      <template v-if="detailKind === 'video' && selectedStatus"> · 状态：{{ selectedStatus }}</template>
+      <template v-if="detailKind === 'video' && selectedStatus"> · 状态：{{ statusMeta(selectedStatus).label }}</template>
       <template v-else-if="detailKind === 'project' && selectedProject"> · 状态：{{ selectedProject.status }}</template>
       <template v-else-if="detailKind === 'solo' && selectedSolo"> · 极性：{{ selectedSolo.label }}</template>
       · 数据项目 {{ counts.projects }} · 单独评论 {{ counts.solo }} · 视频任务 {{ counts.videos }}
@@ -379,6 +430,17 @@ const counts = computed(() => ({
       :error="artifactsActionError"
       @close="closeUpload"
       @submit="onUpload"
+    />
+
+    <!-- 开始分析前确认本次爬虫参数（取消不提交） -->
+    <CrawlLaunchDialog
+      v-if="launchOpen"
+      :bvid="pendingBvid"
+      :settings="settings"
+      :submitting="submitting"
+      :error="videoActionError"
+      @close="onLaunchCancel"
+      @confirm="onLaunchConfirm"
     />
   </section>
 </template>

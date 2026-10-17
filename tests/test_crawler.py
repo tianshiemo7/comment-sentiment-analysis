@@ -1491,6 +1491,64 @@ def test_bili_cookie_env_parsing(monkeypatch):
     assert session.cookies.store.get("bili_jct") == "csrf"
 
 
+def test_bili_client_accepts_injected_cookie(monkeypatch):
+    """逐任务注入的 Cookie：与 BILI_COOKIE 同格式，优先级更高，且不写回环境。"""
+    monkeypatch.delenv("BILI_COOKIE", raising=False)
+    monkeypatch.setenv("BILI_COOKIE", "SESSDATA=from-env; bili_jct=env-csrf")
+
+    session = make_bili_session()
+    client = BiliClient(
+        delay=0,
+        session=session,
+        respect_robots=False,
+        risk_control_cooldown=0,
+        sleep=lambda seconds: None,
+        cookie="SESSDATA=injected-value; bili_jct=injected-csrf",
+    )
+    assert client.has_credentials is True
+    assert session.cookies.store.get("SESSDATA") == "injected-value"
+    assert session.cookies.store.get("bili_jct") == "injected-csrf"
+    # 不写回环境变量（逐任务注入，不污染全局）
+    import os
+
+    assert os.getenv("BILI_COOKIE") == "SESSDATA=from-env; bili_jct=env-csrf"
+    # 注入的 Cookie 不出现在对象 repr 里（防日志泄密）
+    assert "injected-value" not in repr(client)
+
+
+def test_fetch_video_comments_require_login_checks_session():
+    """`require_login=True`：未登录直接抛 CrawlStopped，已登录可继续采集。"""
+    anonymous = _make_client(make_bili_session())
+    with pytest.raises(CrawlStopped) as excinfo:
+        fetch_video_comments(
+            "BV1GJ411x7h7", client=anonymous, max_pages=1, include_replies=False,
+            require_login=True,
+        )
+    assert "未登录" in str(excinfo.value)
+
+    logged_in = _make_client(
+        make_bili_session(
+            nav_payload={
+                "code": 0,
+                "data": {
+                    "isLogin": True,
+                    "uname": "测试用户",
+                    "mid": 42,
+                    "wbi_img": {
+                        "img_url": "https://i0.hdslb.com/bfs/wbi/" + "a" * 32 + ".png",
+                        "sub_url": "https://i0.hdslb.com/bfs/wbi/" + "b" * 32 + ".png",
+                    },
+                },
+            }
+        )
+    )
+    records = fetch_video_comments(
+        "BV1GJ411x7h7", client=logged_in, max_pages=1, include_replies=False,
+        require_login=True,
+    )
+    assert records and records[0]["text"]
+
+
 
 def test_page_size_is_sent_and_checkpoint_rejects_change(tmp_path):
     client = StubBiliClient()

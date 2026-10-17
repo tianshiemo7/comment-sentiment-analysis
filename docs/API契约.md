@@ -17,11 +17,18 @@
 | `queued` | 排队中（灰） | 「排队中…」 |
 | `crawling` | 爬取中 + 进度条（蓝） | 「正在爬取评论… {progress}%」 |
 | `processing` | 处理中 + 进度条（橙） | 「正在清洗与情感分析… {progress}%」 |
+| **`crawled`** | **待清洗**（琥珀，等待操作） | 「采集完成，等待清洗」+「开始清洗」按钮 |
+| **`cleaned`** | **待分析**（紫，等待操作） | 「清洗完成，等待情感分析」+「开始分析」按钮 |
 | `completed` | 已完成（绿） | 完整详情：图表 + 词云 + 评论 |
 | `failed` | 失败（红，带原因） | `error` 字段内容 + 重试按钮 |
 
 - `progress`：整数 0~100。
 - `phases`：子步骤列表，用于在详情区显示细粒度进度；前端按数组渲染，**新增阶段不需要改前端**。
+- **`crawled` / `cleaned` 为 2026-10-17 新增的等待态**：不自动轮询，需用户点「开始清洗 / 开始分析」
+  （`POST /api/videos/{bvid}/continue`）继续，或在设置页开启 `auto_clean` / `auto_analyze` 自动跨越。
+  其余状态语义不变；旧客户端可忽略这两个新枚举。
+- 处于 `crawled` 时 `phases` 为「采集评论=done，其余 pending」；`cleaned` 时
+  「采集评论=done、文本清洗=done，情感推理/统计分析=pending」。
 
 ```json
 "phases": [
@@ -34,9 +41,9 @@
 
 `phases[].status` 取值：`pending` | `active` | `done` | `failed`。
 
-**未完成时详情怎么返回**：不报错，仍返回 HTTP 200，`analysis.status` 为
-`crawling` / `processing`，并带当前 `progress`、`message`；其余数据字段留空，
-具体形态固定为：
+**未完成时详情怎么返回**：不报错，仍返回 HTTP 200，`analysis.status` 为当前状态
+（`queued` / `crawling` / `processing` / `crawled` / `cleaned`），并带当前 `progress`、`message`；
+其余数据字段留空，具体形态固定为：
 
 | 字段 | 未完成时 | 说明 |
 | --- | --- | --- |
@@ -56,12 +63,21 @@
 
 | # | 方法 | 路径 | 说明 |
 | --- | --- | --- | --- |
-| 1 | POST | `/api/videos` | 提交 BV 号，创建分析任务 |
+| 1 | POST | `/api/videos` | 提交 BV 号，创建分析任务（可带 `settings` 启用分步流水线） |
 | 2 | GET | `/api/videos` | 视频列表（左侧栏，轮询） |
-| 3 | GET | `/api/videos/{bvid}/detail` | 视频详情（右侧详情区） |
+| 3 | GET | `/api/videos/{bvid}/detail` | 视频详情（右侧详情区，含 `pipeline` 字段） |
 | 4 | POST | `/api/videos/{bvid}/retry` | 失败任务重试 |
 | 5 | DELETE | `/api/videos/{bvid}` | 删除任务（可选功能） |
+| 6 | GET | `/api/settings` | 读取系统设置（B 站 Cookie 脱敏） |
+| 7 | PUT | `/api/settings` | 保存系统设置（部分更新） |
+| 8 | POST | `/api/crawler/session/check` | 检查 B 站登录态（手动 Cookie 兜底时校验） |
+| 9 | POST | `/api/videos/{bvid}/continue` | 等待态任务继续下一阶段（`crawled`→清洗、`cleaned`→分析） |
+| 10 | POST | `/api/account/login/start` | 打开人工登录窗口并启动 Cookie 捕获（幂等） |
+| 11 | GET | `/api/account/login/status` | 轮询人工登录窗口状态（前端 2 秒一次） |
+| 12 | POST | `/api/account/login/cancel` | 取消本次登录并关闭窗口 |
 | — | GET | `/health` | 健康检查（已存在） |
+
+> 第 6~12 项为 2026-10-17 新增，详见本文件「二点五、设置与分步流水线」；第 1 项请求体向后兼容。
 
 ### 1. 提交 BV 号
 
@@ -72,7 +88,21 @@ Content-Type: application/json
 {"bvid": "BV1xx411c7mD"}
 ```
 
-成功 `200`：
+可选带 `settings` 启用分步流水线（省略 = 旧行为，见下方兼容说明）：
+
+```jsonc
+{
+  "bvid": "BV1xx411c7mD",
+  "settings": {
+    "account": {"mode": "anonymous"},          // 只传模式；Cookie 永远取服务端设置
+    "crawl": {"real_crawl": true, "max_pages": 2, "include_replies": true},
+    "pipeline": {"auto_clean": false, "auto_analyze": false}
+  }
+}
+```
+
+`settings` 与已保存设置**部分合并**后作为本任务快照（不含 Cookie）写入任务记录，之后修改设置
+不影响已提交任务。响应结构不变：
 
 ```json
 {"bvid": "BV1xx411c7mD", "status": "queued", "progress": 0,
@@ -84,7 +114,11 @@ Content-Type: application/json
 | 状态码 | 场景 | 响应体 |
 | --- | --- | --- |
 | 400 | BV 号格式非法 | `{"detail": "BV 号格式不正确，应形如 BV1xx411c7mD"}` |
+| 400 | `settings` 字段越界 / 枚举非法 | `{"detail": "crawl.max_pages 必须在 0~50 之间"}` 等，带具体字段与范围 |
 | 409 | 该 BV 号已在处理中 | `{"detail": "该视频已在分析队列中"}` |
+
+> **兼容性**：不带 `settings` 的请求（`{"bvid": "..."}`）与旧版行为完全一致 —— 一次跑完
+> 四个阶段、不暂停；新行为只在 `settings` 存在时启用。
 
 BV 号校验规则（前后端一致）：正则 `^BV[0-9A-Za-z]{10}$`。
 
@@ -144,6 +178,16 @@ GET /api/videos/{bvid}/detail
     "message": "分析完成",
     "length_stats": {"avg_chars": 38.2, "max_chars": 200}
   },
+  "pipeline": {
+    "account_mode": "anonymous",
+    "auto_clean": false,
+    "auto_analyze": false,
+    "next_action": null,
+    "crawl": {"real_crawl": true, "max_pages": 1, "max_sub_pages": 1,
+              "page_size": 20, "include_replies": false, "sort_mode": "time",
+              "max_items": 200, "delay_seconds": 2.5, "timeout_seconds": 15,
+              "require_login": false, "init_buvid": false}
+  },
   "sentiment": {
     "total": 8421,
     "positive": 5210, "negative": 2511, "neutral": 700,
@@ -173,6 +217,12 @@ GET /api/videos/{bvid}/detail
 
 - `placeholder`：`true` 表示当前结果由**占位逻辑**生成（真实爬虫与模型尚未接入）；
   接入真实数据后置为 `false`，前端可据此显示「占位数据」提示。
+- **顶层 `pipeline`**（2026-10-17 新增，additive，未完成时也返回）：`account_mode`
+  （`anonymous` / `account`）、`auto_clean`、`auto_analyze`、`next_action`
+  （`null` / `"clean"` / `"analyze"`）与本任务的 `crawl` 参数快照。
+  `next_action="clean"` 时对应 `status="crawled"`，`"analyze"` 对应 `status="cleaned"`。
+- `analysis.status` 使用新状态枚举；`analysis.message` 为「采集完成，等待清洗」/
+  「清洗完成，等待情感分析」等中文提示。
 - `sentiment.*_ratio` 为 0~1 小数，三者之和约等于 1。
 - `trend[].bucket` 默认按天 `YYYY-MM-DD`，也可按小时 `YYYY-MM-DD HH:00`；前端按字符串直接作为横轴。
 - `keywords.*[].weight` 为 0~1 归一化权重，**词云直接用 `count` 或 `weight` 渲染，后端不生成图片**。
@@ -200,13 +250,294 @@ DELETE /api/videos/{bvid}
 
 ---
 
+## 二点五、设置与分步流水线（2026-10-17）
+
+> 本节为 2026-10-17 新增接口与字段的**唯一契约**。后端实现见 `src/videos/settings.py`
+> （设置存储/校验）、`src/videos/browser_login.py`（人工登录窗口）与 `pipeline.py` /
+> `service.py`（分步状态机）；前端组件为 `components/SettingsDialog.vue`、
+> `components/CrawlLaunchDialog.vue`。
+> 原接口与不带 `settings` 的旧请求体**保持完全兼容**（旧行为零回归）。
+
+### 2.5.1 设置模型与存储
+
+- 落盘文件：`outputs/settings.json`（默认；已被 `.gitignore` 忽略，**切勿提交**），
+  可用环境变量 `CSA_SETTINGS_PATH` 覆盖；原子写入，写盘失败不影响 HTTP 响应。
+- 文件不存在 / 非法或损坏 → **按默认值返回**，不报错。
+- Cookie 明文**只存在该文件**；任何接口响应与日志都不得含完整 Cookie。
+- 完整结构（`GET` / `PUT` 响应用同一结构；带「只读」的字段不接受客户端修改）：
+
+```jsonc
+{
+  "account": {
+    "mode": "anonymous",        // anonymous | account
+    "has_cookie": false,        // 只读：服务端是否已保存凭据
+    "masked_cookie": "",        // 只读：形如 "SESSD…9f2a"
+    "uname": "",                // 只读：最近一次检查登录态成功的昵称
+    "mid": 0                    // 只读：最近一次检查登录态成功的 mid
+  },
+  "crawl": {
+    "real_crawl": true,         // true=真实爬虫；false=占位数据（离线演示）
+    "max_pages": 1,             // 0~50，0=不限
+    "max_sub_pages": 1,         // 0~20，0=不限
+    "page_size": 20,            // 1~50，一级评论每页条数
+    "include_replies": false,   // 楼中楼
+    "sort_mode": "time",        // time | hot
+    "max_items": 200,           // ≥0，0=不限；本次任务最多新增评论数
+    "delay_seconds": 2.5,       // 2.0~60，请求最小间隔（合规硬性要求）
+    "timeout_seconds": 15,      // >0，单次请求超时
+    "require_login": false,     // true 时未登录直接失败
+    "init_buvid": false         // 是否初始化 buvid3/buvid4 设备指纹
+  },
+  "pipeline": {
+    "auto_clean": false,        // 采集完成后自动清洗
+    "auto_analyze": false       // 清洗完成后自动情感分析
+  },
+  "updated_at": "2026-10-17T18:00:00+08:00"
+}
+```
+
+默认值即上例（匿名、真实采集、关闭自动连续）。
+
+### 2.5.2 `GET /api/settings`
+
+```
+GET /api/settings
+```
+
+成功 `200`：返回上述结构（Cookie 脱敏）。不存在的字段以默认值补齐；非法/损坏文件回退默认值。
+
+```json
+{
+  "account": {"mode": "account", "has_cookie": true, "masked_cookie": "SESSD…9f2a",
+               "uname": "示例用户", "mid": 123456},
+  "crawl": {"real_crawl": true, "max_pages": 1, "max_sub_pages": 1, "page_size": 20,
+             "include_replies": false, "sort_mode": "time", "max_items": 200,
+             "delay_seconds": 2.5, "timeout_seconds": 15,
+             "require_login": false, "init_buvid": false},
+  "pipeline": {"auto_clean": false, "auto_analyze": false},
+  "updated_at": "2026-10-17T18:00:00+08:00"
+}
+```
+
+### 2.5.3 `PUT /api/settings`
+
+请求体为**部分更新**（缺省字段保持不变，只做浅层嵌套合并）：
+
+```jsonc
+{
+  "account": {"mode": "account", "cookie": "SESSDATA=...; bili_jct=..."},
+  "crawl": {"max_pages": 3, "include_replies": true},
+  "pipeline": {"auto_clean": true, "auto_analyze": false}
+}
+```
+
+规则：
+
+| 情况 | 行为 |
+| --- | --- |
+| `account.cookie` 非空 | 保存凭据（明文仅落盘，不回传） |
+| `account.cookie: ""` 或 `account.mode == "anonymous"` | 清除凭据 |
+| `account.mode == "account"` 但没有凭据 | **400**，`detail` 为中文提示（去设置页填写 Cookie） |
+| 数值越界、枚举非法 | **400**，`detail` 带具体字段与合法范围（不返回 422、不做宽松裁剪） |
+| 成功 | `200`，返回与 `GET /api/settings` 相同的脱敏结构 |
+
+示例错误体：
+
+```json
+{"detail": "crawl.delay_seconds 必须在 2~60 之间"}
+```
+
+> 实际 `detail` 由后端校验层生成，形如「`crawl.<字段> 必须在 <min>~<max> 之间`」或
+> 「`crawl.<字段> 必须大于 0`」，可直接展示给用户。
+
+### 2.5.4 `POST /api/crawler/session/check`
+
+检查 B 站登录态（**手动 Cookie 兜底时的校验入口**；推荐的人工登录窗口见 2.5.6）。请求体可省略：
+
+```jsonc
+{ "cookie": "SESSDATA=...;" }   // 可选：用临时凭据检查（尚未保存时使用）
+```
+
+- 未提供时用已保存凭据；两者都没有 → `200` 返回匿名态（`is_login=false`），不报错；
+- 调用爬虫真实登录态接口（`BiliClient.login_status`）；网络/接口异常 → **502** + 中文原因；
+- 登录成功后把 `uname` / `mid` 缓存进设置文件（只读字段）。
+
+成功 `200`：
+
+```json
+{
+  "mode": "account",
+  "has_credentials": true,
+  "is_login": true,
+  "uname": "示例用户",
+  "mid": 123456,
+  "message": "已登录：示例用户"
+}
+```
+
+匿名无凭据时（文案以实现返回为准）：`{"mode":"anonymous","has_credentials":false,"is_login":false,"uname":"","mid":0,"message":"未配置登录凭据，当前为匿名模式"}`。
+
+### 2.5.5 `POST /api/videos/{bvid}/continue`
+
+继续等待态任务到下一阶段：
+
+```
+POST /api/videos/{bvid}/continue
+```
+
+- 仅当任务处于 `crawled`（继续清洗）或 `cleaned`（继续分析）时允许；
+- 其他状态 → **409**，`detail` 形如「任务当前状态 queued，无需继续」；
+- 未知 `bvid` → **404**；
+- 成功 `200`：任务重置为 `queued`、`progress=0`，`phases` 保留已完成阶段，重新入队；
+  响应结构与 `POST /api/videos` 相同（`status="queued"`）。
+
+```json
+{"bvid": "BV1xx411c7mD", "status": "queued", "progress": 0,
+ "created_at": "2026-10-16T14:30:00+08:00"}
+```
+
+### 2.5.6 人工登录窗口（推荐方式）
+
+> 背景：B 站密码登录会触发极验点选验证码，**不允许 / 不适合由后端自动破解**，因此「登录账号」
+> 的推荐交互是：前端点按钮 → 后端在运行服务的那台机器上弹出一个**真实浏览器窗口** →
+> 由**人**完成扫码 / 账号密码 + 验证码登录 → 后端只负责等待、捕获 Cookie 并写入设置。
+> 手填 Cookie（2.5.3 的 `account.cookie` + 2.5.4 校验）保留为「高级」兜底方式。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/account/login/start` | 打开登录窗口并启动捕获；已有窗口在等待时直接返回当前状态（幂等） |
+| `GET` | `/api/account/login/status` | 轮询登录窗口状态（前端 2 秒一次） |
+| `POST` | `/api/account/login/cancel` | 取消本次登录并关闭窗口 |
+
+状态对象（`start` / `status` / `cancel` 共用）：
+
+```jsonc
+{
+  "state": "idle",        // idle | opening | waiting | success | failed | cancelled | timeout
+  "message": "尚未开始登录",
+  "uname": "",            // success 后为 B 站昵称
+  "mid": 0,
+  "has_cookie": false,    // 设置中是否已有可用 Cookie
+  "started_at": null,     // ISO8601 或 null
+  "updated_at": "2026-10-17T18:00:00+08:00"
+}
+```
+
+`state` 语义：
+
+| state | 含义 |
+| --- | --- |
+| `idle` | 尚未开始登录 |
+| `opening` | 正在启动浏览器 / 打开登录页 |
+| `waiting` | 窗口已打开，等待用户完成登录 |
+| `success` | 登录成功，Cookie 已写入设置 |
+| `failed` | 启动 / 捕获失败，`message` 带可读原因 |
+| `cancelled` | 用户关闭窗口或主动取消 |
+| `timeout` | 超过 **300 秒**未完成登录 |
+
+语义：
+
+- `start`：在后台线程启动 Playwright（优先系统 Edge `channel="msedge"`，其次 Chromium），
+  打开 `https://passport.bilibili.com/login` 并置前；状态 `opening → waiting`；不阻塞事件循环；
+- **浏览器依赖缺失时返回 `503`**，`detail` 说明安装命令：
+  `pip install playwright` + `python -m playwright install chromium`（Windows 已装 Edge/Chrome
+  可直接使用，无需另装 Chromium）；未安装依赖不影响应用其它功能；
+- 捕获线程每 2 秒读一次 Cookie，出现 `SESSDATA` 后调用
+  `https://api.bilibili.com/x/web-interface/nav` 取 `uname` / `mid`，把 Cookie 写入设置
+  （`account.mode="account"`、`uname`、`mid`），状态 `success`，随后关闭浏览器；
+- 用户关闭窗口 → `cancelled`；超过 300 秒 → `timeout`；异常 → `failed` + 可读原因；
+- **同一时间只允许一个登录窗口**；等待期间重复 `start` 返回当前状态（幂等）；
+- 窗口打开在**后端所在机器**的桌面（本地课程项目即用户本机）；远程部署时需到服务器桌面操作，
+  或改用手动 Cookie；
+- 账号密码 / 验证码由用户在 B 站官方登录页输入，**本项目不读取、不记录**；Cookie 永不通过接口
+  回传明文，日志不得打印 Cookie；
+- 安全与合规：登录态属**个人凭据**，只保存到服务端设置文件（`outputs/settings.json`，已被
+  `.gitignore` 忽略，**切勿提交仓库**）；爬虫仍遵守限速与 robots 约定（见
+  [`docs/大规模采集运行手册.md`](大规模采集运行手册.md)），不绕过风控、不并发抓取。
+
+`waiting` 状态示例：
+
+```json
+{
+  "state": "waiting",
+  "message": "已打开登录窗口，请在运行后端的电脑上完成扫码 / 登录",
+  "uname": "", "mid": 0, "has_cookie": false,
+  "started_at": "2026-10-17T18:00:00+08:00",
+  "updated_at": "2026-10-17T18:00:02+08:00"
+}
+```
+
+`success` 状态示例：
+
+```json
+{
+  "state": "success",
+  "message": "已登录：示例用户",
+  "uname": "示例用户", "mid": 123456, "has_cookie": true,
+  "started_at": "2026-10-17T18:00:00+08:00",
+  "updated_at": "2026-10-17T18:00:35+08:00"
+}
+```
+
+> `requirements.txt` 中 `playwright` 为**可选依赖**（仅人工登录窗口需要）；未安装时其它功能完全
+> 不受影响，`start` 返回 503 并给出安装指引。
+
+### 2.5.7 分步状态机、轮询与中间产物
+
+状态迁移：
+
+```
+queued → crawling → [采集完成]
+                        ├─ auto_clean=true  → processing（清洗）→ [清洗完成]
+                        └─ auto_clean=false → crawled（暂停）
+crawled →（continue）→ queued → processing（清洗）→ [清洗完成]
+                        ├─ auto_analyze=true  → processing（情感推理→统计分析）→ completed
+                        └─ auto_analyze=false → cleaned（暂停）
+cleaned →（continue）→ queued → processing（情感推理→统计分析）→ completed
+任意阶段异常 → failed（error 带可读原因）；retry 清空中间产物、回到 queued。
+```
+
+- 流水线阶段名称不变：`采集评论 → 文本清洗 → 情感推理 → 统计分析`；
+- `crawled` / `cleaned` 视为**已停止**，前端不再自动轮询；`continue` / `retry` / 重新提交后恢复轮询；
+- 开启自动连续时不允许在中间态停留（除非该阶段失败）；
+- 中间产物落盘 `outputs/videos/<bvid>/crawl.json`（原始评论或占位计数）、
+  `clean.json`（清洗后评论）与 `analyze.json`（逐条规则预测结果，供审计）；
+  详情文件仍为 `outputs/videos/<bvid>.json`；
+- 服务重启：`queued` / `crawling` / `processing` 重置为 `queued` 重新跑；
+  `crawled` / `cleaned` **保持等待态**，等待用户操作；
+- 任务记录新增内部字段 `settings_snapshot`（不含 Cookie）、`resume_stage`
+  （`crawl` / `clean` / `analyze`）、`stage_state`，**不对外暴露**。
+
+### 2.5.8 兼容性与错误码汇总
+
+- **旧请求体有效**：`POST /api/videos` 不带 `settings` 时仍走原有「一次跑完四个阶段」路径，
+  不暂停、不受本小节影响；
+- **响应仅新增字段**：详情新增顶层 `pipeline`，`sentiment` / `trend` / `keywords` /
+  `top_comments` / `model` / `placeholder` 等不变；
+- **Cookie 永不进任务**：任务 `settings` 只接受 `account.mode`，Cookie 始终取服务端设置；
+  任务记录与响应均不含 Cookie 明文；
+- **人工登录窗口为 additive 能力**：不改变既有 `/api/settings`、`/api/videos` 语义；
+  未安装 Playwright 时应用正常启动，仅 `POST /api/account/login/start` 返回 503；
+- 错误码：
+
+| 状态码 | 场景 |
+| --- | --- |
+| `400` | `PUT /api/settings` 的数值越界 / 枚举非法；`mode=account` 但无凭据；`POST /api/videos` 的 `settings` 非法；BV 号格式非法 |
+| `404` | 未知 `bvid`（detail / retry / continue / delete） |
+| `409` | 提交时该 BV 号已在处理中；`continue` 时任务不在 `crawled` / `cleaned` |
+| `502` | `POST /api/crawler/session/check` 调用 B 站登录态接口的网络/接口异常 |
+| `503` | `POST /api/account/login/start` 缺少浏览器依赖（未安装 Playwright、无可用 Edge/Chromium）；`detail` 带安装指引 |
+
+---
+
 ## 三、前端轮询策略（已定）
 
 - 列表每 **3 秒**轮询一次 `GET /api/videos`。
-- 当所有任务都处于 `completed` / `failed` 时**停止轮询**；提交新 BV 或点「重试」后恢复。
+- 当所有任务都处于 `completed` / `failed` /**`crawled` / `cleaned`（等待操作）** 时**停止轮询**；
+  提交新 BV、点「重试」或点「开始清洗 / 开始分析」（continue）后恢复。
 - 页面切到后台（`document.visibilitychange` 隐藏）时暂停轮询，回到前台立即拉一次。
-- 详情区：选中任务后拉一次详情；若其 `analysis.status` 不是 `completed`/`failed`，
-  则随列表轮询一起刷新（即详情也用 3 秒节奏），完成后停止。
+- 详情区：选中任务后拉一次详情；若其 `analysis.status` 不是 `completed` / `failed` /
+  `crawled` / `cleaned`，则随列表轮询一起刷新（即详情也用 3 秒节奏），到达终态或等待态后停止。
 
 ---
 
@@ -218,6 +549,11 @@ DELETE /api/videos/{bvid}
 - 预置 2 条演示数据（1 条已完成、1 条进行中），方便直接查看界面效果。
 - 词频、趋势、代表性评论由 mock 生成，**不得写进业务组件**；
   真实后端就绪后只需移除 mock 插件（`vite.config.js` 一处），前端业务代码不改。
+- **2026-10-17 起 mock 同步支持**：`GET/PUT /api/settings`、`POST /api/crawler/session/check`、
+  `POST /api/videos/{bvid}/continue`、`POST /api/account/login/{start,status,cancel}` 与新状态
+  `crawled` / `cleaned`，保证 `npm run dev`（默认 mock）可完整演示「设置 → 参数确认 → 分步执行」；
+  mock 的默认设置与后端一致，其中真实采集用占位数据模拟、**不触网**，人工登录窗口用时间推进的
+  模拟状态机（不弹真实浏览器）。
 
 ---
 

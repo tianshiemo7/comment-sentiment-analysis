@@ -76,3 +76,151 @@ export function crawledCount(snap, commentTotal, timeline = DEFAULT_TIMELINE, el
   const f = clamp01((elapsed - timeline.queuedMs) / timeline.crawlingMs)
   return Math.floor(commentTotal * (0.15 + 0.85 * f))
 }
+
+/* ==========================================================================
+ * 分步流水线（2026-10-17）：采集 → 清洗 → 分析，阶段边界可暂停为
+ * crawled（待清洗）/ cleaned（待分析），等待前端点「开始清洗 / 开始分析」。
+ * ========================================================================== */
+
+/** 三个阶段：crawl → clean → analyze（analyze 覆盖「情感推理 + 统计分析」两个 phase） */
+export const STAGE_KEYS = ['crawl', 'clean', 'analyze']
+
+/**
+ * 每阶段的时间线（mock 演示用，单位 ms）：
+ *   queuedMs  入队等待；activeMs 真正执行；进度区间 [startProgress, endProgress]。
+ * 默认参数（auto_clean=false / auto_analyze=false）下总耗时 ≈ 41s：
+ *   采集 15s → 暂停；继续清洗 12s → 暂停；继续分析 14s → 完成。
+ */
+export const STAGE_PLAN = {
+  crawl: {
+    label: '采集评论',
+    queuedMs: 5_000,
+    activeMs: 10_000,
+    startProgress: 0,
+    endProgress: 45,
+    activeStatus: 'crawling',
+    message: '正在爬取评论…',
+  },
+  clean: {
+    label: '文本清洗',
+    queuedMs: 2_000,
+    activeMs: 10_000,
+    startProgress: 45,
+    endProgress: 75,
+    activeStatus: 'processing',
+    message: '正在清洗评论…',
+  },
+  analyze: {
+    label: '情感分析与统计',
+    queuedMs: 2_000,
+    activeMs: 12_000,
+    startProgress: 75,
+    endProgress: 95,
+    activeStatus: 'processing',
+    message: '正在情感分析与统计…',
+  },
+}
+
+const STAGE_INDEX = { crawl: 0, clean: 1, analyze: 2 }
+
+/**
+ * 构造当前阶段对应的 phases 三态：
+ * 之前阶段 done、当前阶段 active/pending、之后 pending；
+ * analyze 阶段同时覆盖「情感推理 + 统计分析」两个 phase。
+ */
+function phasesForStage(stage, current) {
+  const index = STAGE_INDEX[stage] ?? 0
+  const finished = current === 'done'
+  return PHASE_NAMES.map((name, i) => {
+    if (stage === 'analyze') {
+      if (i < 2 || finished) return { name, status: 'done' }
+      if (i === 2) return { name, status: current }
+      return { name, status: 'pending' }
+    }
+    if (i < index) return { name, status: 'done' }
+    if (i === index) return { name, status: current }
+    return { name, status: 'pending' }
+  })
+}
+
+/**
+ * 单个阶段的纯快照。
+ * @param {'crawl'|'clean'|'analyze'} stage
+ * @param {number} elapsedMs 距离本阶段开始的毫秒数
+ * @returns {{done:boolean,status:string,progress:number,message:string,phases:Array}}
+ */
+export function stageSnapshot(stage, elapsedMs) {
+  const plan = STAGE_PLAN[stage]
+  if (!plan) {
+    return { done: true, status: 'completed', progress: 100, message: '分析完成', phases: phases(PHASE_DONE) }
+  }
+  const elapsed = Math.max(0, Number(elapsedMs) || 0)
+
+  if (elapsed < plan.queuedMs) {
+    return {
+      done: false,
+      status: 'queued',
+      progress: plan.startProgress,
+      message: stage === 'crawl' ? '已加入分析队列，等待调度…' : `等待进入「${plan.label}」阶段…`,
+      phases: phasesForStage(stage, 'pending'),
+    }
+  }
+
+  const activeElapsed = elapsed - plan.queuedMs
+  if (activeElapsed < plan.activeMs) {
+    const f = clamp01(activeElapsed / plan.activeMs)
+    const progress = Math.min(
+      plan.endProgress,
+      Math.round(plan.startProgress + (plan.endProgress - plan.startProgress) * f),
+    )
+    return {
+      done: false,
+      status: plan.activeStatus,
+      progress,
+      message: plan.message,
+      phases: phasesForStage(stage, 'active'),
+    }
+  }
+
+  return {
+    done: true,
+    status: '',
+    progress: plan.endProgress,
+    message: `${plan.label}完成`,
+    phases: phasesForStage(stage, 'done'),
+  }
+}
+
+/** 等待态快照：crawled（待清洗）/ cleaned（待分析）。 */
+export function waitingSnapshot(status) {
+  if (status === 'cleaned') {
+    return {
+      status: 'cleaned',
+      progress: STAGE_PLAN.clean.endProgress,
+      message: '清洗完成，等待情感分析',
+      phases: phases(['done', 'done', 'pending', 'pending']),
+    }
+  }
+  return {
+    status: 'crawled',
+    progress: STAGE_PLAN.crawl.endProgress,
+    message: '采集完成，等待清洗',
+    phases: phases(['done', 'pending', 'pending', 'pending']),
+  }
+}
+
+/** 分步任务已完成快照。 */
+export function completedSnapshot() {
+  return { status: 'completed', progress: 100, message: '分析完成', phases: phases(PHASE_DONE) }
+}
+
+/** 分步流水线：已入库评论数（采集阶段按比例增长，之后等于总量）。 */
+export function stagedCommentCount(stage, elapsedMs, commentTotal) {
+  if (stage !== 'crawl') return commentTotal
+  const plan = STAGE_PLAN.crawl
+  const elapsed = Math.max(0, Number(elapsedMs) || 0)
+  if (elapsed < plan.queuedMs) return 0
+  const activeElapsed = Math.min(plan.activeMs, elapsed - plan.queuedMs)
+  const f = clamp01(activeElapsed / plan.activeMs)
+  return Math.max(0, Math.floor(commentTotal * (0.15 + 0.85 * f)))
+}

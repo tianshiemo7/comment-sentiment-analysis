@@ -16,11 +16,21 @@
 
 本次新增的 B 站视频评论分析系列（实现在 `src/videos/`）：
 
-- ``POST   /api/videos``（提交 BV 号；非法 400 / 重复在处理中 409）
+- ``POST   /api/videos``（提交 BV 号；非法 400 / 重复在处理中 409 / 可选 settings）
 - ``GET    /api/videos``（列表，按 ``created_at`` 倒序）
 - ``GET    /api/videos/{bvid}/detail``（详情；未完成也 200，不报错）
 - ``POST   /api/videos/{bvid}/retry``（重置为 queued；不存在 404）
+- ``POST   /api/videos/{bvid}/continue``（等待态继续：crawled→清洗 / cleaned→分析；409/404）
 - ``DELETE /api/videos/{bvid}``（删除；不存在 404）
+
+设置与账号（实现在 `src/videos/settings.py` / `src/videos/browser_login.py`，spec 第 2 节）：
+
+- ``GET    /api/settings``（读取设置；Cookie 只返回 has_cookie / masked_cookie）
+- ``PUT    /api/settings``（部分更新；越界 / 枚举非法 / 账号缺凭据 → 400）
+- ``POST   /api/crawler/session/check``（检查登录态；未配置凭据 200 匿名 / 异常 502）
+- ``POST   /api/account/login/start``（在**后端机器桌面**弹出人工登录窗口；缺依赖 503）
+- ``GET    /api/account/login/status``（轮询登录窗口状态）
+- ``POST   /api/account/login/cancel``（取消登录并关闭窗口）
 
 本次新增的「数据项目」与「单独评论」两段（实现在 `src/artifacts/`，契约 4.5 节）：
 
@@ -90,14 +100,29 @@ from ..artifacts.schemas import (
     StageListResponse,
     TableResponse,
 )
+from ..videos import browser_login
 from ..videos import service as videos_service
-from ..videos.errors import InvalidBvidError, VideoBusyError, VideoNotFoundError
+from ..videos import settings as video_settings
+from ..videos.browser_login import AccountLoginStatus, LoginDependencyError
+from ..videos.errors import (
+    InvalidBvidError,
+    VideoBusyError,
+    VideoNotContinuableError,
+    VideoNotFoundError,
+)
 from ..videos.schemas import (
     VideoDeleteResponse,
     VideoDetailResponse,
     VideoListResponse,
     VideoSubmitRequest,
     VideoSubmitResponse,
+)
+from ..videos.settings import (
+    SettingsResponse,
+    SettingsValidationError,
+    SessionCheckError,
+    SessionCheckRequest,
+    SessionCheckResponse,
 )
 from . import batch as batch_io
 from . import service
@@ -134,6 +159,8 @@ async def lifespan(_: FastAPI):
     finally:
         artifacts_service.get_service().shutdown()
         videos_service.get_service().shutdown()
+        # 关停时关闭可能仍开着的人工登录窗口（daemon 线程，不阻塞退出）
+        browser_login.shutdown()
 
 
 app = FastAPI(
@@ -293,14 +320,18 @@ def create_video_task(payload: VideoSubmitRequest) -> VideoSubmitResponse:
 
     - BV 号不匹配 ``^BV[0-9A-Za-z]{10}$`` → **400**；
     - 同一 BV 号已在 ``queued`` / ``crawling`` / ``processing`` → **409**；
-    - 已完成 / 已失败的任务可重新提交（会被重跑回 ``queued``）。
+    - 已完成 / 已失败的任务可重新提交（会被重跑回 ``queued``）；
+    - 可选 ``settings``：省略 = 旧行为（一次跑完四阶段）；传入 = 分步流水线
+      （``crawled`` / ``cleaned`` 等待态），设置非法 → **400**。
     """
     try:
-        task = videos_service.get_service().submit(payload.bvid)
+        task = videos_service.get_service().submit(payload.bvid, payload.settings)
     except InvalidBvidError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except VideoBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SettingsValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return VideoSubmitResponse(**task)
 
 
@@ -354,6 +385,30 @@ def retry_video_task(bvid: str) -> VideoSubmitResponse:
     return VideoSubmitResponse(**task)
 
 
+@app.post(
+    "/api/videos/{bvid}/continue",
+    response_model=VideoSubmitResponse,
+    summary="继续分步流水线（crawled → 清洗，cleaned → 分析）",
+    tags=["视频分析"],
+)
+def continue_video_task(bvid: str) -> VideoSubmitResponse:
+    """从等待态继续执行（spec 3.3）。
+
+    - 仅当任务处于 ``crawled`` / ``cleaned`` 时允许；其他状态 → **409**，
+      ``detail`` 形如「任务当前状态 queued，无需继续」；
+    - 未知 ``bvid`` → **404**；
+    - 成功：重置为 ``queued``、``progress=0``、phases 保留已完成阶段，重新入队，
+      响应同 ``POST /api/videos``。
+    """
+    try:
+        task = videos_service.get_service().continue_task(bvid)
+    except VideoNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except VideoNotContinuableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return VideoSubmitResponse(**task)
+
+
 @app.delete(
     "/api/videos/{bvid}",
     response_model=VideoDeleteResponse,
@@ -367,6 +422,119 @@ def delete_video_task(bvid: str) -> VideoDeleteResponse:
     except VideoNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return VideoDeleteResponse(deleted=True)
+
+
+# --------------------------------------------------------------------------- #
+# 系统设置与账号（`/api/settings`、`/api/crawler/session/check`、`/api/account/login/*`）
+#
+# 业务规则在 `src/videos/settings.py` 与 `src/videos/browser_login.py`，
+# 本处只做 HTTP 语义：
+# - Cookie 明文永不回传：GET/PUT 只返回 has_cookie / masked_cookie；
+# - PUT 校验失败映射为 400（不是 422），detail 为中文可读提示；
+# - 登录态检查失败映射为 502；
+# - 人工登录窗口依赖缺失映射为 503（带安装指引）。
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/api/settings",
+    response_model=SettingsResponse,
+    summary="读取系统设置（Cookie 脱敏）",
+    tags=["设置"],
+)
+def get_settings() -> SettingsResponse:
+    """返回账号 / 采集参数 / 自动流程三组设置与最近保存时间。
+
+    Cookie 明文只存在服务端 ``outputs/settings.json``，本接口只返回
+    ``has_cookie`` / ``masked_cookie``（形如 ``SESSD…9f2a``）；文件不存在或损坏时
+    按默认值返回。
+    """
+    return SettingsResponse(**video_settings.load_public())
+
+
+@app.put(
+    "/api/settings",
+    response_model=SettingsResponse,
+    summary="部分更新系统设置（Cookie 脱敏返回）",
+    tags=["设置"],
+)
+def put_settings(payload: dict | None = Body(None)) -> SettingsResponse:
+    """部分更新设置（缺省字段保持不变，只做浅层嵌套合并）。
+
+    - ``account.cookie`` 非空 → 保存；``account.cookie: ""`` 或
+      ``account.mode == "anonymous"`` → 清除凭据；
+    - ``account.mode == "account"`` 但没有凭据 → **400**（中文提示去填 Cookie）；
+    - 数值越界 / 枚举非法 / 类型不对 → **400**；
+    - 成功返回与 ``GET /api/settings`` 相同结构（脱敏）。
+    """
+    try:
+        updated = video_settings.update_settings(payload if payload is not None else {})
+    except SettingsValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SettingsResponse(**updated)
+
+
+@app.post(
+    "/api/crawler/session/check",
+    response_model=SessionCheckResponse,
+    summary="检查 B 站登录态（可用临时 Cookie）",
+    tags=["设置"],
+)
+def check_crawler_session(payload: SessionCheckRequest | None = Body(None)) -> SessionCheckResponse:
+    """检查登录态；未配置凭据返回匿名态 200，网络 / 接口异常返回 **502**。
+
+    请求体可省略；``{"cookie": "SESSDATA=..."}`` 可用尚未保存的临时凭据检查。
+    登录成功后把 ``uname`` / ``mid`` 缓存进设置文件（只读字段）。
+    """
+    try:
+        result = video_settings.check_session(
+            payload.cookie if payload is not None else None
+        )
+    except SessionCheckError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return SessionCheckResponse(**result)
+
+
+@app.post(
+    "/api/account/login/start",
+    response_model=AccountLoginStatus,
+    summary="打开人工登录窗口（B 站扫码 / 账密登录）",
+    tags=["设置"],
+)
+def start_account_login() -> AccountLoginStatus:
+    """在**后端所在机器**的桌面弹出真实浏览器窗口，由人完成登录后自动保存 Cookie。
+
+    - 已打开窗口在等待时重复调用直接返回当前状态（幂等）；
+    - Playwright 未安装 → **503**，``detail`` 带安装命令
+      （``pip install playwright`` / ``python -m playwright install chromium``）；
+    - 状态机：``opening → waiting → success | cancelled | timeout | failed``，
+      前端用 ``GET /api/account/login/status`` 每 2 秒轮询。
+    """
+    try:
+        status = browser_login.get_login_manager().start()
+    except LoginDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return AccountLoginStatus(**status)
+
+
+@app.get(
+    "/api/account/login/status",
+    response_model=AccountLoginStatus,
+    summary="查询人工登录窗口状态（前端 2 秒轮询）",
+    tags=["设置"],
+)
+def get_account_login_status() -> AccountLoginStatus:
+    """返回登录窗口状态对象（**不含 Cookie 明文**，只有 ``has_cookie`` 等）。"""
+    return AccountLoginStatus(**browser_login.get_login_manager().snapshot())
+
+
+@app.post(
+    "/api/account/login/cancel",
+    response_model=AccountLoginStatus,
+    summary="取消人工登录并关闭窗口",
+    tags=["设置"],
+)
+def cancel_account_login() -> AccountLoginStatus:
+    """取消本次登录并关闭窗口；非等待态时幂等返回当前状态。"""
+    return AccountLoginStatus(**browser_login.get_login_manager().cancel())
 
 
 # --------------------------------------------------------------------------- #

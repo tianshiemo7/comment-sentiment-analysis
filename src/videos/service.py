@@ -2,16 +2,21 @@
 
 职责：
 
-- **提交 / 重试 / 删除 / 列表 / 详情** 五类操作的业务规则（BV 号校验、409 去重、404）；
+- **提交 / 重试 / 继续 / 删除 / 列表 / 详情** 七类操作的业务规则（BV 号校验、409 去重、
+  404、等待态 continue 语义）；
 - **后台流水线调度**：`queue.Queue` + 单个 daemon 工作线程（不引入 Celery / Redis /
   APScheduler），阶段时长由 :class:`~src.videos.config.PipelineConfig` 配置；
+- **两种执行模式**：不带 settings 提交 → 旧路径（一次跑完四阶段，行为零回归）；
+  带 settings 提交 → 分步流水线（`crawled` / `cleaned` 等待态 + auto 连续）；
 - **优雅退出**：lifespan 关停时置位 `stop_event`，流水线在阶段内立刻退出并把任务
   恢复成 `queued`（下次启动由 :meth:`VideoService.start` 重新入队续跑）；
 - **启动恢复**：`index.json` 里残留的 `queued` / `crawling` / `processing` 任务统一
-  重置为 `queued` 并重新入队，绝不留下永远卡在 `crawling` 的僵尸任务。
+  重置为 `queued` 并重新入队；``crawled`` / ``cleaned`` **保持等待态**（等用户操作），
+  绝不留下永远卡在 `crawling` 的僵尸任务。
 
-并发要点：`submit` / `retry` / `delete` 在 `_run_lock` 内串行执行；`run_id`（代次编号）
-让「被 retry 或重新提交」的旧流水线在下一处更新时自动放弃，避免旧轮次覆盖新状态。
+并发要点：`submit` / `retry` / `continue_task` / `delete` 在 `_run_lock` 内串行执行；
+`run_id`（代次编号）让「被 retry / continue / 重新提交」的旧流水线在下一处更新时自动
+放弃，避免旧轮次覆盖新状态。
 
 单进程生效：多 uvicorn worker 各自持有独立的内存队列，本阶段只保证
 **单个 uvicorn 进程**内的状态机正确（与任务要求一致）。
@@ -22,11 +27,13 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from . import pipeline, placeholder
+from . import settings as video_settings
 from .config import PipelineConfig
 from .errors import (
     MESSAGE_BUSY,
@@ -35,10 +42,11 @@ from .errors import (
     PipelineAborted,
     PipelineFailure,
     VideoBusyError,
+    VideoNotContinuableError,
     VideoNotFoundError,
 )
 from .messages import MESSAGE_QUEUED, message_for
-from .schemas import BVID_RE, RUNNING_STATUSES
+from .schemas import BVID_RE, RUNNING_STATUSES, WAITING_STATUSES
 from .store import VideoStore, now_iso
 
 logger = logging.getLogger("src.videos")
@@ -133,12 +141,21 @@ class VideoService:
     # ------------------------------------------------------------------ #
     # 业务操作
     # ------------------------------------------------------------------ #
-    def submit(self, bvid: str) -> dict[str, Any]:
+    def submit(
+        self, bvid: str, settings: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
         """提交 BV 号，创建（或重跑）分析任务。
+
+        Args:
+            bvid: B 站 BV 号。
+            settings: 可选的任务级设置（部分更新，与已保存设置合并后作为快照）。
+                ``None`` = 旧行为（一次跑完四阶段，不暂停）；非 ``None`` = 启用
+                分步流水线（即使传入空对象也表示「按已保存设置分步执行」）。
 
         Raises:
             InvalidBvidError: BV 号不符合 ``^BV[0-9A-Za-z]{10}$``（HTTP 400）。
             VideoBusyError: 同一 BV 号已在排队 / 爬取 / 处理中（HTTP 409）。
+            SettingsValidationError: 任务级设置非法（HTTP 400）。
         """
         if not isinstance(bvid, str) or not BVID_RE.match(bvid):
             raise InvalidBvidError(MESSAGE_INVALID_BVID)
@@ -147,18 +164,68 @@ class VideoService:
             existing = self.store.get_task(bvid)
             if existing is not None and existing.get("status") in RUNNING_STATUSES:
                 raise VideoBusyError(MESSAGE_BUSY)
+            snapshot: dict[str, Any] | None = None
+            if settings is not None:
+                merged = video_settings.merge_for_task(settings)
+                snapshot = video_settings.snapshot_for_task(merged)
+                # 新任务从 crawl 重新开始：清掉上一轮的中间产物，避免读到旧数据
+                self.store.clear_stage_artifacts(bvid)
             self.ensure_started()
-            task = self._new_task(bvid, existing)
+            task = self._new_task(bvid, existing, settings_snapshot=snapshot)
             self.store.upsert_task(task)
             self._enqueue(bvid)
             return _submit_payload(task)
 
     def retry(self, bvid: str) -> dict[str, Any]:
-        """把任务重置为 `queued` 并重新入队；不存在（或 bvid 非法）→ 404。"""
+        """把任务重置为 `queued` 并重新入队；不存在（或 bvid 非法）→ 404。
+
+        分步流水线的任务会**清空中间产物**并把 ``resume_stage`` 重置为 ``crawl``，
+        从头开始（spec 3.5）；旧路径任务行为与之前完全一致。
+        """
         with self._run_lock:
             task = self.store.get_task(bvid)
             if task is None:
                 raise VideoNotFoundError(f"任务不存在：{bvid}")
+            self.ensure_started()
+            run_id = pipeline.new_run_id(task.get("run_id"))
+            changes: dict[str, Any] = {
+                "status": "queued",
+                "progress": 0,
+                "message": MESSAGE_QUEUED,
+                "phases": pipeline.initial_phases(),
+                "comment_count": 0,
+                "error": None,
+                "run_id": run_id,
+            }
+            if task.get("settings_snapshot") is not None:
+                self.store.clear_stage_artifacts(bvid)
+                changes["resume_stage"] = pipeline.STAGE_CRAWL
+                changes["stage_state"] = pipeline.initial_stage_state()
+            updated = self.store.update_task(bvid, task.get("run_id"), **changes)
+            if not updated:
+                raise VideoNotFoundError(f"任务不存在：{bvid}")
+            self._enqueue(bvid)
+            payload = _submit_payload(self.store.get_task(bvid) or task)
+            logger.info("任务已重试：%s（第 %s 代）", bvid, run_id)
+            return payload
+
+    def continue_task(self, bvid: str) -> dict[str, Any]:
+        """等待态任务继续执行（``crawled`` → 清洗，``cleaned`` → 分析）。
+
+        Returns:
+            与提交接口相同结构的响应（``status="queued"``、``progress=0``）。
+
+        Raises:
+            VideoNotFoundError: 未知 bvid（HTTP 404）。
+            VideoNotContinuableError: 任务不在 ``crawled`` / ``cleaned``（HTTP 409）。
+        """
+        with self._run_lock:
+            task = self.store.get_task(bvid)
+            if task is None:
+                raise VideoNotFoundError(f"任务不存在：{bvid}")
+            status = str(task.get("status") or "")
+            if status not in WAITING_STATUSES:
+                raise VideoNotContinuableError(f"任务当前状态 {status}，无需继续")
             self.ensure_started()
             run_id = pipeline.new_run_id(task.get("run_id"))
             updated = self.store.update_task(
@@ -167,8 +234,8 @@ class VideoService:
                 status="queued",
                 progress=0,
                 message=MESSAGE_QUEUED,
-                phases=pipeline.initial_phases(),
-                comment_count=0,
+                # 保留已完成阶段（crawled: 采集 done；cleaned: 采集 + 清洗 done）
+                phases=task.get("phases") or pipeline.initial_phases(),
                 error=None,
                 run_id=run_id,
             )
@@ -176,7 +243,7 @@ class VideoService:
                 raise VideoNotFoundError(f"任务不存在：{bvid}")
             self._enqueue(bvid)
             payload = _submit_payload(self.store.get_task(bvid) or task)
-            logger.info("任务已重试：%s（第 %s 代）", bvid, run_id)
+            logger.info("任务继续执行：%s（第 %s 代，从 %s 继续）", bvid, run_id, status)
             return payload
 
     def delete(self, bvid: str) -> bool:
@@ -284,16 +351,86 @@ class VideoService:
             "error": task.get("error"),
             # 诚实标注：当前 detail 由占位流水线生成（真实爬虫未接入）
             "placeholder": bool(stored.get("placeholder", True)) if completed else True,
+            # 新增字段（additive，spec 3.4）：账号模式 / 自动连续 / 下一步 / 采集参数快照
+            "pipeline": self._pipeline_view(task),
+        }
+
+    def _pipeline_view(self, task: Mapping[str, Any]) -> dict[str, Any]:
+        """组装 ``detail.pipeline``（不含 Cookie；旧任务用当前服务配置回填）。
+
+        - 带 settings 提交的任务：直接取任务里的 ``settings_snapshot``；
+        - 旧路径任务（无 settings）：账号模式固定 ``anonymous``、自动连续关闭，
+          ``crawl`` 用当前 :class:`PipelineConfig` 的采集参数（只读展示）；
+        - ``next_action``：``crawled`` → ``clean``、``cleaned`` → ``analyze``，其余为 ``null``。
+        """
+        status = str(task.get("status") or "queued")
+        next_action = (
+            "clean"
+            if status == "crawled"
+            else "analyze"
+            if status == "cleaned"
+            else None
+        )
+        snapshot = task.get("settings_snapshot")
+        if isinstance(snapshot, Mapping):
+            account = snapshot.get("account") or {}
+            pipeline_settings = snapshot.get("pipeline") or {}
+            crawl_raw = snapshot.get("crawl") or {}
+            crawl = dict(video_settings.DEFAULT_CRAWL)
+            crawl.update(
+                {key: crawl_raw[key] for key in video_settings.DEFAULT_CRAWL if key in crawl_raw}
+            )
+            return {
+                "account_mode": (
+                    account.get("mode")
+                    if account.get("mode") in video_settings.ACCOUNT_MODES
+                    else "anonymous"
+                ),
+                "auto_clean": bool(pipeline_settings.get("auto_clean")),
+                "auto_analyze": bool(pipeline_settings.get("auto_analyze")),
+                "next_action": next_action,
+                "crawl": crawl,
+            }
+
+        crawl_config = self.config.crawl_config()
+        return {
+            "account_mode": "anonymous",
+            "auto_clean": False,
+            "auto_analyze": False,
+            "next_action": next_action,
+            "crawl": {
+                "real_crawl": bool(crawl_config.real_crawl),
+                "max_pages": int(crawl_config.max_pages),
+                "max_sub_pages": int(crawl_config.max_sub_pages),
+                "page_size": int(crawl_config.page_size),
+                "include_replies": bool(crawl_config.include_replies),
+                "sort_mode": crawl_config.sort_mode,
+                "max_items": int(crawl_config.max_items),
+                "delay_seconds": float(crawl_config.delay_seconds),
+                "timeout_seconds": float(crawl_config.timeout),
+                "require_login": bool(crawl_config.require_login),
+                "init_buvid": bool(crawl_config.init_buvid),
+            },
         }
 
     # ------------------------------------------------------------------ #
     # 队列与后台线程
     # ------------------------------------------------------------------ #
-    def _new_task(self, bvid: str, existing: dict[str, Any] | None) -> dict[str, Any]:
-        """构造一条全新的任务记录（重跑时保留 `created_at` / 标题等已抓到的信息）。"""
+    def _new_task(
+        self,
+        bvid: str,
+        existing: dict[str, Any] | None,
+        *,
+        settings_snapshot: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """构造一条全新的任务记录（重跑时保留 `created_at` / 标题等已抓到的信息）。
+
+        ``settings_snapshot`` 非空表示本任务走分步流水线：额外写入内部字段
+        ``settings_snapshot``（不含 Cookie）/ ``resume_stage`` / ``stage_state``。
+        """
         self._seq += 1
         existing = existing or {}
-        return {
+        task: dict[str, Any] = {
             "bvid": bvid,
             "title": existing.get("title"),
             "owner": existing.get("owner"),
@@ -310,6 +447,11 @@ class VideoService:
             "run_id": pipeline.new_run_id(existing.get("run_id")),
             "seq": self._seq,
         }
+        if settings_snapshot is not None:
+            task["settings_snapshot"] = deepcopy(dict(settings_snapshot))
+            task["resume_stage"] = pipeline.STAGE_CRAWL
+            task["stage_state"] = pipeline.initial_stage_state()
+        return task
 
     def _requeue_unfinished(self) -> int:
         """把索引里未完成的任务（含上次进程残留的 running 状态）重置为 `queued` 并入队。"""
@@ -358,13 +500,24 @@ class VideoService:
                 self._queue.task_done()
 
     def _process(self, bvid: str) -> None:
-        """跑一个任务的完整流水线（同线程内串行，天然串行化同 BV 号的两轮）。"""
+        """跑一个任务的流水线（同线程内串行，天然串行化同 BV 号的两轮）。
+
+        带 ``settings_snapshot`` 的任务走分步流水线（可能在 ``crawled`` / ``cleaned``
+        暂停后正常返回）；其余任务走旧路径，行为与引入设置前完全一致。
+        """
         task = self.store.get_task(bvid)
         if task is None:
             return
         run_id = task.get("run_id")
+        task_settings = task.get("settings_snapshot")
         try:
-            pipeline.run_pipeline(self.store, bvid, self.config, stop_event=self._stop)
+            pipeline.run_pipeline(
+                self.store,
+                bvid,
+                self.config,
+                stop_event=self._stop,
+                task_settings=task_settings if isinstance(task_settings, Mapping) else None,
+            )
         except PipelineAborted as exc:
             logger.info("流水线中断（将被重跑）：%s（%s）", bvid, exc)
             self._reset_to_queued(bvid, run_id)

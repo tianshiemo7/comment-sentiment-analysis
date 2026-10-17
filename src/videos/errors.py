@@ -30,6 +30,10 @@ class VideoBusyError(VideoError):
     """同一 BV 号已在排队 / 爬取 / 处理中（HTTP 409）。"""
 
 
+class VideoNotContinuableError(VideoError):
+    """任务不在 ``crawled`` / ``cleaned`` 等待态，不能调用 continue（HTTP 409）。"""
+
+
 class VideoNotFoundError(VideoError):
     """任务不存在（HTTP 404）。"""
 

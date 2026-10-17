@@ -114,6 +114,12 @@ function withWeight(words) {
   return words.map((item) => ({ ...item, weight: Number((item.count / max).toFixed(4)) }))
 }
 
+/** 预置趋势数据的自然总量（分步任务按 comment_total 等比缩放时用来算倍率）。 */
+const BASE_TREND_TOTAL = TREND.reduce(
+  (acc, item) => acc + item.positive + item.negative + item.neutral,
+  0,
+)
+
 /** 由趋势数组汇总情感占比，保证 sentiment.total 与 trend 一致。 */
 function sentimentFromTrend(trend) {
   const sum = (key) => trend.reduce((acc, item) => acc + item[key], 0)
@@ -158,16 +164,30 @@ function hashCode(text) {
 /**
  * 构造一条「已完成」视频的完整详情。
  * @param {object} record 任务记录（需要 bvid / title / owner / pubdate / crawled_at）
+ *
+ * 分步流水线任务（record.staged）会把趋势/情感计数等比缩放到本任务估算出的评论数，
+ * 保证「列表评论数 / 详情评论总数 / 情感占比总数」三者自洽；旧任务保持原有随机倍率。
  */
 export function buildCompletedDetail(record) {
   const hash = hashCode(record.bvid)
-  const scale = 0.7 + (hash % 65) / 100 // 0.70 ~ 1.34
+  const targetTotal = record.staged ? Number(record.comment_total) : NaN
+  const scale =
+    Number.isFinite(targetTotal) && targetTotal > 0
+      ? targetTotal / BASE_TREND_TOTAL
+      : 0.7 + (hash % 65) / 100 // 旧任务：0.70 ~ 1.34
   const trend = TREND.map((bucket) => ({
     bucket: bucket.bucket,
     positive: Math.round(bucket.positive * scale),
     negative: Math.round(bucket.negative * scale),
     neutral: Math.round(bucket.neutral * scale),
   }))
+  // 分步任务：把四舍五入误差补到最后一个 bucket，保证 sentiment.total 与任务评论数完全一致
+  if (Number.isFinite(targetTotal) && targetTotal > 0 && trend.length) {
+    const currentTotal = trend.reduce((acc, item) => acc + item.positive + item.negative + item.neutral, 0)
+    const delta = targetTotal - currentTotal
+    const last = trend[trend.length - 1]
+    last.neutral = Math.max(0, last.neutral + delta)
+  }
   const sentiment = sentimentFromTrend(trend)
   const shift = ((hash % 9) - 4) / 1000 // ±0.004
 
@@ -191,7 +211,7 @@ export function buildCompletedDetail(record) {
   }
 }
 
-/** 预置演示数据：1 条已完成 + 1 条长期爬取中（演示「进行中」界面，不会在演示期间跑完）。 */
+/** 预置演示数据：1 条已完成 + 1 条长期爬取中 + 1 条「待清洗」分步任务。 */
 export function presetVideos(now = Date.now()) {
   const completedAt = now - 26 * 3600 * 1000
   const completed = {
@@ -216,7 +236,18 @@ export function presetVideos(now = Date.now()) {
     timeline: { queuedMs: 5_000, crawlingMs: 24 * 3600 * 1000, processingMs: 15_000 },
     comment_total: 15230,
   }
-  return { completed, crawling }
+  // 分步流水线演示任务：采集阶段已完成，停在「待清洗」，点「开始清洗」即可继续
+  const paused = {
+    bvid: 'BV1Wa1t4C1eA',
+    title: '分步流水线演示：采集已完成，点「开始清洗」继续',
+    owner: '流水线演示数据',
+    cover_url: null,
+    pubdate: '2026-09-18T09:30:00+08:00',
+    created_at_ms: now - 30 * 60 * 1000,
+    crawled_at_ms: now - 30 * 60 * 1000 + 15_000,
+    comment_total: 20,
+  }
+  return { completed, crawling, paused }
 }
 
 /** 新提交任务的标题/UP 主候选池（爬取开始后揭开，避免所有条目长得一样）。 */

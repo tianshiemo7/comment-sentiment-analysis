@@ -34,6 +34,10 @@ const SRC_DIR = join(ROOT, 'frontend/src')
  */
 const GROUPS = [
   ['顶部导航（App.vue）', ['bilibili-line', 'chat-1-line', 'file-list-3-line', 'bar-chart-2-line', 'stack-line']],
+  // 设置入口（左上角齿轮）、账号模式徽标与设置弹窗的账号区块
+  ['设置与账号（App.vue / SettingsDialog）', [
+    'settings-3-line', 'user-line', 'shield-user-line', 'lock-line', 'login-box-line', 'logout-box-r-line',
+  ]],
   ['左栏骨架（SidebarSection / VideoSidebar）', [
     'arrow-left-s-line', 'arrow-right-s-line', 'arrow-down-s-line',
     'folder-3-line', 'chat-quote-line', 'film-line',

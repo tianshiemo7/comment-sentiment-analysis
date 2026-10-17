@@ -1,10 +1,12 @@
 /**
  * src/composables/useVideoAnalysis.js — B 站分析页的核心状态（列表 + 详情 + 操作）
  *
- * 轮询策略按 docs/API契约.md 第三节：
+ * 轮询策略按 docs/API契约.md 第三节与 2026-10-17 分步流水线设计：
  *  - 列表每 3 秒 GET /api/videos；
- *  - 全部任务为 completed/failed 时停止，提交/重试后恢复；
- *  - 详情在「被选中且未完成」时随轮询一起刷新。
+ *  - 全部任务为「非进行中」时停止：completed / failed 是终态，
+ *    crawled（待清洗）/ cleaned（待分析）是**等待操作态**，同样不自动轮询；
+ *  - 提交（submit）/ 重试（retry）/ 继续（continueTask）后恢复轮询；
+ *  - 详情在「被选中且详情未落到当前快照」时随轮询一起刷新。
  *
  *  ⚠️ 列表数据源可注入：B 站分析页左栏改成三段后，三段共用一次 GET /api/artifacts
  *  （useArtifacts），此时通过 `useVideoAnalysis({ videos })` 传入同一个 ref，
@@ -23,8 +25,15 @@
  */
 
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { deleteVideo, getVideoDetail, listVideos, retryVideo, submitVideo } from '../api/videos.js'
-import { isTerminal } from '../utils/videoFormat.js'
+import {
+  continueVideo,
+  deleteVideo,
+  getVideoDetail,
+  listVideos,
+  retryVideo,
+  submitVideo,
+} from '../api/videos.js'
+import { isActive, isSettled } from '../utils/videoFormat.js'
 import { usePolling } from './usePolling.js'
 
 const POLL_INTERVAL = 3000
@@ -46,6 +55,8 @@ export function useVideoAnalysis(options = {}) {
   const listError = ref('')
 
   const submitting = ref(false)
+  /** continue（待清洗 → 开始清洗 / 待分析 → 开始分析）请求进行中 */
+  const continuing = ref(false)
   const actionError = ref('')
 
   const selectedBvid = ref('')
@@ -55,13 +66,18 @@ export function useVideoAnalysis(options = {}) {
 
   const selectedVideo = computed(() => videos.value.find((item) => item.bvid === selectedBvid.value) || null)
   const selectedStatus = computed(() => selectedVideo.value?.status || detail.value?.analysis?.status || '')
-  /** 详情是否已经拿到终态数据（completed / failed）——决定是否还需要补拉详情 */
-  const detailSettled = computed(() => Boolean(detail.value) && isTerminal(detail.value?.analysis?.status))
+  /**
+   * 详情是否已经拿到当前状态的数据 —— 决定是否还需要补拉详情。
+   * 用 isSettled 而不是 isTerminal：crawled / cleaned 是等待态，
+   * 详情落到这两个状态后就不必再追（否则会因「非终态」而无限补拉）。
+   */
+  const detailSettled = computed(() => Boolean(detail.value) && isSettled(detail.value?.analysis?.status))
 
   const { isPolling, lastPolledAt, start, stop, refreshNow } = usePolling(pollTick, {
     interval: POLL_INTERVAL,
-    // 只要有任意一个任务未到终态就继续轮询（列表为空时视为无需轮询）
-    shouldContinue: () => videos.value.some((item) => !isTerminal(item.status)),
+    // 只要有任意一个任务处于进行中（queued/crawling/processing）就继续轮询；
+    // 终态与等待态（crawled/cleaned）都视为已停。
+    shouldContinue: () => videos.value.some((item) => isActive(item.status)),
   })
 
   /** 拉列表；失败时保留上一份数据，仅设置错误提示。 */
@@ -119,9 +135,9 @@ export function useVideoAnalysis(options = {}) {
     catchUpAttempts = 0
   }
 
-  /** 按需启动/停止详情补拉：仅当「列表全部终态 + 选中项存在 + 详情未到终态」时才运行。 */
+  /** 按需启动/停止详情补拉：仅当「列表全部已停 + 选中项存在 + 详情未同步到当前状态」时才运行。 */
   function ensureDetailCatchUp() {
-    const listSettled = !videos.value.some((item) => !isTerminal(item.status))
+    const listSettled = !videos.value.some((item) => isActive(item.status))
     const current = videos.value.find((item) => item.bvid === selectedBvid.value)
     const needsDetail = Boolean(current) && !detailSettled.value
 
@@ -146,13 +162,13 @@ export function useVideoAnalysis(options = {}) {
 
   /**
    * 每次轮询：刷新列表；随后刷新详情。
-   * 详情刷新条件 = 选中项存在 且（列表项未完成 **或** 详情尚未落在终态数据上）。
-   * 后半句正是为了让「非终态 → 终态」这一跃迁在同一轮内补上详情，避免详情卡在处理中。
+   * 详情刷新条件 = 选中项存在 且（列表项仍在进行中 **或** 详情尚未同步到当前状态）。
+   * 后半句覆盖了「进行中 → 等待态 / 终态」的跃迁，避免详情卡在上一个快照。
    */
   async function pollTick() {
     await refreshList()
     const current = videos.value.find((item) => item.bvid === selectedBvid.value)
-    if (current && (!isTerminal(current.status) || !detailSettled.value)) {
+    if (current && (isActive(current.status) || !detailSettled.value)) {
       await loadDetail(current.bvid, { silent: true })
     }
     ensureDetailCatchUp()
@@ -181,12 +197,16 @@ export function useVideoAnalysis(options = {}) {
     return loadDetail(bvid).then(ensureDetailCatchUp)
   }
 
-  /** 提交 BV 号；成功返回 true。 */
-  async function submit(bvid) {
+  /**
+   * 提交 BV 号；成功返回 true。
+   * @param {string} bvid
+   * @param {object|null} [settings] 本次任务的爬虫/流水线参数（爬虫参数弹窗确认后传入）
+   */
+  async function submit(bvid, settings = null) {
     submitting.value = true
     actionError.value = ''
     try {
-      const created = await submitVideo(bvid)
+      const created = await submitVideo(bvid, settings)
       const target = created?.bvid || bvid
       await refreshList()
       selectedBvid.value = target
@@ -225,6 +245,33 @@ export function useVideoAnalysis(options = {}) {
     }
   }
 
+  /**
+   * 分步流水线：从「待清洗 / 待分析」继续（POST /api/videos/{bvid}/continue）。
+   * 成功后任务回到 queued，因此要清掉旧快照、重新拉详情并恢复轮询。
+   * 非等待态（例如别处刚点过）后端返回 409，错误提示原样展示给用户。
+   */
+  async function continueTask(bvid) {
+    continuing.value = true
+    actionError.value = ''
+    try {
+      await continueVideo(bvid)
+      await refreshList()
+      if (selectedBvid.value === bvid) {
+        detail.value = null
+        detailError.value = ''
+        await loadDetail(bvid, { silent: true })
+      }
+      ensureDetailCatchUp()
+      start()
+      return true
+    } catch (err) {
+      actionError.value = err.message
+      return false
+    } finally {
+      continuing.value = false
+    }
+  }
+
   /** 删除任务（可选功能）。 */
   async function remove(bvid) {
     actionError.value = ''
@@ -255,6 +302,7 @@ export function useVideoAnalysis(options = {}) {
     listLoading,
     listError,
     submitting,
+    continuing,
     actionError,
     clearActionError,
     selectedBvid,
@@ -270,6 +318,7 @@ export function useVideoAnalysis(options = {}) {
     reloadDetail,
     submit,
     retry,
+    continueTask,
     remove,
     refreshNow,
     start,

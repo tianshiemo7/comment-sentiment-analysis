@@ -9,16 +9,19 @@
 - 详情里额外带一个 **顶层** ``placeholder: true`` 字段：诚实标注当前 detail 由
   占位逻辑生成（真实爬虫已在 `src/crawler/` 实现，但 `/api/videos` 尚未接入）。它是
   **新增字段**而非改名，前端可忽略；真实爬虫接入后置为 ``false``；
-- 详情未完成时（`queued`/`crawling`/`processing`/`failed`）：`sentiment` 为 ``null``，
-  `trend` / `top_comments` 为空数组（`[]`），`keywords` 保持对象结构但两个数组为空，
-  `analysis.length_stats` 为 ``null``；`model` 是「当前生效模型」的静态信息，
-  与视频无关，因此始终返回对象。
+- 详情里额外带一个 **顶层** ``pipeline`` 对象（additive，spec 3.4）：账号模式、
+  自动连续开关、下一步动作与本次任务的采集参数快照（不含 Cookie），未完成时也返回；
+- 状态枚举新增两个**等待态** ``crawled`` / ``cleaned``（spec 3.1），旧客户端可忽略；
+- 详情未完成时（`queued`/`crawling`/`processing`/`crawled`/`cleaned`/`failed`）：
+  `sentiment` 为 ``null``，`trend` / `top_comments` 为空数组（`[]`），`keywords`
+  保持对象结构但两个数组为空，`analysis.length_stats` 为 ``null``；`model` 是
+  「当前生效模型」的静态信息，与视频无关，因此始终返回对象。
 """
 
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -26,11 +29,22 @@ from pydantic import BaseModel, Field
 BVID_PATTERN = r"^BV[0-9A-Za-z]{10}$"
 BVID_RE = re.compile(BVID_PATTERN)
 
-#: 任务状态枚举（契约锁定）
-VIDEO_STATUSES: tuple[str, ...] = ("queued", "crawling", "processing", "completed", "failed")
+#: 任务状态枚举（契约锁定；`crawled` / `cleaned` 为 2026-10-17 新增的等待态）
+VIDEO_STATUSES: tuple[str, ...] = (
+    "queued",
+    "crawling",
+    "processing",
+    "crawled",
+    "cleaned",
+    "completed",
+    "failed",
+)
 
-#: 「进行中」状态（重复提交这些状态的任务返回 409）
+#: 「进行中」状态（重复提交这些状态的任务返回 409；重启时会被重新入队）
 RUNNING_STATUSES: tuple[str, ...] = ("queued", "crawling", "processing")
+
+#: 「等待操作」状态（分步流水线在阶段边界暂停；不会被自动轮询 / 重启重跑）
+WAITING_STATUSES: tuple[str, ...] = ("crawled", "cleaned")
 
 #: 子步骤状态枚举（契约锁定）
 PHASE_STATUSES: tuple[str, ...] = ("pending", "active", "done", "failed")
@@ -38,9 +52,19 @@ PHASE_STATUSES: tuple[str, ...] = ("pending", "active", "done", "failed")
 #: 子步骤名称（契约锁定，顺序即流水线顺序）
 PHASE_NAMES: tuple[str, ...] = ("采集评论", "文本清洗", "情感推理", "统计分析")
 
-VideoStatus = Literal["queued", "crawling", "processing", "completed", "failed"]
+VideoStatus = Literal[
+    "queued",
+    "crawling",
+    "processing",
+    "crawled",
+    "cleaned",
+    "completed",
+    "failed",
+]
 PhaseStatus = Literal["pending", "active", "done", "failed"]
 CommentLabel = Literal["positive", "negative"]
+AccountMode = Literal["anonymous", "account"]
+SortMode = Literal["time", "hot"]
 
 
 # --------------------------------------------------------------------------- #
@@ -51,12 +75,28 @@ class VideoSubmitRequest(BaseModel):
 
     注意：**不做 Pydantic `pattern` 校验**，否则非法 BV 号会得到 422；
     契约要求格式非法返回 **400**，因此正则校验放在 service 层（`InvalidBvidError`）。
+
+    ``settings`` 可选（spec 3.2）：省略 = 旧行为（占位流水线一次跑完，不暂停）；
+    传入（即使为空对象）= 启用分步流水线，与已保存设置部分合并后作为本任务快照。
+    Cookie 永远取服务端设置，**不随任务传**；这里保持宽松的 ``dict`` 类型以免
+    非法设置被 Pydantic 直接变成 422，校验在 service 层完成并映射为 400。
     """
 
     bvid: str = Field(
         ...,
         description="B 站 BV 号，形如 BV1xx411c7mD（正则 ^BV[0-9A-Za-z]{10}$）",
         examples=["BV1xx411c7mD"],
+    )
+    settings: dict[str, Any] | None = Field(
+        None,
+        description="可选的任务级设置（账号模式 / 采集参数 / 自动流程），省略即旧行为",
+        examples=[
+            {
+                "account": {"mode": "anonymous"},
+                "crawl": {"real_crawl": True, "max_pages": 2},
+                "pipeline": {"auto_clean": False, "auto_analyze": False},
+            }
+        ],
     )
 
 
@@ -198,6 +238,40 @@ class TopCommentsBlock(BaseModel):
     negative: list[TopComment]
 
 
+class PipelineCrawlInfo(BaseModel):
+    """``detail.pipeline.crawl``：本次任务使用的采集参数快照（不含 Cookie）。"""
+
+    real_crawl: bool = True
+    max_pages: int = Field(1, ge=0, le=50)
+    max_sub_pages: int = Field(1, ge=0, le=20)
+    page_size: int = Field(20, ge=1, le=50)
+    include_replies: bool = False
+    sort_mode: SortMode = "time"
+    max_items: int = Field(200, ge=0)
+    delay_seconds: float = Field(2.5, ge=0.0)
+    timeout_seconds: float = Field(15.0, gt=0.0)
+    require_login: bool = False
+    init_buvid: bool = False
+
+
+class PipelineInfo(BaseModel):
+    """``detail.pipeline``（顶层新增对象，additive；未完成时也返回）。
+
+    Attributes:
+        account_mode: 本任务使用的账号模式（``anonymous`` / ``account``）。
+        auto_clean: 采集完成后是否自动清洗。
+        auto_analyze: 清洗完成后是否自动情感分析。
+        next_action: 等待态下的下一步动作：``clean`` / ``analyze``；其余状态为 ``null``。
+        crawl: 本任务的采集参数快照（不含 Cookie）。
+    """
+
+    account_mode: AccountMode = "anonymous"
+    auto_clean: bool = False
+    auto_analyze: bool = False
+    next_action: Literal["clean", "analyze"] | None = None
+    crawl: PipelineCrawlInfo = Field(default_factory=PipelineCrawlInfo)
+
+
 class VideoDetailResponse(BaseModel):
     """``GET /api/videos/{bvid}/detail`` 响应。
 
@@ -219,4 +293,8 @@ class VideoDetailResponse(BaseModel):
             "诚实标注：detail 由占位逻辑生成（真实爬虫尚未接入）。"
             "新增字段，前端可忽略；真实数据接入后为 false。"
         ),
+    )
+    pipeline: PipelineInfo = Field(
+        default_factory=PipelineInfo,
+        description="新增字段（additive）：账号模式 / 自动连续开关 / 下一步动作 / 采集参数快照",
     )

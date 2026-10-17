@@ -112,6 +112,77 @@ code,
   letter-spacing: 0.5px;
 }
 
+/* 左上角齿轮设置按钮（原「情」品牌方块位置；aria-label="设置"） */
+button.brand__mark {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+button.brand__mark:hover {
+  background: var(--primary-dark);
+}
+
+button.brand__mark:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.55);
+  outline-offset: 2px;
+}
+
+/* 账号模式徽标：匿名（灰）/ 已登录（绿），点击同样打开设置弹窗 */
+.account-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 160px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.account-chip:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 2px;
+}
+
+.account-chip--account {
+  background: var(--positive-soft);
+  border-color: #bbf7d0;
+  color: var(--positive);
+}
+
+.account-chip--account:hover {
+  border-color: #86efac;
+  color: var(--positive);
+}
+
+/* 窄屏下品牌副标题让位，保证齿轮 + 账号徽标不换行溢出 */
+@media (max-width: 720px) {
+  .brand__sub {
+    display: none;
+  }
+  .account-chip {
+    max-width: 110px;
+  }
+}
+
 .brand__sub {
   color: var(--text-muted);
   font-weight: 400;
@@ -262,6 +333,8 @@ code,
 
 textarea,
 input[type='text'],
+input[type='password'],
+input[type='number'],
 input[type='file'],
 select {
   width: 100%;
@@ -664,6 +737,143 @@ td.empty-cell {
 
 .list-plain li {
   margin-bottom: 4px;
+}
+
+/* ---------- 设置 / 爬虫参数弹窗共用的表单控件（不引入 UI 框架） ---------- */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.form-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-grid .field {
+  margin-bottom: 0;
+}
+
+.field__hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.field__error {
+  display: block;
+  margin-top: 4px;
+  color: var(--negative);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 复选框行：输入框恢复原生宽度，与说明文字顶部对齐 */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.check input[type='checkbox'] {
+  width: auto;
+  padding: 0;
+  margin: 3px 0 0;
+  accent-color: var(--primary);
+  flex: 0 0 auto;
+}
+
+.check__text {
+  min-width: 0;
+}
+
+.check__desc {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* 二选一模式切换（匿名 / 登录账号） */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.seg__item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 6px 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.seg__item:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.seg__item.is-active {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.seg__item:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: -2px;
+}
+
+/* 弹窗内分组标题 */
+.form-section {
+  border-top: 1px dashed var(--border);
+  padding-top: 14px;
+  margin-top: 16px;
+}
+
+.form-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.form-section__title {
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.form-section__title .icon {
+  color: var(--text-muted);
+}
+
+.form-section__desc {
+  margin: -4px 0 12px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+@media (max-width: 600px) {
+  .form-grid,
+  .form-grid--3 {
+    grid-template-columns: 1fr;
+  }
 }
 
 .app-footer {

@@ -9,10 +9,15 @@
 
 给定网站用户评论文本，自动判断其情感极性（正面 / 负面），并提供可交互的 Web 界面。
 
-**主流程（B 站视频评论分析）**：在界面顶部输入一个 **BV 号**提交分析任务，
-左侧栏查看所有任务的实时状态（排队中 / 爬取中 / 处理中 / 已完成 / 失败 + 进度条），
+**主流程（B 站视频评论分析）**：先点左上角「**设置**」入口配置账号模式（默认匿名；可点
+「登录 B 站账号（弹出登录窗口）」由人扫码/登录，也可手动填 B 站 Cookie）与采集默认参数；
+在界面顶部输入 **BV 号**点「开始分析」后，先在「**爬虫参数**」弹窗确认本次采集参数，
+再提交任务。任务按**分步流水线**执行：采集完成停在「待清洗」、清洗完成停在「待分析」，
+由用户点「开始清洗 / 开始分析」继续（也可在设置页开启自动连续）。左侧栏查看所有任务的
+实时状态（排队中 / 爬取中 / 处理中 / 待清洗 / 待分析 / 已完成 / 失败 + 进度条），
 点击任意一项，右侧展示该视频的详细分析结果：情感占比饼图、情感趋势折线、
 正负关键词词云、关键词排行、代表性评论与模型指标。
+完整说明见[第十四节](#十四设置入口与分步执行2026-10-17)。
 
 **辅助功能**：单条评论预测、批量文件预测（`.csv` / `.xlsx` 导入导出），用于课程要求的算法演示。
 
@@ -54,18 +59,20 @@ comment-sentiment-analysis/
 │   ├── training/             ⑤ 训练与验证循环
 │   ├── evaluation/           ⑥ 指标评估（Accuracy / P / R / F1 / 混淆矩阵）
 │   ├── visualization/        ⑦ 结果可视化（曲线 / 热力图 / 词云 / Attention）
-│   ├── videos/               B 站视频分析任务（状态机 + 详情，供前端①③段调用）
+│   ├── videos/               B 站视频分析任务（状态机 + 详情 + 系统设置，供前端①③段调用）
+│   │   ├── settings.py       设置读写/校验（账号 Cookie、采集默认值、自动流程），落盘 outputs/settings.json
+│   │   └── browser_login.py  人工登录窗口（Playwright/Edge，可选依赖；后端本机弹窗，人完成登录）
 │   ├── artifacts/            数据项目与单独评论（上传 → clean 管线 → 三张表 + 占位情感）
 │   └── inference/            ⑧ FastAPI 推理服务（:8000，供前端调用）
 ├── notebooks/                实验记录与探索性分析（EDA）
 ├── frontend/                 Node.js 前端展示（Vue 3 + Vite，:3000）
 │   ├── src/views/            B站分析(首页) / 单条预测 / 批量预测 / 可视化 / 模型对比
-│   ├── src/components/       左栏三段、BV 输入框、项目/评论详情与 ECharts 图表组件
-│   ├── src/composables/      轮询与详情状态（usePolling / useArtifacts 等）
-│   ├── src/api/              接口封装（artifacts.js 主流程、videos.js、client.js）
+│   ├── src/components/       左栏三段、BV 输入框、设置弹窗、爬虫参数弹窗、项目/评论详情与 ECharts 图表组件
+│   ├── src/composables/      轮询与详情状态（usePolling / useArtifacts / useSettings 等）
+│   ├── src/api/              接口封装（artifacts.js 主流程、videos.js、settings.js、account.js、client.js）
 │   ├── src/components/Icon.vue  统一图标组件（内联 SVG，零依赖）
-│   ├── src/assets/icons/     内置的 Remix Icon 精选子集（48 个，见 NOTICE.txt）
-│   └── mock/                 后端未实现前的接口模拟层（Vite 插件，一行卸载）
+│   ├── src/assets/icons/     内置的 Remix Icon 线稿图标子集（数量与出处见 NOTICE.txt）
+│   └── mock/                 接口模拟层（Vite 插件，含设置/人工登录/分步流水线；一行卸载）
 ├── models/                   训练好的模型权重存放目录
 │   ├── checkpoints/          训练检查点（.pt / .pth）
 │   ├── word2vec/             词向量文件
@@ -75,11 +82,12 @@ comment-sentiment-analysis/
 │   ├── logs/                 训练日志
 │   ├── predictions/          批量预测导出结果
 │   ├── stats/                数据统计（词表规模、平均长度、标签分布）
-│   └── videos/               B 站任务落盘（index.json + 每个视频一份详情）
+│   ├── videos/               B 站任务落盘（index.json + 每个视频一份详情 + 分步中间产物）
+│   └── settings.json         系统设置与账号凭据（本地生成、已被 .gitignore 忽略；切勿提交）
 ├── docs/                     文档与课程报告
 ├── scripts/                  一键脚本（取数 / 划分 / 训练 / 启动服务 / 生成图标子集 / 前端图标验收）
 ├── tests/                    测试
-└── requirements.txt          Python 依赖
+└── requirements.txt          Python 依赖（含可选 playwright：仅人工登录窗口需要）
 ```
 
 ## 二、需求对照表
@@ -98,6 +106,7 @@ comment-sentiment-analysis/
 | 损失 / 准确率曲线、混淆矩阵热力图、正负词云、Attention 可视化 | `src/visualization/` → `outputs/figures/` | ✅ 已实现（训练 CLI 自动出图） |
 | 可运行入口：CLI 或 Web 界面 | `src/inference/` + `frontend/` | 已实现 |
 | **B 站视频评论分析主流程**（输入 BV 号 → 状态跟踪 → 图表词云详情） | `frontend/` + `src/videos/` + `docs/API契约.md` | 前后端与契约均已实现（爬取/推理为占位） |
+| **设置入口 + 爬虫参数弹窗 + 分步流水线**（账号 Cookie / 参数确认 / 待清洗 / 待分析） | `frontend/` + `src/videos/settings.py` + `docs/API契约.md` | ✅ 已实现（2026-10-17，见[第十四节](#十四设置入口与分步执行2026-10-17)） |
 | **爬虫数据上传 → 处理结果项目**（初始数据 / 筛选后结果 / 排除记录 + 逐条评论情感） | `src/artifacts/` + 前端左栏①段 | 已实现（情感为规则占位） |
 | **单独评论集中管理**（单条预测结果存入左栏②段） | `src/artifacts/` + 前端②段 | 已实现 |
 | 输入一条评论 → 情感极性与置信度 | `POST /api/predict` | 已实现 |
@@ -113,6 +122,7 @@ comment-sentiment-analysis/
 | Node.js | ≥ 18（开发环境 24 已通过） | 前端开发与构建 |
 | npm | 随 Node 附带 | 前端依赖管理 |
 | PyTorch | ≥ 2.2（CPU 即可） | 训练 TextCNN / BiLSTM-Attention；未安装时跳过训练与模型测试 |
+| Playwright（**可选**） | ≥ 1.40 | 仅「人工登录窗口」需要（后端本机弹浏览器、由人完成登录）；未安装时可用手动 Cookie，其它功能不受影响。Windows 已装 Edge 可跳过 Chromium 安装 |
 
 ## 四、快速开始
 
@@ -144,7 +154,28 @@ npm run build      # 生产构建，产物在 frontend/dist/
 前端通过 Vite 代理把 `/api`、`/health` 转发到 `http://localhost:8000`，
 因此**两个服务需同时运行**。
 
-### 3. 数据处理与后续训练
+### 3. 首次使用：在「设置」里配置账号与采集默认值
+
+打开 <http://localhost:3000> → 左上角齿轮按钮「设置」：
+
+1. **账号**：默认**匿名**爬取；如需登录账号，点「登录 B 站账号（弹出登录窗口）」，在后端所在
+   机器的桌面上用扫码 / 账号密码 + 验证码完成登录，后端会自动捕获 Cookie 并显示「已登录：昵称」；
+   也可展开「高级：手动粘贴 Cookie」把浏览器里的 `SESSDATA`（或完整 Cookie 串）粘贴进来，
+   点「检查登录状态」后「保存」；
+2. **采集参数**：按需调整页数 / 每页条数 / 楼中楼 / 排序 / 最大条数 / 间隔 / 超时 /
+   要求登录 / 初始化 buvid，并「保存」为默认值（每次提交任务时还会弹窗确认并可覆盖）；
+3. **自动流程**：默认关闭「自动清洗」「自动分析」，即采集完停在「待清洗」、清洗完停在「待分析」。
+
+> 人工登录窗口依赖可选的 Playwright：`pip install playwright` +
+> `python -m playwright install chromium`（Windows 已装 Edge 可直接用系统 Edge）。
+> 未安装不影响其它功能，点按钮会返回 503 与安装指引，此时改用手动 Cookie 即可。
+
+B 站 Cookie 只保存在**服务端** `outputs/settings.json`（可用环境变量 `CSA_SETTINGS_PATH` 覆盖；
+该文件已被 `.gitignore` 忽略，**切勿提交**）。接口只返回 `has_cookie` / `masked_cookie`
+脱敏字段，任务提交也不会携带 Cookie。登录方式与合规提醒见
+[第十四节](#十四设置入口与分步执行2026-10-17)。
+
+### 4. 数据处理与后续训练
 
 ```bash
 # 接收上游无标签爬虫CSV，清洗后交给下一步情感预测
@@ -180,7 +211,7 @@ bash scripts/train.sh
 标签统一为 `negative=0、positive=1`。后续预测应加载这套资源，不能重新建立词表。
 详细字段、参数、验收策略与下游调用示例见 [数据处理说明](src/preprocessing/README.md)。
 
-### 4. 数据采集（爬虫）
+### 5. 数据采集（爬虫）
 
 ```bash
 # B 站评论：采集 2 页一级评论 + 楼中楼；默认 2.5 秒/请求、遵守 robots、自动登记来源
@@ -208,7 +239,7 @@ python -m pytest tests/test_crawler.py -q
 python scripts/bench_crawler.py offline --pages 5 --per-page 20 --include-replies
 ```
 
-### 5. 公开数据集、标注与 `/api/videos` 真实爬取
+### 6. 公开数据集、标注与 `/api/videos` 真实爬取
 
 ```bash
 # 查看/下载公开带标签中文情感语料（下载后自动登记来源；校验失败不会留下半成品）
@@ -251,7 +282,8 @@ VIDEO_REAL_CRAWL=1 VIDEO_CRAWL_MAX_PAGES=1 VIDEO_CRAWL_DELAY=2.5 \
 | FastAPI 推理服务（单条/批量预测与模型列表） | ✅ 可运行，契约已锁定 |
 | 批量上传解析与结果导出下载 | ✅ 可用（csv / txt / tsv / xlsx，导出 UTF-8 BOM CSV） |
 | 前端页面（B站分析主界面 + 单条预测 / 批量预测 / 实验可视化 / 模型对比） | ✅ 可运行（`npm run dev`），真实调用后端接口 |
-| B 站分析主流程接口 `/api/videos*` | ✅ 已实现（`src/videos/`），任务状态机 + 详情接口；默认占位，`VIDEO_REAL_CRAWL=1` 时真实爬取评论（情感仍规则占位） |
+| B 站分析主流程接口 `/api/videos*` | ✅ 已实现（`src/videos/`），任务状态机 + 详情接口；默认占位，`VIDEO_REAL_CRAWL=1` 时真实爬取评论（情感仍规则占位）；2026-10-17 起支持按任务 `settings` 分步执行（`crawled` / `cleaned` 等待态 + `continue`） |
+| 设置入口与分步流水线 | ✅ 已实现（2026-10-17）：左上角「设置」弹窗（账号 Cookie / 采集参数 / 自动流程）、**人工登录窗口**（后端本机弹浏览器，人完成扫码/登录，可选 Playwright）、开始分析前的「爬虫参数」弹窗、`crawled`/`cleaned` 等待态与「开始清洗 / 开始分析」按钮；后端 `GET/PUT /api/settings`、`POST /api/crawler/session/check`、`POST /api/account/login/{start,status,cancel}`、`POST /api/videos/{bvid}/continue`。详见[第十四节](#十四设置入口与分步执行2026-10-17) |
 | 情感预测逻辑 | ⚠️ **规则占位**：`src/inference/service.py:predict_rule_based`，内置 140 词情感词表（含程度副词与否定词翻转）。它能对明显正面/负面的评论给出方向正确的结果，用于打通链路，**不是深度学习模型** |
 | 数据读写 / 清洗分词 / 去重冲突审计 / 划分 / 词表 / 编码 / 统计 | ✅ 已实现，含训练与推理共用资源及防泄漏校验 |
 | B 站爬虫 `src/crawler/` | ✅ 可采集：WBI 签名 / 限速抖动 / 风控退避 / 文本标准化 / robots 校验 / 来源登记 / 断点续爬；`python -m src.crawler bilibili --help`，实测见第十二节 |
@@ -280,9 +312,16 @@ VIDEO_REAL_CRAWL=1 VIDEO_CRAWL_MAX_PAGES=1 VIDEO_CRAWL_DELAY=2.5 \
 | GET | `/api/predict/batch/download/{file_id}` | — | `text/csv` 附件（批量结果导出，UTF-8 BOM，Excel 可直接打开） |
 | GET | `/api/models` | — | `{"models":[{"name":str,"type":str,"metrics":{"accuracy":float,"precision":float,"recall":float,"f1":float},"ready":bool}]}` |
 | GET | `/api/videos` | — | 视频任务列表（左侧栏「视频任务」段） |
-| POST | `/api/videos` | `{"bvid": str}` | 创建分析任务 |
-| GET | `/api/videos/{bvid}/detail` | — | 视频分析详情（图表 / 词云 / 评论） |
+| POST | `/api/videos` | `{"bvid": str, "settings": {...}?}` | 创建分析任务；**省略 `settings` = 旧行为一次跑完**，带 `settings` 则按分步流水线执行 |
+| GET | `/api/videos/{bvid}/detail` | — | 视频分析详情（图表 / 词云 / 评论 + 顶层 `pipeline` 字段） |
 | POST | `/api/videos/{bvid}/retry`、`DELETE /api/videos/{bvid}` | — | 重试 / 删除任务 |
+| POST | `/api/videos/{bvid}/continue` | — | 继续等待态任务（`crawled`→清洗、`cleaned`→分析）；其他状态 409、未知 404 |
+| GET | `/api/settings` | — | 读取系统设置（B 站 Cookie **脱敏**，只返回 `has_cookie` / `masked_cookie`） |
+| PUT | `/api/settings` | 部分更新 `{"account":{...},"crawl":{...},"pipeline":{...}}` | 保存系统设置；账号模式缺 Cookie / 数值越界 / 枚举非法 → 400 |
+| POST | `/api/crawler/session/check` | 可选 `{"cookie": str}`（临时检查用） | 检查 B 站登录态；无凭据返回匿名态；网络/接口异常 → 502 |
+| POST | `/api/account/login/start` | — | 在后端所在机器桌面弹出真实浏览器登录窗口，由人扫码/登录；依赖缺失 → 503（幂等：等待中重复调用返回当前状态） |
+| GET | `/api/account/login/status` | — | 轮询登录窗口状态：`state` / `message` / `uname` / `mid` / `has_cookie` / `started_at` / `updated_at` |
+| POST | `/api/account/login/cancel` | — | 取消本次登录并关闭窗口 |
 | GET | `/api/artifacts` | — | 左栏三段列表：`数据项目` / `单独评论` / `视频任务` |
 | POST | `/api/artifacts/upload` | multipart `files`（可多个）+ 可选 `name` | 上传爬虫数据 → 落盘为**数据项目**，自动处理 |
 | GET | `/api/artifacts/{id}`、`/stages`、`/table?stage=&offset=&limit=` | — | 项目状态 / 表清单 / **分页读表** |
@@ -308,7 +347,14 @@ VIDEO_REAL_CRAWL=1 VIDEO_CRAWL_MAX_PAGES=1 VIDEO_CRAWL_DELAY=2.5 \
   由「单条预测」页的「保存到左栏」开关写入。
 - **情感结果当前是占位**：`method` 字段为 `rule_placeholder`（140 词规则预测器），
   界面据此显示「规则占位」标识，接入真实模型后自动变为模型名。
-- 完整字段定义与安全约束见 [`docs/API契约.md`](docs/API契约.md) 第四点五节。
+- **设置与分步流水线（2026-10-17 新增）**：`settings` 只随任务提交「账号模式 + 采集参数 +
+  自动流程」，**Cookie 永远取服务端保存值，不随任务传输**；任务处于 `crawled`（待清洗）/
+  `cleaned`（待分析）时不再自动轮询，需调 `continue` 或开启自动连续。登录账号推荐用
+  「登录 B 站账号（弹出登录窗口）」（后端本机弹真实浏览器，由人完成登录，可选 Playwright），
+  手动 Cookie 为高级兜底。常见错误码：设置非法 `400`、未知任务 `404`、非等待态继续 `409`、
+  登录态检查网络异常 `502`、人工登录依赖缺失 `503`。
+  **旧请求体 `{"bvid": str}` 不带 `settings` 仍然有效**，行为与旧版一致（一次跑完四阶段）。
+- 完整字段定义与安全约束见 [`docs/API契约.md`](docs/API契约.md) 四点五节与二点五节。
 
 ## 七、数据格式约定
 
@@ -362,27 +408,37 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 
 ## 十、B 站主流程界面（前端设计）
 
-界面分三块：顶部 BV 输入框、左侧可收起任务栏、右侧详情区。
+界面分四块：顶部「设置入口 + 账号徽标 + BV 输入框」、左侧可收起任务栏、右侧详情区，
+以及「系统设置」「爬虫参数」两个弹窗。
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  [BV号输入框________________]  [开始分析]      ← 顶部小框      │
-├─────────────────────┬────────────────────────────────────────┤
-│ 左侧栏（可收起）      │  右侧详情区                            │
-│ ┌─────────────────┐ │  ┌──────────────────────────────────┐ │
-│ │BV1xx…  ●爬取中   │ │  │ 视频信息：标题/UP主/评论数/时间   │ │
-│ │▓▓▓▓░░░░ 43%     │ │  ├──────────────────────────────────┤ │
-│ ├─────────────────┤ │  │ 情感占比饼图 · 情感趋势折线       │ │
-│ │BV1yy…  ●处理中   │ │  │ 正/负词云 · 关键词排行            │ │
-│ ├─────────────────┤ │  │ 代表性评论 · 模型指标             │ │
-│ │BV1zz…  ●已完成   │ │  └──────────────────────────────────┘ │
-│ │BV1ww…  ×失败     │ │  未完成 → 只显示「处理中」+ 进度+子步骤│
-│ └─────────────────┘ │                                        │
-└─────────────────────┴────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ [⚙ 设置] 账号：匿名   [BV号输入框______________]  [开始分析] ← 顶部   │
+├──────────────────────┬─────────────────────────────────────────────┤
+│ 左侧栏（可收起）       │ 右侧详情区                                   │
+│ ┌──────────────────┐ │ ┌─────────────────────────────────────────┐ │
+│ │BV1xx…  ●爬取中    │ │ │ 视频信息：标题/UP主/评论数/时间          │ │
+│ │▓▓▓▓░░░░ 43%      │ │ ├─────────────────────────────────────────┤ │
+│ ├──────────────────┤ │ │ 情感占比饼图 · 情感趋势折线              │ │
+│ │BV1yy…  ●待清洗    │ │ │ 正/负词云 · 关键词排行                   │ │
+│ ├──────────────────┤ │ │ 代表性评论 · 模型指标                    │ │
+│ │BV1zz…  ●待分析    │ │ └─────────────────────────────────────────┘ │
+│ ├──────────────────┤ │ 等待态 → 「开始清洗 / 开始分析」按钮 + 提示  │
+│ │BV1ww…  ●已完成    │ │ 未完成 → 「处理中」+ 进度 + 子步骤           │
+│ └──────────────────┘ │                                             │
+└──────────────────────┴─────────────────────────────────────────────┘
 ```
 
 要点：
 
+- **左上角设置入口**（替代原「情」品牌标记）：齿轮按钮 `aria-label="设置"`，旁边显示当前
+  账号模式徽标（匿名 / 已登录昵称）。点击打开「系统设置」弹窗，分「账号 / 采集参数 /
+  自动流程」三组：账号区主按钮为「登录 B 站账号（弹出登录窗口）」（也可展开
+  「高级：手动粘贴 Cookie」兜底），另有「检查登录状态」「保存」「取消」「恢复默认」；
+  保存调用 `PUT /api/settings`，打开时加载 `GET /api/settings`，后端未启动时用内置默认值并提示。
+- **爬虫参数弹窗**：点「开始分析」不再直接提交，先弹出「爬虫参数」弹窗，预填设置页的
+  采集参数，展示当前账号模式与匿名提示；用户可逐次覆盖本次参数，确认后才带 `settings`
+  调 `POST /api/videos`，取消不提交。
 - **左侧栏分三段**（各自可收起、各自记忆状态）：
   1. **数据项目** —— 右上角「上传爬取数据」上传的爬虫 CSV，落盘后自动跑 `clean` 管线，
      条目显示 `初始行数 → 筛选后行数`；未指定名称时显示「未自定义数据」；
@@ -393,23 +449,32 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
   操作按钮统一放在**最底部**：打开 CSV（服务器本机用系统程序打开）、复制文件地址、重新处理。
 - **视频任务详情**：未完成时**只渲染「处理中」状态块**（进度 + `phases` 子步骤），不渲染图表；
   完成后渲染饼图、折线、词云、关键词排行、代表性评论、模型指标，并可展开逐条评论。
-- **状态推进**：`queued → crawling → processing → completed`（或 `failed`），
-  左侧栏每 3 秒轮询一次；全部任务到达终态后停止轮询，页面隐藏时暂停。
+- **等待态交互**：`crawled`（待清洗）时显示「开始清洗」按钮、`cleaned`（待分析）时显示
+  「开始分析」按钮，并提示「自动连续已关闭」；点击后调用
+  `POST /api/videos/{bvid}/continue` 并恢复轮询。设置页开启自动连续时则不会停留。
+- **状态推进**：无 `settings` 的旧行为仍是 `queued → crawling → processing → completed`；
+  带 `settings` 的新行为为 `queued → crawling → crawled（待清洗）→ processing（清洗）→
+  cleaned（待分析）→ processing（情感推理 / 统计分析）→ completed`（异常落 `failed`）。
+  左侧栏每 3 秒轮询一次；全部任务到达终态（含 `crawled` / `cleaned` 等待态）后停止轮询，
+  continue / retry / 新提交后恢复；页面隐藏时暂停。
 - **词云与图表由前端渲染**，后端只返回词频、分布、趋势数据（不生成图片）。
 - **情感结果当前为占位**：`method="rule_placeholder"`，界面显示「规则占位」标识。
 - **接口契约**：完整字段定义见 [`docs/API契约.md`](docs/API契约.md)（前后端唯一契约来源）。
-- **美术资源**：界面图标取自 Remix Icon 的 48 个线稿图标，以 path 数据内置在
+- **美术资源**：界面图标取自 Remix Icon 的线稿图标子集，以 path 数据内置在
   `frontend/src/assets/icons/`，由 `components/Icon.vue` 渲染 —— **不新增任何 npm 依赖**、
-  不用图标字体。品牌标记与 favicon 为项目原创（图标许可禁止用作品牌标识），许可与出处见
-  [`frontend/src/assets/icons/NOTICE.txt`](frontend/src/assets/icons/NOTICE.txt)。
-- **后端未实现前的联调**：`frontend/mock/` 提供 Vite 插件模拟全部接口（含真实的进度推进），
-  真实后端就绪后删除 `vite.config.js` 中的该插件即可（或 `VITE_USE_MOCK=0` 关闭），业务代码无需改动。
+  不用图标字体。设置/账号等新图标沿用该生成流程（`scripts/gen_icons.mjs`）；项目 **favicon 为原创**，
+  左上角设置入口的齿轮是**功能图标**、不作品牌标识（图标许可禁止用作品牌标识），
+  许可与出处见 [`frontend/src/assets/icons/NOTICE.txt`](frontend/src/assets/icons/NOTICE.txt)。
+- **后端未实现前的联调**：`frontend/mock/` 提供 Vite 插件模拟全部接口（含设置、人工登录窗口
+  状态机、分步流水线与真实的进度推进），真实后端就绪后删除 `vite.config.js` 中的该插件即可
+  （或 `VITE_USE_MOCK=0` 关闭），业务代码无需改动。
 
 ## 十一、短期实现目标
 
 > 现状（2026-10-17 更新）：**演示链路已完整可跑**，训练侧（词向量 / 深度模型 / 训练 / 评估 / 可视化）
-> 也已实现并通过小样本端到端验证；真实数据获取/标注与 `/api/videos` 真实爬取已在第二轮补齐。
-> 剩下的核心两件事是：真实数据规模达标、真实模型接入推理。
+> 也已实现并通过小样本端到端验证；真实数据获取/标注与 `/api/videos` 真实爬取已在第二轮补齐；
+> 设置入口 + 爬虫参数弹窗 + 分步流水线已在第三轮补齐。
+> 剩下的核心两件事仍是：真实模型接入推理、真实数据规模持续扩充。
 
 ### 已完成（2026-10-17）
 
@@ -421,6 +486,7 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 | 7 | **爬虫审查与改进**：审查 PR #2 提交的 988 行爬虫，补齐反爬稳健性 / 标准化 / robots / 来源登记 / 可复用接口 / 效率基准 | ✅ 拆为 10 个实现模块 + 统一 CLI；爬虫测试 81 条（含大规模采集）；本机真实联网与离线 mock 效率见 [第十二节](#十二爬虫模块改进与实测效率)；审查记录见 [`docs/爬虫代码审查与改进-2026-10-17.md`](docs/爬虫代码审查与改进-2026-10-17.md) |
 | 8 | **第二轮全面改进**：公开数据集获取 / 标注工作流 / `/api/videos` 真实爬取 / 长跑稳健性 / 可重复基准 | ✅ 3 个并行子代理交付；全量测试全过；详见 [`docs/第二轮全面改进-2026-10-17.md`](docs/第二轮全面改进-2026-10-17.md) |
 | 9 | **真实数据规模达标**：公开语料下载 → 统一格式 → 合并均衡 → train 预处理 | ✅ 实测 `waimai_10k` + `ChnSentiCorp` 合并均衡 **18,644 条**（正负各 9,322），预处理 `course_requirements_met=true`：train 13,029 / val 1,861 / test 3,723；命令见第四节，数据文件不入库 |
+| 10 | **设置入口 + 爬虫参数弹窗 + 分步流水线**：左上角设置弹窗、人工登录窗口 / B 站 Cookie 账号模式、开始分析前参数确认、`crawled`/`cleaned` 等待态与「继续」、自动连续开关 | ✅ 2026-10-17 交付：后端 `GET/PUT /api/settings`、`POST /api/crawler/session/check`、`POST /api/account/login/{start,status,cancel}`、`POST /api/videos/{bvid}/continue`；前端设置/参数两个弹窗与等待态按钮；详见[第十四节](#十四设置入口与分步执行2026-10-17) |
 
 ### 待完成
 
@@ -638,6 +704,11 @@ python -m src.preprocessing --input data/raw/BV1GJ411x7h7_comments.csv --mode cl
 | 长跑日志 | `--log-file outputs/logs/crawl_batch.log`，每页进度 + 每 100 视频汇总；`--quiet` 只留告警/汇总 |
 | 批量报告 | `--json` 输出 `video_count / completed_count / skipped_count / failed_count / total_saved / metrics` |
 
+> 也可以先用 **Web 界面**（左上角设置 + 爬虫参数弹窗）对单个 BV 试参数，确认无误后再把同一套
+> 参数放大到 CLI 清单批量跑。两种方式共用同一套爬虫实现与限速语义；Web 界面说明见
+> [`docs/大规模采集运行手册.md`](docs/大规模采集运行手册.md) 第二节「Web 界面方式（推荐）」，
+> 任务级 `settings` 优先于 `VIDEO_REAL_CRAWL` / `VIDEO_CRAWL_*` 环境变量。
+
 推荐命令：
 
 ```bash
@@ -691,8 +762,9 @@ python -m src.crawler.bilibili \
 
 - 本项目在 Web 界面中将图标用作**功能与装饰元素**，并对其颜色与尺寸做了适配
   （`fill="currentColor"`，图形本身未改动）—— 属该许可第 2.1、2.2 条允许的用途；
-- 该许可第 3.3 条**禁止**将图标用作 logo / 商标 / 品牌标识，因此本项目的品牌标记（「情」字方格）
-  与 favicon 均为**项目原创**，未使用任何 Remix 图形；
+- 该许可第 3.3 条**禁止**将图标用作 logo / 商标 / 品牌标识，因此本项目的 **favicon 为项目原创**，
+  左上角「设置」入口的齿轮是**功能图标**、不作品牌标识（原「情」字品牌标记已在 2026-10-17
+  替换为设置入口），未使用任何 Remix 图形作品牌用途；
 - 第 4.1 条要求品牌图标仅用于指代对应品牌：本项目仅使用 `bilibili-line` 一个 Logos 类图标，
   且只出现在代表 B 站内容的「B站分析」入口上，未用作项目标识，也未暗示任何背书或隶属关系；
 - 第 5 条要求随源码附带许可，故完整许可全文与出处记录见
@@ -700,3 +772,204 @@ python -m src.crawler.bilibili \
 
 图标子集可复现/更新：`node scripts/gen_icons.mjs <remixicon 包目录>`（详见
 [`docs/superpowers/specs/2026-10-16-frontend-remixicon-assets-design.md`](docs/superpowers/specs/2026-10-16-frontend-remixicon-assets-design.md)）。
+
+## 十四、设置入口与分步执行（2026-10-17）
+
+> 本节说明 2026-10-17 新增的「设置入口（含人工登录窗口）+ 爬虫参数弹窗 + 分步流水线」交互。
+> 接口字段以 [`docs/API契约.md`](docs/API契约.md)「二点五、设置与分步流水线」为准；
+> 采集参数含义与 CLI 用法见 [`docs/大规模采集运行手册.md`](docs/大规模采集运行手册.md)。
+
+> 界面截图（2026-10-17 真实联调，匿名 + 离线占位模式；不含任何账号凭据）：
+> [系统设置弹窗](docs/images/2026-10-17-settings/settings-dialog.png)、
+> [爬虫参数确认弹窗](docs/images/2026-10-17-settings/crawl-params-dialog.png)、
+> [待分析等待态](docs/images/2026-10-17-settings/staged-cleaned.png)、
+> [完成后的图表详情](docs/images/2026-10-17-settings/completed-detail.png)。
+
+### 1. 左上角设置入口与账号模式
+
+- 界面左上角原「情」字品牌标记，现改为**齿轮设置按钮**（`aria-label="设置"`），旁边显示当前
+  账号模式徽标：**匿名**（默认）或**已登录用户名**。点击打开「系统设置」弹窗。
+- 设置页分三组：**账号**（匿名 / 登录账号）、**采集参数**（爬虫默认值）、**自动流程**
+  （自动清洗 / 自动分析）。账号区主按钮为「登录 B 站账号（弹出登录窗口）」；底部还有
+  检查登录状态、保存、取消、恢复默认。
+- **初始为匿名爬取**。匿名可见评论量随 B 站接口策略波动（实测单视频 3~200+ 条，未必全量），
+  需要完整规模时再切换为登录账号。
+
+![系统设置弹窗：账号（匿名 / 登录账号）、采集参数与自动流程](docs/images/2026-10-17-settings/settings-dialog.png)
+
+**推荐登录方式：人工登录窗口（不自动破解验证码）**
+
+B 站密码登录会触发极验点选验证码，本项目**不自动破解、不代填验证码**，而是把登录交给
+真人操作：
+
+1. 设置弹窗「账号」点「**登录 B 站账号（弹出登录窗口）**」→ 前端调
+   `POST /api/account/login/start`；
+2. 后端在**运行服务的那台电脑的桌面上**打开一个真实浏览器窗口（本地课程项目即你自己的
+   电脑），打开 B 站登录页并置前；状态 `opening → waiting`；
+3. 由**人**在这个窗口里扫码，或输入账号密码 + 完成验证码登录；本项目只负责等待与捕获，
+   **不读取、不记录**你输入的账号密码；
+4. 登录成功后后端每 2 秒检查一次 Cookie，捕获 `SESSDATA` 后调用 B 站 nav 接口取昵称 / mid，
+   写入 `outputs/settings.json`（`account.mode="account"`），随后自动关闭窗口，状态 `success`；
+5. 前端每 2 秒轮询 `GET /api/account/login/status`，成功后显示「已登录：{昵称}」并刷新设置；
+   Cookie 已由后端直接保存、账号模式自动切换，**无需再点「保存」**（其它参数改动才需保存）。
+
+注意事项：
+
+- **窗口出现在后端所在机器的桌面**：如果后端跑在远程服务器 / 容器里，在你自己的电脑上点
+  按钮是看不到窗口的，需要到服务器桌面操作，或改用下面的「高级：手动粘贴 Cookie」；
+- 等待登录期间**不要关闭窗口**；用户主动关闭窗口 = 取消（`cancelled`）；超过 **300 秒**未完成
+  = `timeout`，可重新发起；同一时间只允许一个登录窗口，重复点击返回当前状态（幂等）；
+- **可选依赖 Playwright**：人工登录窗口需要
+  `pip install playwright` 且 `python -m playwright install chromium`；
+  Windows 已安装 Edge 时可直接用系统 Edge（`channel="msedge"`）。未安装不影响其它功能，
+  点按钮会返回 **503 + 安装指引**，此时可用手动 Cookie 完成登录。
+  详细接口见 [`docs/API契约.md`](docs/API契约.md)「2.5.6 人工登录窗口」。
+
+**高级兜底：手动粘贴 Cookie**
+
+1. 在浏览器登录 `https://www.bilibili.com`；
+2. 按 `F12` 打开开发者工具 → 「应用 / Application」→「存储 / Storage」→「Cookie」→
+   `https://www.bilibili.com`，找到 `SESSDATA` 一行复制其值；或从「网络 / Network」里
+   复制请求头中的**完整 Cookie 串**（含 `SESSDATA`、`bili_jct`、`DedeUserID` 等）；
+3. 在设置页「账号」展开「高级：手动粘贴 Cookie」，把 `SESSDATA` 值或完整 Cookie 串粘贴到输入框；
+4. 点「检查登录状态」，显示昵称 / mid 即成功；再点「保存」。
+
+- **凭据安全**：
+  - Cookie 明文**只存在服务端** `outputs/settings.json`（可用环境变量 `CSA_SETTINGS_PATH`
+    覆盖），该文件已被 `.gitignore` 忽略，**切勿提交或分享**；
+  - 接口只返回 `has_cookie` / `masked_cookie`（形如 `SESSD…9f2a`），**永不回传明文**；
+    Cookie 也不随任务提交（任务 `settings` 里只有账号模式）；
+  - 日志与错误信息同样脱敏；换回「匿名」或清空 Cookie 即清除服务端凭据。
+- **合规提醒**：Cookie 等同于账号登录态，请只用自己的账号（建议小号），不要分享、不要提交
+  仓库；采集遵守 robots 与限速（默认 2.5 秒/请求，硬性下限 2 秒），不绕过风控、不并发抓取，
+  仅用于课程学习与研究，注意 B 站服务条款与评论数据的隐私/版权。
+
+### 2. 爬虫开始前的参数弹窗
+
+**新的交互模式**：以前「Python 需要参数」时只能改环境变量 / 命令行再重启；现在改为
+**设置页保存默认值 → 点「开始分析」时前端弹窗询问本次参数 → 确认后随任务传给后端运行**。
+无需改代码、无需重启服务；命令行方式**完全保留**（见第 4 小节与运行手册）。
+
+- 点「开始分析」后先弹出「爬虫参数」弹窗，预填设置页保存的采集参数；
+- 弹窗展示当前账号模式；匿名时提示匿名可见量有限；
+- 用户可逐次覆盖本次参数，点「确认」才带 `settings` 调 `POST /api/videos`；「取消」不提交；
+- 本次参数与已保存设置**部分合并**成任务快照（不含 Cookie）写入任务记录，**之后改设置不影响
+  已提交的任务**。
+
+![爬虫参数确认弹窗：预填设置页默认值，可逐次覆盖，确认后才提交](docs/images/2026-10-17-settings/crawl-params-dialog.png)
+
+UI 参数与 CLI 选项对照：
+
+| UI 参数（设置页 / 弹窗） | settings 字段 | CLI 选项 | 默认值 / 范围（设置页） | 说明 |
+| --- | --- | --- | --- | --- |
+| 真实采集开关 | `crawl.real_crawl` | —（CLI 始终真实采集） | 默认开；关=占位数据（离线演示） | 对应环境变量 `VIDEO_REAL_CRAWL`；关时任务不联网 |
+| 最多采集页数（一级评论） | `crawl.max_pages` | `--max-pages` | 默认 1；`0~50`，0=不限 | CLI 默认 5 页 |
+| 楼中楼最多页数 | `crawl.max_sub_pages` | `--max-sub-pages` | 默认 1；`0~20`，0=不限 | 仅「采集楼中楼」开启时生效；CLI 默认 3 |
+| 每页条数 | `crawl.page_size` | `--page-size` | 默认 20；`1~50` | 一级评论 `ps`，会写入断点 |
+| 采集楼中楼 | `crawl.include_replies` | `--include-replies` | 默认关 | 会显著增加请求数 |
+| 排序方式 | `crawl.sort_mode` | `--mode` | 默认 `time`；`time` / `hot` | `hot`=按热度 |
+| 最多新增评论数 | `crawl.max_items` | `--max-items` | 默认 200；`≥0`，0=不限 | CLI 默认 0（不限）；GUI 给安全上限 |
+| 请求间隔（秒） | `crawl.delay_seconds` | `--delay` | 默认 2.5；`2.0~60` | **合规硬性下限 2 秒**，不得更小 |
+| 请求超时（秒） | `crawl.timeout_seconds` | `--timeout` | 默认 15；`>0` | 单次 HTTP 超时 |
+| 要求登录态 | `crawl.require_login` | `--require-login` | 默认关 | 开=未登录直接失败，避免匿名白跑 |
+| 初始化 buvid | `crawl.init_buvid` | `--init-buvid` | 默认关 | 实测开启会收紧匿名可见评论，默认关闭 |
+
+> 设置页/弹窗的默认值比 CLI 更保守（1 页一级 + 1 页楼中楼 + 最多 200 条），适合先小规模试跑；
+> 批量采集用 CLI 清单与 `--max-pages 0` 放大规模，参数语义完全一致。
+
+### 3. 分步流水线（待清洗 / 待分析）
+
+**状态枚举新增两个等待态**（原有 5 个状态不变，旧客户端可忽略新状态）：
+
+| 状态 | 左侧栏显示 | 右侧详情区 | 是否自动轮询 |
+| --- | --- | --- | --- |
+| `queued` | 排队中（灰） | 「排队中…」 | 是 |
+| `crawling` | 爬取中 + 进度条（蓝） | 「正在爬取评论… {progress}%」 | 是 |
+| `processing` | 处理中 + 进度条（橙） | 「正在清洗与情感分析… {progress}%」 | 是 |
+| **`crawled`** | **待清洗**（琥珀） | 「采集完成，等待清洗」+「开始清洗」按钮 | 否（等待操作） |
+| **`cleaned`** | **待分析**（紫） | 「清洗完成，等待情感分析」+「开始分析」按钮 | 否（等待操作） |
+| `completed` | 已完成（绿） | 完整详情：图表 + 词云 + 评论 | 否 |
+| `failed` | 失败（红，带原因） | `error` 内容 + 重试按钮 | 否 |
+
+![等待态：清洗完成、等待情感分析（待分析），详情区提供「开始分析」按钮与自动连续关闭提示](docs/images/2026-10-17-settings/staged-cleaned.png)
+
+**状态迁移**：
+
+```
+queued → crawling → 采集完成
+                      ├─ auto_clean=true  → processing（清洗）→ 清洗完成 →（auto_analyze?）
+                      └─ auto_clean=false → crawled（待清洗，暂停）
+crawled →（点「开始清洗」）→ queued → processing（清洗）→ 清洗完成
+                      ├─ auto_analyze=true  → processing（情感推理→统计分析）→ completed
+                      └─ auto_analyze=false → cleaned（待分析，暂停）
+cleaned →（点「开始分析」）→ queued → processing（情感推理→统计分析）→ completed
+任意阶段异常 → failed（error 带可读原因）；retry 清空中间产物、回到 queued 从头跑。
+```
+
+- **手动继续**：详情区在 `crawled` 显示「开始清洗」、`cleaned` 显示「开始分析」，并提示
+  「自动连续已关闭」；点击调用 `POST /api/videos/{bvid}/continue`，任务回到 `queued` 并恢复轮询。
+- **自动连续**：设置页「自动流程」两个开关：
+
+  | `auto_clean` | `auto_analyze` | 行为 |
+  | --- | --- | --- |
+  | 关（默认） | 关（默认） | 每个阶段边界暂停，先确认数据量再继续（推荐首次使用） |
+  | 开 | 关 | 采集后自动清洗，然后停在「待分析」 |
+  | 关 | 开 | 采集后停在「待清洗」；手动清洗完成后自动继续情感分析 |
+  | 开 | 开 | 一次连续跑完（相当于旧行为，但仍使用任务参数、不携带 Cookie） |
+
+- **与旧行为兼容**：`POST /api/videos` **不带 `settings`** 时走原有「一次跑完四个阶段」路径
+  （不暂停），旧客户端、旧脚本与现有测试行为不变；只有带 `settings` 的任务才启用分步逻辑。
+- **中间产物与恢复**：分步任务的中间产物落盘 `outputs/videos/<bvid>/crawl.json`（原始评论或
+  占位计数）、`clean.json`（清洗后评论）与 `analyze.json`（逐条规则预测结果，供审计），
+  详情文件仍是 `outputs/videos/<bvid>.json`；
+  服务重启时进行中的任务重置为 `queued` 重跑，`crawled` / `cleaned` **保持等待态**等待用户操作；
+  `retry` 清空中间产物从头开始。
+- **详情新字段**：`GET /api/videos/{bvid}/detail` 顶层新增 `pipeline`
+  （`account_mode` / `auto_clean` / `auto_analyze` / `next_action` / `crawl` 参数），
+  未完成时也返回；`analysis.status` 直接使用新状态枚举。
+- **错误语义**：设置越界或 `account` 模式缺少 Cookie → `400`；未知任务 → `404`；
+  对非 `crawled` / `cleaned` 任务调用 `continue` → `409`；检查登录态时网络/接口异常 → `502`；
+  人工登录窗口依赖缺失（Playwright/浏览器不可用）→ `503` + 安装指引。
+
+### 4. 操作流程示例（从配置账号到完成任务）
+
+```text
+① 启动后端（:8000）与前端（:3000）——见第四节 1、2
+   （可选：登录账号需要 Playwright，见第十四节 1；不装则用手动 Cookie 或保持匿名）
+② 左上角**齿轮图标按钮**「设置」→ 账号：「登录 B 站账号（弹出登录窗口）」→ 在后端本机桌面完成扫码/登录
+   → 前端显示「已登录：昵称」并自动切换为登录账号模式（Cookie 已保存，无需再点保存）；
+   或展开「高级：手动粘贴 Cookie」粘贴后点「检查登录状态」再点「保存」
+   （不登录则保持匿名，直接到 ③）
+③ 「设置」→ 采集参数：按需调整（首次可保持默认 1 页 / 200 条 / 2.5 秒）
+   「设置」→ 自动流程：先都关闭，便于逐阶段确认数据量
+④ 顶部输入 BV 号 →「开始分析」→ 在「爬虫参数」弹窗确认本次参数 →「确认」
+⑤ 任务走 queued → crawling → crawled（待清洗）；点「开始清洗」
+⑥ 任务走 queued → processing（清洗）→ cleaned（待分析）；点「开始分析」
+⑦ 任务走 queued → processing（情感推理 → 统计分析）→ completed，查看图表 / 词云 / 评论
+```
+
+![完成后的详情：情感占比、趋势、正负词云、关键词排行、模型指标与代表性评论](docs/images/2026-10-17-settings/completed-detail.png)
+
+- 想一次跑完：把设置页「自动清洗」「自动分析」都打开，提交后无需手动点继续；
+- 想放大规模：先用上面流程对 1 个视频试参数，再用相同参数按
+  [`docs/大规模采集运行手册.md`](docs/大规模采集运行手册.md) 的 CLI 清单方式批量跑；
+- 任务失败：详情区显示原因，点「重试」清空中间产物从头再跑（`failed` 不会被自动重跑）。
+
+### 5. 相关 API 与环境变量
+
+| 用途 | 接口 |
+| --- | --- |
+| 读取 / 保存系统设置（Cookie 脱敏） | `GET /api/settings`、`PUT /api/settings` |
+| 人工登录窗口（推荐；后端本机弹浏览器） | `POST /api/account/login/start`、`GET /api/account/login/status`、`POST /api/account/login/cancel` |
+| 检查 B 站登录态（手动 Cookie 兜底时可用） | `POST /api/crawler/session/check` |
+| 提交任务（可带本次 `settings`） | `POST /api/videos` |
+| 等待态继续下一阶段 | `POST /api/videos/{bvid}/continue` |
+| 详情（新增 `pipeline` 字段） | `GET /api/videos/{bvid}/detail` |
+
+- 设置文件路径：`CSA_SETTINGS_PATH`（默认 `outputs/settings.json`）；
+- 人工登录窗口可选依赖：`pip install playwright` + `python -m playwright install chromium`
+  （Windows 已装 Edge 可用 `channel="msedge"`）；未安装时 `start` 返回 503，不影响其它功能；
+- 优先级：**任务级 `settings`（弹窗确认）> 已保存设置（设置页默认值）> 环境变量**。
+  即带 `settings` 的任务以任务快照为准，`VIDEO_REAL_CRAWL` / `VIDEO_CRAWL_*` 只影响
+  不带 `settings` 的旧请求与 CLI；详见 [`.env.example`](.env.example)。
+- 完整字段、请求/响应示例与错误码见 [`docs/API契约.md`](docs/API契约.md)「二点五、设置与分步流水线」。

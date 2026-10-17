@@ -231,7 +231,15 @@ def test_business_routes_exposed():
         ("GET", "/api/videos"),
         ("GET", "/api/videos/{bvid}/detail"),
         ("POST", "/api/videos/{bvid}/retry"),
+        ("POST", "/api/videos/{bvid}/continue"),
         ("DELETE", "/api/videos/{bvid}"),
+        # 系统设置与账号（spec 第 2 节：设置 / 登录态检查 / 人工登录窗口）
+        ("GET", "/api/settings"),
+        ("PUT", "/api/settings"),
+        ("POST", "/api/crawler/session/check"),
+        ("POST", "/api/account/login/start"),
+        ("GET", "/api/account/login/status"),
+        ("POST", "/api/account/login/cancel"),
         # 数据项目与单独评论（契约 docs/API契约.md 第四点五节）
         ("GET", "/api/artifacts"),
         ("POST", "/api/artifacts/upload"),
@@ -264,4 +272,8 @@ def test_openapi_schema_lists_contract_paths():
         "/api/predict/batch",
         "/api/predict/batch/download/{file_id}",
         "/api/models",
+        "/api/settings",
+        "/api/crawler/session/check",
+        "/api/account/login/start",
+        "/api/videos/{bvid}/continue",
     } <= set(paths)

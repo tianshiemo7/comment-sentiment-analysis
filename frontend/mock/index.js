@@ -2,13 +2,16 @@
  * mock/index.js — Vite 开发服务器 mock 插件
  *
  * ⚠️ 真实后端（FastAPI :8000）就绪后，删除 vite.config.js 里的一行 `mockApiPlugin(),`
- *    即可完全关闭本 mock，前端业务代码一行都不用改（mock 只依赖 docs/API契约.md 的字段约定）。
+ *    即可完全关闭本 mock，前端业务代码一行都不用改（mock 只依赖契约字段约定）。
  *
  * 挂载方式：configureServer 中「直接」调用 server.middlewares.use(...)，
  * 中间件注册位置早于 Vite 内建中间件（含 server.proxy），因此：
- *   - /api/videos*、/api/artifacts*、/api/solo-comments*、/api/predict、/health 被本插件接管；
+ *   - /api/videos*、/api/artifacts*、/api/solo-comments*、/api/predict、/api/settings、
+ *     /api/crawler/session/check、/health 被本插件接管；
  *   - 其它路径（如 /api/models、/api/predict/batch）继续 next() → 走 proxy 到 FastAPI。
  * 同源请求，无需 CORS。
+ *
+ * 2026-10-17 起新增：设置持久化（进程内存）、登录态检查、分步流水线 continue 与新状态。
  */
 
 import {
@@ -30,11 +33,22 @@ import {
   uploadProject,
 } from './artifacts.js'
 import { predictRuleBased } from './predict.js'
-import { deleteVideo, getDetail, listVideos, retryVideo, resetStore, submitVideo } from './store.js'
+import { cancelLogin, getLoginStatus, resetLogin, startLogin } from './account.js'
+import { checkSession, getSettingsPayload, resetSettings, updateSettings } from './settings.js'
+import {
+  continueVideo,
+  deleteVideo,
+  getDetail,
+  listVideos,
+  retryVideo,
+  resetStore,
+  submitVideo,
+} from './store.js'
 
 const BV = 'BV[0-9A-Za-z]{10}'
 const RE_DETAIL = new RegExp(`^/api/videos/(${BV})/detail$`)
 const RE_RETRY = new RegExp(`^/api/videos/(${BV})/retry$`)
+const RE_CONTINUE = new RegExp(`^/api/videos/(${BV})/continue$`)
 const RE_ITEM = new RegExp(`^/api/videos/(${BV})$`)
 
 const RE_ARTIFACT_ITEM = /^\/api\/artifacts\/([^/]+)$/
@@ -165,6 +179,56 @@ async function handle(req, res) {
       service: 'comment-sentiment-analysis (vite mock)',
       version: '0.1.0-mock',
     })
+    return true
+  }
+
+  // ---------- 系统设置与账号（spec 第 2 节；Cookie 只回 masked） ----------
+  if (path === '/api/settings' && method === 'GET') {
+    sendJson(res, 200, getSettingsPayload())
+    return true
+  }
+
+  if (path === '/api/settings' && method === 'PUT') {
+    const body = await readJsonBody(req)
+    const result = updateSettings(body)
+    if (result.ok) console.log('[mock] 设置已更新（Cookie 仅存内存，不回显明文）')
+    resolveByResult(res, result)
+    return true
+  }
+
+  if (path === '/api/crawler/session/check' && method === 'POST') {
+    let body = {}
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      body = {}
+    }
+    resolveByResult(res, checkSession(body && body.cookie))
+    return true
+  }
+
+  // ---------- 人工登录窗口（spec 2.4；mock 不拉起浏览器、不触网） ----------
+  if (path === '/api/account/login/start' && method === 'POST') {
+    let body = {}
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      body = {}
+    }
+    const result = startLogin(body)
+    console.log('[mock] 已启动人工登录窗口模拟（约 3 秒后成功）')
+    resolveByResult(res, result)
+    return true
+  }
+
+  if (path === '/api/account/login/status' && method === 'GET') {
+    resolveByResult(res, getLoginStatus())
+    return true
+  }
+
+  if (path === '/api/account/login/cancel' && method === 'POST') {
+    console.log('[mock] 取消人工登录窗口')
+    resolveByResult(res, cancelLogin())
     return true
   }
 
@@ -299,8 +363,10 @@ async function handle(req, res) {
 
   if (path === '/api/videos' && method === 'POST') {
     const body = await readJsonBody(req)
-    const result = submitVideo(body && body.bvid)
-    if (result.ok) console.log(`[mock] 提交 ${body.bvid} → queued`)
+    const result = submitVideo(body && body.bvid, (body && body.settings) || null)
+    if (result.ok) {
+      console.log(`[mock] 提交 ${body.bvid} → queued${body.settings ? '（分步流水线）' : ''}`)
+    }
     resolveByResult(res, result)
     return true
   }
@@ -318,6 +384,13 @@ async function handle(req, res) {
     return true
   }
 
+  const resume = RE_CONTINUE.exec(path)
+  if (resume && method === 'POST') {
+    console.log(`[mock] 继续 ${resume[1]}`)
+    resolveByResult(res, continueVideo(resume[1]))
+    return true
+  }
+
   const item = RE_ITEM.exec(path)
   if (item && method === 'DELETE') {
     console.log(`[mock] 删除 ${item[1]}`)
@@ -329,6 +402,8 @@ async function handle(req, res) {
   if (path === '/__mock/reset' && method === 'POST') {
     resetStore()
     resetArtifacts()
+    resetSettings()
+    resetLogin()
     sendJson(res, 200, { reset: true })
     return true
   }

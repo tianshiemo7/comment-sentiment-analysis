@@ -265,6 +265,9 @@ class BiliClient:
         risk_control_retries: 风控触发的额外重试次数。
         risk_control_cooldown: 首次风控冷却秒数，后续按次数递增。
         wbi_ttl: WBI 密钥缓存有效期（秒）。
+        cookie: 可选 Cookie 串（与 ``BILI_COOKIE`` 同格式，形如
+            ``SESSDATA=...; bili_jct=...``）。用于 **逐任务注入** 登录态，
+            优先级高于环境变量；本参数不会写回环境、不会出现在日志 / 错误里。
         clock / sleep / rng / time_fn: 可注入，便于离线基准与单元测试。
     """
 
@@ -285,6 +288,7 @@ class BiliClient:
         risk_control_cooldown: float = DEFAULT_RISK_COOLDOWN,
         wbi_ttl: float = 6 * 3600,
         init_buvid: bool | None = None,
+        cookie: str | None = None,
         jitter_ratio: float = 0.3,
         retry_base_delay: float = 1.0,
         retry_max_delay: float = 20.0,
@@ -311,6 +315,8 @@ class BiliClient:
         self.respect_robots = respect_robots
         self.api_robots_policy = api_robots_policy
         self.init_buvid = bool(init_buvid)
+        # 逐任务注入的 Cookie（优先级高于环境变量；不写回环境、不进日志）
+        self._injected_cookie = (cookie or "").strip() or None
         self.risk_control_retries = max(0, int(risk_control_retries))
         self.risk_control_cooldown = max(0.0, float(risk_control_cooldown))
         self.wbi_ttl = max(0.0, float(wbi_ttl))
@@ -365,11 +371,15 @@ class BiliClient:
 
     # ------------------------------------------------------------------ setup
     def _load_env_cookies(self) -> None:
-        """仅从环境变量读取凭据，绝不把 Cookie 写进源码。
+        """仅从环境变量 / 构造参数读取凭据，绝不把 Cookie 写进源码。
 
         支持两种方式（后者优先）：
         - 单个变量：``BILI_SESSDATA`` / ``BILI_BILI_JCT`` / ``BILI_DEDEUSERID`` / ``BILI_BUVID3``；
         - 完整 Cookie 串：``BILI_COOKIE="SESSDATA=...; bili_jct=...; DedeUserID=..."``。
+
+        构造函数传入的 ``cookie``（逐任务注入）与 ``BILI_COOKIE`` 同格式，
+        存在时**取代**环境变量里的完整 Cookie 串（单个变量仍作为底值），
+        但不会写回 ``os.environ``，也不会出现在任何日志里。
         """
 
         cookies = {
@@ -378,7 +388,7 @@ class BiliClient:
             "DedeUserID": os.getenv("BILI_DEDEUSERID", "").strip(),
             "buvid3": os.getenv("BILI_BUVID3", "").strip(),
         }
-        cookie_header = os.getenv("BILI_COOKIE", "").strip()
+        cookie_header = self._injected_cookie or os.getenv("BILI_COOKIE", "").strip()
         for part in cookie_header.split(";"):
             if "=" not in part:
                 continue
@@ -1769,12 +1779,19 @@ def fetch_video_comments(
     page_size: int = MAIN_COMMENT_PAGE_SIZE,
     mode: int = 2,
     max_items: int = 0,
+    require_login: bool = False,
     **client_kwargs: Any,
 ) -> list[dict[str, Any]]:
     """无持久化地抓取一个视频的评论，供 ``src/videos`` / ``src/artifacts`` 适配。
 
     与 :func:`crawl_video` 使用相同的客户端、限速、robots 校验与标准化逻辑，
     但不写 ``data/raw`` 与来源说明（调用方自行决定如何落盘）。
+
+    Args:
+        require_login: 为 ``True`` 时先检查登录态，未登录直接抛
+            :class:`CrawlStopped`（Web 设置页的「登录账号 + 必须有登录态」场景）。
+        **client_kwargs: 透传给 :class:`BiliClient`（如逐任务注入的 ``cookie``、
+            ``init_buvid``、``timeout`` 等；Cookie 只用于会话，不落日志）。
     """
 
     import tempfile
@@ -1783,6 +1800,13 @@ def fetch_video_comments(
     if client is None:
         client = BiliClient(**client_kwargs)
     try:
+        if require_login:
+            status = client.login_status()
+            if not status.get("is_login"):
+                raise CrawlStopped(
+                    "require_login=True 但当前未登录：请在设置页填写有效 Cookie 后重试"
+                    "（匿名模式只能看到少量评论，无法大规模采集）"
+                )
         with tempfile.TemporaryDirectory(prefix="bili-crawl-") as temp_dir:
             result = crawl_video(
                 client,
