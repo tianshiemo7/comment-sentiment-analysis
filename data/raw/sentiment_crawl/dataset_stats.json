@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-10-18T12:26:15+08:00",
+  "raw_source": "data\\raw\\sentiment_crawl\\all_comments_raw.csv",
+  "total_comments": 10800,
+  "total_videos": 216,
+  "categories": {
+    "动物圈": 600,
+    "动画": 600,
+    "娱乐": 600,
+    "影视": 600,
+    "时尚": 600,
+    "汽车": 600,
+    "游戏": 600,
+    "生活": 600,
+    "电影": 600,
+    "电视剧": 600,
+    "知识": 600,
+    "科技": 600,
+    "纪录片": 600,
+    "美食": 600,
+    "舞蹈": 600,
+    "运动": 600,
+    "音乐": 600,
+    "鬼畜": 600
+  },
+  "split": {
+    "train_comments": 9000,
+    "test_comments": 1800,
+    "train_videos": 180,
+    "test_videos": 36
+  },
+  "duplicate_rpid_count": 0,
+  "empty_text_count": 0,
+  "text_length": {
+    "min": 1,
+    "max": 929,
+    "avg": 18.16
+  },
+  "comments_per_video": {
+    "min": 50,
+    "max": 50,
+    "avg": 50.0
+  },
+  "notes": "未做文本清洗；split 按 bvid 分组、按 category 分层，避免同视频泄漏"
+}
