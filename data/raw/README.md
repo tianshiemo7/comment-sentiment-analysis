@@ -1,9 +1,10 @@
 # 原始评论数据登记
 
 > ⚠️ **原始 CSV 默认不入库**：`data/raw/*.csv` 被根目录忽略规则排除（原始数据不入版本控制）。
-> 唯一例外是**课程验收用的小体量待训练语料** `BV1tseyzCEoF_comments.csv`（470 条，约 118 KB，
-> 已通过 `.gitignore` 白名单显式入库，见第 5 节）。
-> clone 仓库后本目录只有本 README、`来源说明.md`、`sources.json` 与该语料；其它 CSV 需要
+> 目前有两类例外，均通过 `.gitignore` 白名单显式入库：
+> ① **课程验收用的小体量待训练语料** `BV1tseyzCEoF_comments.csv`（470 条，约 118 KB，见第 5 节）；
+> ② **跨分区大规模采集数据集** `sentiment_crawl/`（216 视频 / 10,800 条，约 4.8 MB，见第 6 节）。
+> clone 仓库后本目录只有本 README、`来源说明.md`、`sources.json` 与上述语料；其它 CSV 需要
 > 先自行取得，否则第 3 节的命令会报 `FileNotFoundError`。取得方式见第 4 节。
 
 ## 1. 组内提供的视频评论（BV1UB4y1W7Xu）
@@ -78,3 +79,21 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 - 校验：`SHA256 = 6b92bf40c4b682f12a47ac1f3082bf19dc75b3b14a4a5e5ee8fc5012308aa8b7`
 - 用途：**原始语料，暂存为后续训练集候选**；尚未清洗、未标注，因此暂不能直接用于监督训练。
   后续可先 `python -m src.crawler.labeling export` 抽样标注，合并后再走 `src/preprocessing` 训练管线。
+
+## 6. 已入库的跨分区大规模采集数据集（2026-10-18）
+
+目录：`data/raw/sentiment_crawl/`（**随仓库入库**，约 4.8 MB，UTF-8 BOM）。
+
+- 来源：B 站排行榜接口按 **18 个分区**各取 12 个视频，共 **216 个视频**，每个视频 50 条一级评论
+  （`mode=time`、`ps=50`、`max_pages=2`、不采楼中楼）；
+- 规模：**10,800 条**原始评论，18 个分区各 600 条；`rpid` 全局唯一、无空文本；
+- 文件：
+  - `comments_raw.csv`：**总表**（原始评论 + `category/rid/split`，**未清洗**）；
+  - `train.csv` / `test.csv`：按 `bvid` 分组、按分区分层 8:2 划分（train 9,000 / test 1,800）；
+  - `crawl_plan.csv` / `videos_meta.csv` / `dataset_stats.json` / `bvids.txt`；
+  - `README.md`：采集规划、字段说明、质量核对与复现命令；
+- 采集：3 进程分片、单进程限速 3.0s/请求，风控 0 次，耗时约 13 分钟；来源登记见 `来源说明.md` / `sources.json`；
+- 复现：`python scripts/build_crawl_catalog.py` → `python scripts/crawl_shards.py` → `python scripts/build_final_dataset.py`；
+- 用途：训练/测试语料候选；**尚无情感标签、未清洗**，需人工标注后才能用于监督训练。
+  分片断点（`shard*/`）、分片合并 CSV 与排行榜原始快照体积大且可复现，已排除在版本库外。
+

@@ -50,6 +50,15 @@ data/uploads/*
 !data/raw/sources.json
 # 例外：课程验收用的待训练语料（470 条原始评论，未清洗/未标注，2026-10-17 自采）
 !data/raw/BV1tseyzCEoF_comments.csv
+# 例外：跨分区大规模采集数据集（2026-10-18，216 视频 / 10,800 条，未清洗，含 train/test 划分）
+!data/raw/sentiment_crawl/
+#    分片断点、分片合并与排行榜快照体积大且可由脚本复现，不入库
+data/raw/sentiment_crawl/shard*/
+data/raw/sentiment_crawl/shard*.log
+data/raw/sentiment_crawl/*_merged.csv
+data/raw/sentiment_crawl/all_comments_raw.csv
+data/raw/sentiment_crawl/catalog.json
+data/raw/sentiment_crawl/ranking_snapshot.json
 !data/processed/README.md
 !data/splits/README.md
 !data/uploads/README.md
