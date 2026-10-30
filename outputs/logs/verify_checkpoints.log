@@ -1,0 +1,9 @@
+D:\PyEnv\3.13.9\Lib\site-packages\jieba\_compat.py:18: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+Building prefix dict from the default dictionary ...
+Loading model from cache D:\Temp\jieba.cache
+Loading model cost 0.487 seconds.
+Prefix dict has been built successfully.
+[OK] textcnn: torch.load + state_dict + forward 均通过；前 20 条中 18 条与标签一致
+[OK] bilstm_attention: torch.load + state_dict + forward 均通过；前 20 条中 18 条与标签一致
+[OK] 报告写入 D:\DevforDS\_csa_train\outputs\stats\checkpoint_smoke.json

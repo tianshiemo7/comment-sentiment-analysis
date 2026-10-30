@@ -1,11 +1,12 @@
 /**
  * mock/predict.js — 单条预测的**规则占位**实现（仅 mock 层）
  *
- * 目的：`VITE_USE_MOCK` 默认开启时「单条预测」页与「保存到左栏」链路也能完整演示，
- * 不依赖 FastAPI :8000 是否启动。
+ * 目的：仅当显式 `VITE_USE_MOCK=1 npm run dev`（演示模式）时，「单条预测」页与
+ * 「保存到左栏」链路也能完整演示，不依赖 FastAPI :8000 是否启动。
  *
- * ⚠️ 这是规则/词典占位，不是训练模型：真实后端（src/inference/service.py 的
- *    predict_rule_based）就绪后把 VITE_USE_MOCK=0 即可走真实接口，本文件随 mock/ 一起废弃。
+ * ⚠️ 这是规则/词典占位，不是训练模型：默认真实后端（src/inference/service.py 的
+ *    Predictor / predict_rule_based）联调时不加载本文件；需要无后端演示时才用
+ *    `VITE_USE_MOCK=1`，本文件随 mock/ 一起废弃。
  *    返回字段严格按契约：{text,label,confidence,probs:{positive,negative},method}，
  *    其中 method 为结果来源标识（当前 rule_placeholder，真实模型接入后为模型名）。
  */

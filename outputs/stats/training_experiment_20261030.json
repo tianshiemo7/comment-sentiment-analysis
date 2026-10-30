@@ -1,0 +1,147 @@
+{
+  "generated_at": "2026-10-30T06:57:43+00:00",
+  "semantics": "两模型正式训练实验汇总（真实训练产物哈希；由独立训练副本生成）",
+  "source_commit": "963c68bc79a85cce705516f7ae289b2c6688976f",
+  "dataset_version": "753bc2014c69bdc1",
+  "pipeline_version": "1.1.0",
+  "environment": {
+    "python": "3.13.9",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "torch": "2.12.0",
+    "torch_cuda_available": false,
+    "packages": {
+      "numpy": "2.3.5",
+      "gensim": "4.4.0",
+      "jieba": "0.42.1",
+      "pandas": "3.0.3",
+      "scipy": "1.17.1",
+      "scikit-learn": "1.8.0"
+    },
+    "device_used": "cpu",
+    "cpu_count": 18
+  },
+  "word2vec": {
+    "model": {
+      "path": "models/word2vec/word2vec.model",
+      "bytes": 10277760,
+      "sha256": "b19d16bae6b4eda30420b44ca2fd86cdecc73e2cfb1d4411964756452b6fd58a"
+    },
+    "params": {
+      "path": "models/word2vec/word2vec_params.json",
+      "bytes": 267,
+      "sha256": "aa48099d29111881b70510426592e821e9cb15f6e920b5a3e9282c47520f91d5"
+    },
+    "embedding_matrix": {
+      "path": "models/word2vec/embedding_matrix.npy",
+      "bytes": 4993664,
+      "sha256": "2cece889ff788495d6e9ef09746670c5eecece3a459a3e2caf2827e8020f6b7e"
+    }
+  },
+  "models": {
+    "textcnn": {
+      "checkpoint_sha256": "2b379bedb47a4e6ff6d04e3ad3645c13f79b914e56d388c9defc2e7a9983b17b",
+      "best_epoch": 2,
+      "best_val_acc": 0.8807711821410451,
+      "test_metrics": {
+        "accuracy": 0.8960182602079635,
+        "precision": 0.9059876888640179,
+        "recall": 0.8699623858140785,
+        "f1": 0.887609649122807,
+        "macro_precision": 0.8968713954524171,
+        "macro_recall": 0.8946353715813908,
+        "macro_f1": 0.8954329510361558,
+        "loss": 0.263791,
+        "test_size": 3943,
+        "source": "data\\splits\\test.csv"
+      },
+      "experiment_json": {
+        "path": "models/checkpoints/textcnn/experiment.json",
+        "bytes": 5310,
+        "sha256": "dbe2a3c16f8e96e51ab6e39b33337c2fd75c92ba07d6f1e2ad6be38fd363dd80"
+      }
+    },
+    "bilstm_attention": {
+      "checkpoint_sha256": "715a604ae5e029326846e1c32558a7939f4deac40a85e8efa56dbbe61a588b63",
+      "best_epoch": 3,
+      "best_val_acc": 0.8797564687975646,
+      "test_metrics": {
+        "accuracy": 0.9008369261983261,
+        "precision": 0.9180887372013652,
+        "recall": 0.8672756582482536,
+        "f1": 0.8919591047250621,
+        "macro_precision": 0.9025226294702478,
+        "macro_recall": 0.8990556965592853,
+        "macro_f1": 0.9001628192948019,
+        "loss": 0.270623,
+        "test_size": 3943,
+        "source": "data\\splits\\test.csv"
+      },
+      "experiment_json": {
+        "path": "models/checkpoints/bilstm_attention/experiment.json",
+        "bytes": 5590,
+        "sha256": "346840768f03d797c8e66aae4c878b70c87b0aefb72d98e41899a2b54ecf863b"
+      }
+    }
+  },
+  "metrics": {
+    "textcnn": {
+      "path": "outputs/stats/metrics_textcnn.json",
+      "bytes": 443,
+      "sha256": "b6acd73c4e8c5e4271781b8136106dc82855b8d864bb7f2a45d702ecff29b682"
+    },
+    "bilstm_attention": {
+      "path": "outputs/stats/metrics_bilstm_attention.json",
+      "bytes": 453,
+      "sha256": "b81d317791d05edda69cdbf68072d300a2fa1a55bfdf658204ea0df1e9ec0c9b"
+    }
+  },
+  "comparison_csv": {
+    "path": "outputs/stats/model_comparison.csv",
+    "bytes": 175,
+    "sha256": "e2ec10eaf39a4e5122051dc06df4856977ffd575231ef13ce362cf1f5e8881f4"
+  },
+  "figures": [
+    {
+      "path": "outputs/figures/loss_curve_textcnn.png",
+      "bytes": 52685,
+      "sha256": "5b15ad3be229da06f6a0adbc88ef81895dfb80ad993441dd5cf48bd8e7619cf2"
+    },
+    {
+      "path": "outputs/figures/accuracy_curve_textcnn.png",
+      "bytes": 51824,
+      "sha256": "0013eccde7202af1b763f2e5ed6000a7cf72959619a36daf78f9e5f113a6f826"
+    },
+    {
+      "path": "outputs/figures/confusion_matrix_textcnn.png",
+      "bytes": 35736,
+      "sha256": "af527b44fca7c7a01d1483fe8c0119805584b3714ffbb12744433acd9f2843a0"
+    },
+    {
+      "path": "outputs/figures/loss_curve_bilstm_attention.png",
+      "bytes": 52609,
+      "sha256": "0f39a75fcb717c7e830ef8b58c040fd68abfffd1b6f3efcf3ee22612fd81c0a9"
+    },
+    {
+      "path": "outputs/figures/accuracy_curve_bilstm_attention.png",
+      "bytes": 50683,
+      "sha256": "b98ca392e1f58b51ca785239c2d98295de0b92c30f5d3cef22d70fba16a47988"
+    },
+    {
+      "path": "outputs/figures/confusion_matrix_bilstm_attention.png",
+      "bytes": 35442,
+      "sha256": "3a2b240c66f15630d319b5448a9c9d0f2975b439a54f01f2780e15a891d16083"
+    },
+    {
+      "path": "outputs/figures/wordcloud_positive.png",
+      "bytes": 597672,
+      "sha256": "3ac0061ce97597e8ef32c677edf84ecb34d0dcb2cc924d0a92ce34f9c8070500"
+    },
+    {
+      "path": "outputs/figures/wordcloud_negative.png",
+      "bytes": 607610,
+      "sha256": "3161496e0d98bf7e1e42133116946503c8c74d64b348b1c50a371a55a93eb155"
+    }
+  ],
+  "reload_verification": "outputs/stats/checkpoint_smoke.json"
+}

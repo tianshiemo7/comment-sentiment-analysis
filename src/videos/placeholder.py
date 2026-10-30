@@ -14,13 +14,17 @@
 
 1. 详情响应带顶层 ``placeholder``：占位数据为 ``true``；使用真实爬取评论时为 ``false``
    （如实标注「评论数据来自真实爬虫」）；
-2. **``placeholder=false`` 只表示评论数据真实，不表示模型结果真实**：正 / 负极性仍来自
-   ``src.inference.service.predict_rule_based``（规则 / 词典占位预测，不是训练模型），
-   `model` 块在未训练时也可能仍是占位指标——真实模型接入后两者会自然变化；
+2. **``placeholder=false`` 只表示评论数据真实**：情感推理自 2026-10-30 起已接真实模型
+   （``src.inference.service.get_predictor`` + ``predict_text``）；模型加载失败
+   （未训练 / torch 缺失 / 权重损坏）时回退 ``src.inference.service.predict_rule_based``
+   （规则 / 词典占位）。预测来源由 ``method`` 字段如实反映（``POST /api/predict`` 与
+   数据项目接口的 ``method``：真实模式为模型名，占位回退为 ``rule_placeholder``），
+   本 detail 的 ``model.name`` 也始终是「当前生效模型」名；``placeholder`` 字段语义不变；
 3. 占位标题 / UP 主带「占位」字样；真实评论路径下标题使用爬虫返回的
    ``video_title``（拿不到时回退占位标题），UP 主 / 发布日期爬虫 CSV 不含，置 ``None``；
 4. 真实接入点：把各阶段的数据来源换成真实产物（`src.preprocessing` / `src.inference`），
-   字段结构无需改动。
+   字段结构无需改动。文本清洗已接 `src.preprocessing.clean.clean_text`，情感推理已接
+   `src.inference` 真实模型（加载失败回退规则占位）；统计分析仍复用本模块的占位聚合逻辑。
 
 `model` 字段的取值规则：优先读 ``GET /api/models``（即
 ``outputs/stats/metrics_<model>.json``）里的**真实指标**；尚未训练（指标全 0）时退回
@@ -30,6 +34,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 import re
 from collections import Counter
@@ -37,7 +42,11 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from ..inference import service
 from .messages import MESSAGE_COMPLETED
+
+#: 日志（模型加载失败只降级、不失败任务，但必须留下可排查的告警）
+_LOGGER = logging.getLogger(__name__)
 
 #: 占位标题 / UP 主（带「占位」字样，避免被误认为真实数据）
 PLACEHOLDER_TITLE_TEMPLATE = "【占位数据】{bvid} 的示例视频标题"
@@ -113,15 +122,13 @@ def planned_comment_total(bvid: str) -> int:
 def build_model_block() -> dict[str, Any]:
     """组装 `detail.model`：优先真实指标，未训练时退回占位指标。
 
-    延迟导入 `src.inference.service`，避免包之间形成导入环。
+    指标来自 ``GET /api/models`` 背后的 ``outputs/stats/metrics_<model>.json``；
+    **模型加载成功但指标文件缺失**时仍退回占位指标（契约字段不变、前端图表可渲染）。
     """
-    # 延迟导入：`src.inference.service` 是既有推理层，这里只借它的模型指标
-    from ..inference import service as inference_service
-
-    name = inference_service.get_active_model_name()
+    name = service.get_active_model_name()
     metrics: dict[str, float] | None = None
     try:
-        for item in inference_service.available_models():
+        for item in service.available_models():
             if item.get("name") != name:
                 continue
             candidate = {key: float(value) for key, value in item.get("metrics", {}).items()}
@@ -163,9 +170,11 @@ def build_detail(
       ``trend`` / ``length_stats`` 均由真实文本与真实 ``ctime_utc`` 生成，
       顶层 ``placeholder`` 置为 ``False``。
 
-    **诚实约定**：``placeholder=False`` **只表示评论数据来自真实爬虫**；正 / 负极性
-    仍来自 ``src.inference.service.predict_rule_based``（规则 / 词典占位预测，不是
-    训练模型），``model`` 块在未训练时也可能仍是占位指标。真实模型接入后两者自然变化。
+    **诚实约定**：``placeholder=False`` **只表示评论数据来自真实爬虫**；情感推理已接
+    ``src.inference`` 真实模型（``get_predictor`` + ``predict_text``，加载失败时回退
+    ``predict_rule_based`` 规则占位，单条异常退化为中性 0.5）。预测来源由 ``method``
+    字段如实标注（``/api/predict`` 与数据项目接口；占位回退为 ``rule_placeholder``），
+    ``model`` 块在指标文件缺失时可能仍是占位指标。接口字段一个都不增删改名。
 
     Args:
         bvid: BV 号（占位路径同时是伪随机种子）。
@@ -277,7 +286,7 @@ def build_detail(
         "top_comments": top_comments,
         "error": None,
         # 诚实标注：占位数据为 True；使用真实爬取评论时为 False
-        # （False 只表示评论数据真实，sentiment 仍是规则占位预测，见 docstring）
+        # （False 只表示评论数据真实；情感推理优先真实模型，加载失败回退规则占位）
         "placeholder": placeholder_flag,
     }
 
@@ -345,30 +354,67 @@ def _build_placeholder_trend(
 # --------------------------------------------------------------------------- #
 # 真实评论 → detail 字段（离线、确定性；只依赖评论记录本身）
 # --------------------------------------------------------------------------- #
+#: 单条预测失败时的中性兜底（与既有契约一致：positive 0.5 / negative 0.5）
+_NEUTRAL_CONFIDENCE = 0.5
+
+
+def _neutral_prediction(text: str) -> dict[str, Any]:
+    """单条预测异常时的中性结果：不把整份 detail 拖垮。"""
+    return {
+        "text": text,
+        "label": "positive",
+        "confidence": _NEUTRAL_CONFIDENCE,
+        "probs": {"positive": _NEUTRAL_CONFIDENCE, "negative": _NEUTRAL_CONFIDENCE},
+    }
+
+
+def _active_predictor() -> Any:
+    """取当前生效的真实预测器；不可用（未训练 / torch 缺失 / 权重损坏）时返回 ``None``。
+
+    加载失败只能降级到规则占位（``predict_rule_based``），不能把详情接口打成错误。
+    """
+    getter = getattr(service, "get_predictor", None)
+    if not callable(getter):
+        return None
+    try:
+        return getter()
+    except Exception:  # noqa: BLE001 - 加载失败回退规则占位，保详情可用
+        _LOGGER.warning("视频详情加载真实情感模型失败，回退规则占位", exc_info=True)
+        return None
+
+
+def _predict_one_text(text: str, model: Any) -> dict[str, Any]:
+    """单条情感预测：真实模型优先，模型缺失回退规则，单条异常退化为中性 0.5/0.5。"""
+    if model is not None:
+        try:
+            return service.predict_text(text, model=model)
+        except Exception:  # noqa: BLE001 - 单条预测失败不能拖垮整个详情
+            _LOGGER.warning("单条真实模型预测失败，退化为中性", exc_info=True)
+            return _neutral_prediction(text)
+    try:
+        rule = getattr(service, "predict_rule_based", None)
+        if callable(rule):
+            return rule(text)
+        # 兼容只保留统一入口的推理层：model=None 时 predict_text 走规则分支
+        return service.predict_text(text)
+    except Exception:  # noqa: BLE001 - 单条预测失败不能拖垮整个详情
+        return _neutral_prediction(text)
+
+
 def _predict_real_comments(
     comments: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    """对真实评论逐条做**规则占位**情感预测（延迟导入，避免包间导入环）。
+    """对真实评论逐条做情感预测：**真实模型优先，规则占位回退**。
 
-    真实模型接入后只需把这里换成 ``src.inference.service.predict_text`` 的真实分支；
-    单条预测异常时退化为中性（0.5），不影响整份 detail 的构建。
+    优先 ``src.inference.service.get_predictor()`` 取当前生效模型，逐条走
+    ``predict_text(text, model=model)``；模型不可用（加载失败）时回退
+    ``predict_rule_based``。单条预测异常时退化为中性（0.5），不影响整份 detail。
     """
-    from ..inference.service import predict_rule_based
-
+    model = _active_predictor()
     predictions: list[dict[str, Any]] = []
     for comment in comments:
         text = str(comment.get("text") or "")
-        try:
-            predictions.append(predict_rule_based(text))
-        except Exception:  # noqa: BLE001 - 单条预测失败不能拖垮整个详情
-            predictions.append(
-                {
-                    "text": text,
-                    "label": "positive",
-                    "confidence": 0.5,
-                    "probs": {"positive": 0.5, "negative": 0.5},
-                }
-            )
+        predictions.append(_predict_one_text(text, model))
     return predictions
 
 

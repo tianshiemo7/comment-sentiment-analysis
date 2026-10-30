@@ -29,19 +29,34 @@
 | 数据处理管线 `src/preprocessing/` | ✅ 已实现（清洗 / 分词 / 划分 / 词表 / 编码 / 统计） |
 | 真实数据规模（课程硬指标） | ✅ 公开标注语料审计后 **19,711 条**，`course_requirements_met=true`（train 13,797 / val 1,971 / test 3,943，正面约 47.2%）；`python -m scripts.prepare_training_data` 可复现；数据与产物已随 2026-10-30 快照入库（见[第十五节](#十五数据与产物快照2026-10-30)） |
 | 前后端页面与接口 `frontend/` + `src/inference/` + `src/videos/` + `src/artifacts/` | ✅ 已实现 |
-| 数据项目（右上传爬虫数据 → clean 管线 → 三张表 + 逐条评论情感） | ✅ 已实现（`src/artifacts/`）· ⚠️ 情感为规则占位 |
+| 数据项目（右上传爬虫数据 → clean 管线 → 三张表 + 逐条评论情感） | ✅ 已实现（`src/artifacts/`）；逐条情感由真实模型计算，加载失败才降级规则占位 |
 | 单独评论（单条预测结果存入左栏②段，无图表） | ✅ 已实现 |
-| `/api/videos` 链路中的爬取与情感推理 | ✅ 默认占位；任务设置 `real_crawl=true`（或 `VIDEO_REAL_CRAWL=1`）时**真实爬取评论**（情感仍为规则占位），支持分步执行，采集失败落 `failed`；见第十二、十四节 |
-| 词向量 / 深度模型 / 训练 / 评估 / 可视化 | ✅ 已实现（Word2Vec、TextCNN、BiLSTM-Attention、训练/早停/日志、指标与四项出图；需装 torch，见第六节） |
+| `/api/videos` 链路中的爬取与情感推理 | ✅ 评论采集默认占位数据；任务设置 `real_crawl=true`（或 `VIDEO_REAL_CRAWL=1`）时**真实爬取评论**，支持分步执行，采集失败落 `failed`；**情感已接入真实模型**（加载失败降级规则占位）；见第十二、十四节 |
+| 词向量 / 深度模型 / 训练 / 评估 / 可视化 | ✅ 已实现（Word2Vec、TextCNN、BiLSTM-Attention、训练/早停/日志、指标与四项出图；需装 torch，见第五节） |
+| 真实训练权重与真实推理（2026-10-30） | ✅ 本机 CPU 复核重训并回填权重（数据版本 `753bc2014c69bdc1`）：TextCNN 测试 Acc **89.60%** / F1 88.76%，BiLSTM-Attention **90.08%** / F1 89.20%；单条 / 批量 / 视频任务 / 数据项目**四个入口**统一走真实预测器，加载失败降级 `rule_placeholder`；见[第十五节](#十五数据与产物快照2026-10-30) |
 
-2026-10-30 已在本机 Anaconda `deeplearning`（PyTorch 2.11.0+cu128 / RTX 4060 Laptop）完成正式训练与评估：
-TextCNN 测试准确率 89.09%、F1 88.10%；BiLSTM-Attention 准确率 89.25%、F1 88.54%。
-这是酒店/外卖公开语料测试结果，尚未评估 B 站领域准确率；在线服务仍待接入权重。
-复现命令、权重位置及完整实验记录见 [模型训练与评估](docs/模型训练与评估-2026-10-30.md)。
+### 2026-10-30 更新（真实训练与真实推理）
+
+- **权重与指标**：同日本机 CPU 复核重训（同一公开语料，数据版本 `753bc2014c69bdc1`），仓库当前
+  `models/checkpoints/`、`models/word2vec/` 与 `outputs/stats|figures|predictions` 即这份产物——
+  TextCNN 测试 Acc **89.60%** / F1 88.76%，BiLSTM-Attention **90.08%** / F1 89.20%；
+  此前的 RTX 4060 GPU 实验（TextCNN 89.09% / BiLSTM 89.25%，均为第 4 轮）保留为**历史对照**；
+- **真实推理接通**：`src/inference/service.py` 的 `Predictor` 同时服务单条 `/api/predict`、批量
+  `/api/predict/batch`、`src/videos/` 视频情感阶段与 `src/artifacts/` 数据项目情感阶段**四个入口**；
+  `method` 如实返回模型名（`textcnn` / `bilstm_attention`），检查点缺失 / torch 未安装 / 权重损坏时
+  降级规则占位 `predict_rule_based` 并标注 `rule_placeholder`；`/api/models` 读 `metrics_<模型>.json` 真实指标；
+- **前端默认关闭 mock**：`npm run dev` / `npm run preview` 经 Vite proxy 直连 :8000 真实后端，
+  仅 `VITE_USE_MOCK=1 npm run dev` 时加载 `frontend/mock/` 演示数据；`npm run build` 通过；
+- **测试**：本地全量 `python -m pytest tests/ -q` → **578 passed**（含新增真实模型推理 31 项、
+  视频真实模型 9 项）；`scripts/e2e_smoke.py` 端到端冒烟（真实 uvicorn 子进程 + 真实权重 +
+  前端代理）本机后端 **9/9**、前端 **6/6** PASS，报告落盘 `outputs/e2e/last_run.json`；
+  已知限制不变：训练语料为酒店 / 外卖公开语料，**没有 B 站人工标注测试集**，
+  B 站评论准确率不能宣称；B 站真实爬取仍是 opt-in。
 
 数据处理支持无标签爬虫 CSV 到待预测 CSV 的交接，也支持已标注数据到训练集、词表和模型输入数组的制备。
 B 站视频分析链路（输入 BV 号 → 状态跟踪 → 图表词云详情）的前后端与接口契约已落地；
-真实爬取可按任务设置或 `VIDEO_REAL_CRAWL=1` 开启；真实模型尚未接入，接口契约不变（见 `docs/API契约.md`）。
+评论采集默认占位数据、可按任务设置或 `VIDEO_REAL_CRAWL=1` 真实爬取，**情感统一由真实模型计算**
+（加载失败降级为规则占位；接口契约不变，见 `docs/API契约.md`）。
 
 ---
 
@@ -67,7 +82,7 @@ comment-sentiment-analysis/
 │   ├── videos/               B 站视频分析任务（状态机 + 详情 + 系统设置，供前端①③段调用）
 │   │   ├── settings.py       设置读写/校验（账号 Cookie、采集默认值、自动流程），落盘 outputs/settings.json
 │   │   └── browser_login.py  人工登录窗口（Playwright/Edge，可选依赖；后端本机弹窗，人完成登录）
-│   ├── artifacts/            数据项目与单独评论（上传 → clean 管线 → 三张表 + 占位情感）
+│   ├── artifacts/            数据项目与单独评论（上传 → clean 管线 → 三张表 + 逐条情感，真实模型优先）
 │   └── inference/            ⑧ FastAPI 推理服务（:8000，供前端调用）
 ├── notebooks/                实验记录与探索性分析（EDA）
 ├── frontend/                 Node.js 前端展示（Vue 3 + Vite，:3000）
@@ -77,7 +92,7 @@ comment-sentiment-analysis/
 │   ├── src/api/              接口封装（artifacts.js 主流程、videos.js、settings.js、account.js、client.js）
 │   ├── src/components/Icon.vue  统一图标组件（内联 SVG，零依赖）
 │   ├── src/assets/icons/     内置的 Remix Icon 线稿图标子集（数量与出处见 NOTICE.txt）
-│   └── mock/                 接口模拟层（Vite 插件，含设置/人工登录/分步流水线；一行卸载）
+│   └── mock/                 接口模拟层（Vite 插件，仅 `VITE_USE_MOCK=1` 演示模式加载，默认关闭）
 ├── models/                   训练好的模型权重存放目录
 │   ├── checkpoints/          训练检查点（.pt / .pth）
 │   ├── word2vec/             词向量文件
@@ -113,9 +128,9 @@ comment-sentiment-analysis/
 | 指标 Accuracy / Precision / Recall / F1 / 混淆矩阵 | `src/evaluation/` | ✅ 已实现（含宏平均与错误分析） |
 | 损失 / 准确率曲线、混淆矩阵热力图、正负词云、Attention 可视化 | `src/visualization/` → `outputs/figures/` | ✅ 已实现（训练 CLI 自动出图） |
 | 可运行入口：CLI 或 Web 界面 | `src/inference/` + `frontend/` | 已实现 |
-| **B 站视频评论分析主流程**（输入 BV 号 → 状态跟踪 → 图表词云详情） | `frontend/` + `src/videos/` + `docs/API契约.md` | 已实现；真实爬取按任务设置 opt-in（默认占位演示），情感仍规则占位 |
+| **B 站视频评论分析主流程**（输入 BV 号 → 状态跟踪 → 图表词云详情） | `frontend/` + `src/videos/` + `docs/API契约.md` | 已实现；评论采集按任务设置 opt-in（默认占位数据），情感统一走已接入的真实模型 |
 | **设置入口 + 爬虫参数弹窗 + 分步流水线**（账号 Cookie / 参数确认 / 待清洗 / 待分析） | `frontend/` + `src/videos/settings.py` + `docs/API契约.md` | ✅ 已实现（见[第十四节](#十四设置入口与分步执行2026-10-17)） |
-| **爬虫数据上传 → 处理结果项目**（初始数据 / 筛选后结果 / 排除记录 + 逐条评论情感） | `src/artifacts/` + 前端左栏①段 | 已实现（情感为规则占位） |
+| **爬虫数据上传 → 处理结果项目**（初始数据 / 筛选后结果 / 排除记录 + 逐条评论情感） | `src/artifacts/` + 前端左栏①段 | 已实现（逐条情感走统一真实模型） |
 | **单独评论集中管理**（单条预测结果存入左栏②段） | `src/artifacts/` + 前端②段 | 已实现 |
 | 输入一条评论 → 情感极性与置信度 | `POST /api/predict` | 已实现 |
 | 批量预测 .csv/.xlsx 并导出 | `POST /api/predict/batch` | 已实现 |
@@ -160,7 +175,9 @@ npm run build      # 生产构建，产物在 frontend/dist/
 ```
 
 前端通过 Vite 代理把 `/api`、`/health` 转发到 `http://localhost:8000`，
-因此**两个服务需同时运行**。
+因此**两个服务需同时运行**。前端**默认不加载 mock**，所有请求都走真实后端；
+没有后端、只想演示界面时用 `VITE_USE_MOCK=1 npm run dev`（仅 dev 生效，
+`npm run preview` 与生产构建始终走代理连真实后端）。
 
 ### 3. 首次使用：在「设置」里配置账号与采集默认值
 
@@ -208,6 +225,21 @@ WITH_WORD2VEC=1 bash scripts/train.sh
 # 小样本冒烟（样例数据必须加 --allow-small-dataset；训练结果只用于验证链路）
 python -m src.preprocessing --input data/sample/bilibili_demo.csv --allow-small-dataset
 bash scripts/train.sh
+```
+
+真实语料的训练复现（数据与权重已随仓库入库，重跑前先确认数据版本）：
+
+```bash
+# ① 固定版本公开语料 → data/processed + data/splits（数据版本 753bc2014c69bdc1）
+python -m scripts.prepare_training_data
+# ② 词向量（只用训练集拟合）
+python -m src.embeddings --train-file data/splits/train.csv --vocab data/processed/vocab.json \
+  --out models/word2vec --embed-dim 128 --window 5 --min-count 3 --epochs 10 --workers 1 --seed 42
+# ③ 两个模型（仓库当前 CPU 复核口径；GPU 环境把 --device 换成 cuda）
+python -m src.training.cli --model textcnn --embeddings models/word2vec/embedding_matrix.npy \
+  --epochs 20 --batch-size 64 --lr 0.001 --max-len 200 --seed 42 --device cpu --patience 3
+python -m src.training.cli --model bilstm_attention --embeddings models/word2vec/embedding_matrix.npy \
+  --epochs 20 --batch-size 64 --lr 0.001 --max-len 200 --seed 42 --device cpu --patience 3
 ```
 
 无标签模式输出 `data/processed/comments_cleaned.csv`，保留原文、清洗文本、分词及采集元数据，不生成情感标签、训练词表或训练划分。
@@ -293,24 +325,38 @@ VIDEO_REAL_CRAWL=1 VIDEO_CRAWL_MAX_PAGES=1 VIDEO_CRAWL_DELAY=2.5 \
 ```
 
 > 真实采集失败时任务会落 `failed` 并带可读原因，不会卡在 `crawling`；
-> 真实评论进入 detail 后 `placeholder=false`，但情感极性仍是规则占位（`method=rule_placeholder`）。
+> 真实评论进入 detail 后 `placeholder=false`；**情感统一由已接入的真实模型计算**，
+> 响应 `method` 为模型名（检查点缺失 / torch 未安装等加载失败时才降级 `rule_placeholder`）。
 > 完整参数见 `src/videos/README.md` 与 `src/crawler/README.md`。
 
-## 五、当前实现状态（开发中）
+### 7. 端到端冒烟验收（可选）
 
-服务与界面已可运行，但**预测结果为占位实现，不是训练出来的模型**：
+```bash
+# 真实 uvicorn 子进程 + 真实检查点 + 契约断言（隔离运行期目录，自动挑空闲端口，默认 8123）
+python scripts/e2e_smoke.py
+
+# 追加前端链路验证：需后端占用 :8000（Vite 代理目标固定），脚本会 npm run preview 起 :3000
+python scripts/e2e_smoke.py --frontend
+```
+
+报告落盘 `outputs/e2e/last_run.json`；脚本只断言契约与结构、**不伪造准确率**。
+2026-10-30 本机 `--frontend` 全量运行：后端 9/9、前端 6/6 PASS。
+
+## 五、当前实现状态（2026-10-30 更新）
+
+服务与界面已可运行，**预测结果来自已接入的真实训练模型**（加载失败才降级规则占位）：
 
 | 部分 | 状态 |
 | --- | --- |
-| FastAPI 推理服务（单条/批量预测与模型列表） | ✅ 可运行，契约已锁定 |
+| FastAPI 推理服务（单条/批量预测与模型列表） | ✅ 可运行，契约已锁定；`/api/models` 读 `outputs/stats/metrics_<模型>.json` 真实指标，`ready=true` 表示检查点存在 |
 | 批量上传解析与结果导出下载 | ✅ 可用（csv / txt / tsv / xlsx，导出 UTF-8 BOM CSV） |
-| 前端页面（B站分析主界面 + 单条预测 / 批量预测 / 实验可视化 / 模型对比） | ✅ 可运行（`npm run dev`），真实调用后端接口 |
-| B 站分析主流程接口 `/api/videos*` | ✅ 已实现（`src/videos/`），任务状态机 + 详情接口；默认占位，`VIDEO_REAL_CRAWL=1` 时真实爬取评论（情感仍规则占位）；2026-10-17 起支持按任务 `settings` 分步执行（`crawled` / `cleaned` 等待态 + `continue`） |
+| 前端页面（B站分析主界面 + 单条预测 / 批量预测 / 实验可视化 / 模型对比） | ✅ 可运行（`npm run dev`）真实调用后端接口；**默认关闭 mock**，仅 `VITE_USE_MOCK=1` 为演示模式；`npm run build` 通过 |
+| B 站分析主流程接口 `/api/videos*` | ✅ 已实现（`src/videos/`），任务状态机 + 详情接口；评论采集默认占位数据，`VIDEO_REAL_CRAWL=1` / 任务设置 `real_crawl=true` 时真实爬取；**情感已接入真实模型**（加载失败降级规则占位）；2026-10-17 起支持按任务 `settings` 分步执行（`crawled` / `cleaned` 等待态 + `continue`） |
 | 设置入口与分步流水线 | ✅ 已实现：左上角设置弹窗（账号 / 采集参数 / 自动流程）、人工登录窗口、爬虫参数弹窗、`crawled`/`cleaned` 等待态与继续按钮；详见[第十四节](#十四设置入口与分步执行2026-10-17) |
-| 情感预测逻辑 | ⚠️ **规则占位**：`src/inference/service.py:predict_rule_based`，内置 140 词情感词表（含程度副词与否定词翻转）。它能对明显正面/负面的评论给出方向正确的结果，用于打通链路，**不是深度学习模型** |
+| 情感预测逻辑 | ✅ **真实模型已接入**：`src/inference/service.py` 的 `Predictor`（`load_model_cached` / `get_predictor` / `predict_text` / `predict_batch`），`ACTIVE_MODEL` 默认 `bilstm_attention`、`INFERENCE_DEVICE` 默认 `cpu`；检查点缺失 / torch 未安装 / 权重损坏时降级 `predict_rule_based`（140 词规则占位，`method=rule_placeholder`） |
 | 数据读写 / 清洗分词 / 去重冲突审计 / 划分 / 词表 / 编码 / 统计 | ✅ 已实现，含训练与推理共用资源及防泄漏校验 |
 | B 站爬虫 `src/crawler/` | ✅ 可采集：WBI 签名 / 限速抖动 / 风控退避 / 文本标准化 / robots 校验 / 来源登记 / 断点续爬；`python -m src.crawler bilibili --help`，实测见第十二节 |
-| 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ✅ 已实现：Word2Vec（`src/embeddings/`）+ TextCNN / BiLSTM-Attention（`src/models/`）+ 早停/检查点/日志（`src/training/`）+ 指标/混淆矩阵/错误分析（`src/evaluation/`）+ 曲线/热力图/词云（`src/visualization/`）。**需要 PyTorch**；用真实数据训练后 `metrics_<模型>.json` 会让 `/api/models` 显示真实指标 |
+| 词向量 / 两个深度模型 / 训练 / 评估 / 可视化 | ✅ 已实现：Word2Vec（`src/embeddings/`）+ TextCNN / BiLSTM-Attention（`src/models/`）+ 早停/检查点/日志（`src/training/`）+ 指标/混淆矩阵/错误分析（`src/evaluation/`）+ 曲线/热力图/词云（`src/visualization/`）。**需要 PyTorch**；仓库当前权重为 2026-10-30 CPU 复核产物，指标见[第十五节](#十五数据与产物快照2026-10-30) |
 
 训练链路已实现（`bash scripts/train.sh`）：预处理产物 → DataLoader → TextCNN / BiLSTM-Attention
 → 早停 + best 检查点 → 测试集指标 / 对比表 / 错误样例 → 曲线 / 混淆矩阵 / 词云。
@@ -319,9 +365,9 @@ VIDEO_REAL_CRAWL=1 VIDEO_CRAWL_MAX_PAGES=1 VIDEO_CRAWL_DELAY=2.5 \
 
 注意：**训练需要安装 PyTorch**（`requirements.txt` 中按注释单独安装）；不装 torch 时
 `pytest` 会自动跳过模型/训练相关用例，其余服务与数据处理测试照常运行。
-训练出的检查点目前**还未接入推理服务**：替换真实模型的入口仍是实现 `src/inference/service.py`
-的 `load_model` 与 `predict_text`，加载成功后接口契约不变、`method` 自动变成模型名。
-**近期还要做什么、做到什么程度算完成**，见下方「短期实现目标」一节。
+训练出的检查点**已接入推理服务**（2026-10-30）：`load_model` / `predict_text` 已实现，
+加载成功后四个入口共用同一个预测器、接口契约不变，`method` 自动变成模型名。
+**下一步工作与验收标准**见下方「实现目标与剩余工作」一节。
 
 ## 六、前后端接口契约
 
@@ -349,7 +395,7 @@ VIDEO_REAL_CRAWL=1 VIDEO_CRAWL_MAX_PAGES=1 VIDEO_CRAWL_DELAY=2.5 \
 | POST | `/api/artifacts/upload` | multipart `files`（可多个）+ 可选 `name` | 上传爬虫数据 → 落盘为**数据项目**，自动处理 |
 | GET | `/api/artifacts/{id}`、`/stages`、`/table?stage=&offset=&limit=` | — | 项目状态 / 表清单 / **分页读表** |
 | GET | `/api/artifacts/{id}/comments?offset=&limit=&label=` | — | **逐条评论情感（可展开）** |
-| GET | `/api/artifacts/{id}/analysis` | — | 聚合情感分析（`method` 标明占位或模型名） |
+| GET | `/api/artifacts/{id}/analysis` | — | 聚合情感分析（`method` 为真实模型名或降级时的 `rule_placeholder`） |
 | POST | `/api/artifacts/{id}/open` | `{"stage": "clean"}` | **在服务器本机**用系统程序打开该 CSV |
 | GET | `/api/artifacts/{id}/path?stage=clean` | — | 只读取该 CSV 的路径（**无副作用，不打开程序**，供「复制文件地址」用） |
 | POST | `/api/artifacts/{id}/analyze`、`DELETE /api/artifacts/{id}` | — | 重新处理 / 删除项目 |
@@ -365,11 +411,12 @@ VIDEO_REAL_CRAWL=1 VIDEO_CRAWL_MAX_PAGES=1 VIDEO_CRAWL_DELAY=2.5 \
 - 非法文件名返回 400、不存在的文件返回 404（下载路径已做目录穿越防护）。
 - **数据项目**：上传爬虫 CSV 后落盘到 `data/uploads/<项目id>/`，自动按 `clean` 模式跑一遍
   `src/preprocessing` 管线，产出 `initial.csv`（初始数据）、`clean.csv`（筛选后结果）、
-  `excluded.csv`（排除记录）三张表与逐条情感；标题未指定时显示「未自定义数据」。
+  `excluded.csv`（排除记录）三张表与逐条情感（真实模型计算）；标题未指定时显示「未自定义数据」。
 - **单独评论**：粒度与视频任务相当但**不渲染图表**（只有原文 / 极性 / 置信度 / 概率条），
   由「单条预测」页的「保存到左栏」开关写入。
-- **情感结果当前是占位**：`method` 字段为 `rule_placeholder`（140 词规则预测器），
-  界面据此显示「规则占位」标识，接入真实模型后自动变为模型名。
+- **情感结果来自真实模型**：`method` 字段为模型名（`textcnn` / `bilstm_attention`），
+  界面据此显示对应标识；只有检查点缺失 / torch 未安装 / 权重损坏等加载失败时才降级
+  `rule_placeholder`（140 词规则预测器），并在界面如实显示「规则占位」。
 - **设置与分步流水线（2026-10-17 新增）**：`settings` 只随任务提交「账号模式 + 采集参数 +
   自动流程」，**Cookie 永远取服务端保存值，不随任务传输**；任务处于 `crawled`（待清洗）/
   `cleaned`（待分析）时不再自动轮询，需调 `continue` 或开启自动连续。登录账号推荐用
@@ -481,26 +528,29 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
   左侧栏每 3 秒轮询一次；全部任务到达终态（含 `crawled` / `cleaned` 等待态）后停止轮询，
   continue / retry / 新提交后恢复；页面隐藏时暂停。
 - **词云与图表由前端渲染**，后端只返回词频、分布、趋势数据（不生成图片）。
-- **情感结果当前为占位**：`method="rule_placeholder"`，界面显示「规则占位」标识。
+- **情感结果来自真实模型**：`method` 为模型名（`textcnn` / `bilstm_attention`），界面据此显示；
+  只有加载失败（检查点缺失 / torch 未安装 / 权重损坏）才降级 `rule_placeholder` 并显示「规则占位」。
 - **接口契约**：完整字段定义见 [`docs/API契约.md`](docs/API契约.md)（前后端唯一契约来源）。
 - **美术资源**：界面图标取自 Remix Icon 的线稿图标子集，以 path 数据内置在
   `frontend/src/assets/icons/`，由 `components/Icon.vue` 渲染 —— **不新增任何 npm 依赖**、
   不用图标字体。设置/账号等新图标沿用该生成流程（`scripts/gen_icons.mjs`）；项目 **favicon 为原创**，
   左上角设置入口的齿轮是**功能图标**、不作品牌标识（图标许可禁止用作品牌标识），
   许可与出处见 [`frontend/src/assets/icons/NOTICE.txt`](frontend/src/assets/icons/NOTICE.txt)。
-- **后端未实现前的联调**：`frontend/mock/` 提供 Vite 插件模拟全部接口（含设置、人工登录窗口
-  状态机、分步流水线与真实的进度推进），真实后端就绪后删除 `vite.config.js` 中的该插件即可
-  （或 `VITE_USE_MOCK=0` 关闭），业务代码无需改动。
+- **演示模式（默认关闭）**：不设 `VITE_USE_MOCK` 时前端直连真实后端；`VITE_USE_MOCK=1 npm run dev`
+  才加载 `frontend/mock/`（Vite 插件，模拟全部接口，含设置、人工登录窗口状态机、分步流水线与
+  真实的进度推进），业务代码无需改动；`npm run build` / `preview` 不加载 mock。
 
 ## 十一、实现目标与剩余工作
 
-> 演示链路、爬虫（含真实登录态 / Web 分步流水线）、训练/评估/可视化均已实现；
-> 目前**唯一影响交付质量的代码缺口是「真实模型接入推理」**，其余为报告与增强项。
+> 演示链路、爬虫（含真实登录态 / Web 分步流水线）、训练/评估/可视化、**真实模型推理
+> （2026-10-30 接入）**均已实现；剩余为课程报告正文、B 站领域评估与增强项。
 
 ### 已具备的能力（详细交付见对应文档与提交记录）
 
 - **模型与训练**：TextCNN / BiLSTM-Attention + 统一训练循环 / 早停 / 检查点，
-  已使用预训练 Word2Vec 完成两模型正式训练，最佳检查点均为第 4 轮，训练/验证准确率及损失日志齐全；
+  已使用预训练 Word2Vec 完成两模型正式训练（GPU 实验 + 2026-10-30 本机 CPU 复核重训），
+  **仓库当前权重为 CPU 复核产物**（TextCNN 测试 89.60% / BiLSTM-Attention 90.08%），
+  训练/验证准确率及损失日志齐全；
 - **评估与可视化**：Accuracy / Precision / Recall / F1、混淆矩阵、错误分析，
   训练曲线 / 热力图 / 词云自动写入 `outputs/figures/`；
 - **数据**：固定版本公开标注语料经完整冲突审计后 **19,711 条**（train 13,797 / val 1,971 / test 3,943，
@@ -515,19 +565,24 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 
 | # | 目标 | 为什么优先 | 完成标准（验收方式） | 依赖 |
 | --- | --- | --- | --- | --- |
-| 1 | **真实模型接入推理**：实现统一预测器，并修改单条/批量、视频任务、数据项目三个调用入口 | 各入口仍在使用规则占位；仅实现 service.py 不会自动替换另两处直接调用规则预测器的代码 | `method` 返回实际模型名；各入口加载同一资源，真实前后端联调通过；检查点存在不能单独代表推理可用 | 本机已生成两模型检查点与配套资源 |
-| 2 | **artifacts 上传链路接真实爬取**：`src/artifacts` 的「采集评论」阶段仍未接爬虫（`/api/videos` 已支持真实爬取） | 打通「上传爬取数据项目」与「输入 BV 自动采集」两条链路 | 上传项目不依赖手工先爬 | 爬虫与视频链路已具备 |
-| 3 | **课程设计报告正文**：按 `docs/课程设计报告大纲.md` 撰写 ≥ 5000 字、8 章 | 课程硬性交付物，目前只有大纲 | 报告文档完整、图表与实验数据引用齐全 | 现有实验产物 |
+| 1 | **课程设计报告正文**：按 `docs/课程设计报告大纲.md` 撰写 ≥ 5000 字、8 章 | 课程硬性交付物，目前只有大纲 | 报告文档完整、图表与实验数据引用齐全 | 现有实验产物 |
+| 2 | **B 站人工标注测试集**：为 B 站评论补充独立人工标注并评估领域迁移 | 当前指标来自酒店 / 外卖公开语料，**不能宣称 B 站准确率** | 标注规范 + 抽样一致性说明 + B 站测试集指标 | 已接入的真实模型权重 |
+| 3 | **artifacts 上传链路接真实爬取**：`src/artifacts` 的「采集评论」阶段仍未接爬虫（`/api/videos` 已支持真实爬取） | 打通「上传爬取数据项目」与「输入 BV 自动采集」两条链路 | 上传项目不依赖手工先爬 | 爬虫与视频链路已具备 |
 
-### 仍需处理的质量问题
+> 原「真实模型接入推理」已于 **2026-10-30 完成**：单条 / 批量 / 视频任务 / 数据项目四个入口
+> 统一走 `src/inference/service.py` 的同一个预测器，`method` 返回实际模型名（加载失败降级
+> `rule_placeholder`），真实前后端联调通过（见[第十五节](#十五数据与产物快照2026-10-30)）。
+
+### 质量记录与已知缺口
 
 | 事项 | 说明 | 位置 |
 | --- | --- | --- |
-| **预处理模块审查修复** | 本分支已修复英文否定、未闭合 HTML 吞正文、manifest 达标判决缺失，统一二分类口径；另补分集 OOV、坏行审计、UTF-16 检查和演示资源告警。尚待合并 | Issue [#3](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/3)，验证见 `docs/数据处理验证-2026-10-30.md` |
+| **B 站领域评估缺口（待处理）** | 训练语料为酒店 / 外卖公开语料，没有 B 站人工标注测试集；界面里 B 站评论的极性不能当作该领域准确率。 | `data/README.md`、`docs/模型训练与评估-2026-10-30.md` |
+| 预处理模块审查修复（已完成，保留记录） | 修复英文否定、未闭合 HTML 吞正文、manifest 达标判决缺失，统一二分类口径；另补分集 OOV、坏行审计、UTF-16 检查和演示资源告警。已随 2026-10-30 分支合并入 `main` | Issue [#3](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/3)，验证见 `docs/数据处理验证-2026-10-30.md` |
 
 ### 明确不在短期范围内
 
-- BERT 微调（加分项，等真实模型接入后视时间决定）；
+- BERT 微调（加分项，视时间决定）；
 - 多 worker 部署与外部队列（当前单进程，课程演示足够）；
 - `analyze` 的 `train` 模式、Attention 权重的交互式可视化等增强项。
 
@@ -664,10 +719,11 @@ python -m src.preprocessing --input data/raw/BV1GJ411x7h7_comments.csv --mode cl
 - **数据获取 / 标注**：`src/crawler/datasets.py`（4 个公开中文语料、流式下载、来源登记）
   与 `src/crawler/labeling.py`（分层抽样 + 合并校验）；`waimai_10k` + `ChnSentiCorp`
   合并均衡得到 **18,644 条（正负各 9,322）**，预处理后 train 13,029 / val 1,861 /
-  test 3,723，`course_requirements_met=true`（数据与产物已入库快照，见[第十五节](#十五数据与产物快照2026-10-30)；命令见第四节）；
+  test 3,723，`course_requirements_met=true`（**这是第二轮历史口径**；当前正式数据版本为
+  19,711 条 / 数据版本 `753bc2014c69bdc1`，见[第十五节](#十五数据与产物快照2026-10-30)；命令见第四节）；
 - **长跑稳健性**：BV 去重、楼中楼分页自适应、`sub_done` 断点、`--max-seconds` 时间预算；
 - **`/api/videos` 真实爬取**：`crawler_adapter.py` + 逐任务采集参数；采集失败落 `failed`
-  不卡 `crawling`；真实评论进入 detail（`placeholder=false`，情感仍 `rule_placeholder`）；
+  不卡 `crawling`；真实评论进入 detail（`placeholder=false`；2026-10-30 起情感已由真实模型计算）；
 - **验证**：离线测试覆盖下载 / 标签 / 断点 / 真实分支；真实联网冒烟与规模测试见下一节。
 
 > 详细分工与设计见 [`docs/第二轮全面改进-2026-10-17.md`](docs/第二轮全面改进-2026-10-17.md)；
@@ -726,8 +782,8 @@ python -m src.crawler.bilibili \
 
 - **结论**：爬虫的合规、风控恢复、标准化与可复用性已补齐；公开数据获取/标注、
   `/api/videos` 真实爬取（含任务级参数与分步执行）与长跑边界条件已落地；
-  训练数据达到课程硬指标（18,644 条、正负均衡、`course_requirements_met=true`）；
-  当前全量测试 **522 passed**，并做过本机真实联网与离线 mock 基准验证。
+  训练数据达到课程硬指标（19,711 条、正负均衡、`course_requirements_met=true`）；
+  当前全量测试 **578 passed**（2026-10-30 本地全量），并做过本机真实联网与离线 mock 基准验证。
 - **局限**：
   - 匿名账号可见评论量随接口策略波动（实测单视频 3~200+ 条，且未必能到全量），
     大规模采集建议登录后使用 `--require-login` 校验；
@@ -735,7 +791,7 @@ python -m src.crawler.bilibili \
     （能力与离线规模测试已具备，见[运行手册](docs/大规模采集运行手册.md)）；
   - 公开数据集内置 URL/SHA256 未在联网环境逐个验证（测试禁止联网），首次下载前建议
     `bash scripts/get_data.sh --dataset <name>` 复核并记录实际校验和；
-  - 真实采集只影响评论数据，情感极性仍是 `predict_rule_based` 规则占位，真实模型未接入；
+  - 真实采集只影响评论数据；情感极性由已接入的真实模型计算（加载失败降级 `rule_placeholder`）；
   - `src/artifacts` 的上传链路仍未接真实爬取（`/api/videos` 已接入）；
   - 单进程串行、单机测量；基准取 3 次中位数，但仍受网络波动影响。
 
@@ -767,7 +823,7 @@ python -m src.crawler.bilibili \
 > 接口字段以 [`docs/API契约.md`](docs/API契约.md)「二点五、设置与分步流水线」为准；
 > 采集参数含义与 CLI 用法见 [`docs/大规模采集运行手册.md`](docs/大规模采集运行手册.md)。
 
-> 界面截图（2026-10-17 真实联调，匿名 + 离线占位模式；不含任何账号凭据）：
+> 界面截图（2026-10-17 真实联调的历史截图，匿名 + 离线 mock 演示模式；不含任何账号凭据）：
 > [系统设置弹窗](docs/images/2026-10-17-settings/settings-dialog.png)、
 > [爬虫参数确认弹窗](docs/images/2026-10-17-settings/crawl-params-dialog.png)、
 > [待分析等待态](docs/images/2026-10-17-settings/staged-cleaned.png)、
@@ -908,8 +964,8 @@ cleaned →（点「开始分析」）→ queued → processing（情感推理�
 - **与旧行为兼容**：`POST /api/videos` **不带 `settings`** 时走原有「一次跑完四个阶段」路径
   （不暂停），旧客户端、旧脚本与现有测试行为不变；只有带 `settings` 的任务才启用分步逻辑。
 - **中间产物与恢复**：分步任务的中间产物落盘 `outputs/videos/<bvid>/crawl.json`（原始评论或
-  占位计数）、`clean.json`（清洗后评论）与 `analyze.json`（逐条规则预测结果，供审计），
-  详情文件仍是 `outputs/videos/<bvid>.json`；
+  占位计数）、`clean.json`（清洗后评论）与 `analyze.json`（逐条情感预测结果，真实模型 / 降级时规则占位，
+  含 `method` 来源，供审计），详情文件仍是 `outputs/videos/<bvid>.json`；
   服务重启时进行中的任务重置为 `queued` 重跑，`crawled` / `cleaned` **保持等待态**等待用户操作；
   `retry` 清空中间产物从头开始。
 - **详情新字段**：`GET /api/videos/{bvid}/detail` 顶层新增 `pipeline`
@@ -968,35 +1024,60 @@ cleaned →（点「开始分析」）→ queued → processing（情感推理�
 > 训练产物以「一次性快照」方式强制入库（提交 `1eb77a7`，521 个文件 / 约 56 MB，另补入
 > `BV1UB4y1W7Xu_comments.csv`）。`.gitignore` 规则保持不变，快照之外的新增大文件仍默认不入库；
 > 唯一被刻意排除的是 `outputs/settings.json`（含 B 站 Cookie 明文，**绝不入库**）。
+> 本轮交付又把快照中的**冒烟产物替换为真实训练 / 评估产物**（真实权重、真实数据划分、真实指标与图表），
+> 本节按替换后的实际内容更新。
 
 ### 1. 入库内容与规模
 
 | 位置 | 内容 | 规模 |
 | --- | --- | --- |
+| `data/processed/`、`data/splits/` | **当前正式数据**：19,711 条有效样本（负面 10,408 / 正面 9,303），train 13,797 / val 1,971 / test 3,943，词表 9,753 项（含 PAD/UNK），数据版本 `753bc2014c69bdc1`、pipeline 1.1.0；含清洗/排除 CSV、词表、标签映射、预处理资源快照、manifest 与 CSV + NPZ | 约 19 MB + 18 MB |
+| `models/checkpoints/` | **真实权重**：`textcnn/best.pt` 6,074,780 B、`bilstm_attention/best.pt` 6,736,317 B；各含 `config.json` / `metadata.json` / `experiment.json` 与 `preprocessing/` 资源快照 | 约 13 MB |
+| `models/word2vec/` | **真实词向量三件套**：`word2vec.model` 10,277,760 B、`embedding_matrix.npy` 4,993,664 B、`word2vec_params.json` | 约 14.6 MB |
+| `outputs/figures/`、`logs/`、`stats/`、`predictions/` | **真实模型产物**：`metrics_<模型>.json`（accuracy 0.8960 / 0.9008 等）、训练日志、模型对比表、错误样例、loss/accuracy 曲线、混淆矩阵、词云、实验哈希记录 | 约 2 MB |
 | `data/raw/datasets/` | 公开语料原始下载件：ChnSentiCorp、外卖 10k | 7,766 / 11,987 条 |
 | `data/raw/*_unified.csv` | 统一成 `text,label` 的公开语料 | 7,765 / 11,980 条 |
-| `data/raw/comments_labeled_balanced.csv` | 两份语料合并 + 类别均衡后的训练语料（课程硬指标） | **18,644 条**（正负各 9,322） |
+| `data/raw/comments_labeled_balanced.csv` | 第二轮改进留档的合并均衡语料（历史口径） | 18,644 条（正负各 9,322） |
 | `data/raw/BV1UB4y1W7Xu_comments.csv` | 组内提供的视频评论（一级 99 + 二级 55，无标签） | 154 条 |
 | `data/raw/BV1GJ411x7h7_comments.csv` | 爬虫首次实测样本（首次 39 + 补采 20，均一级评论） | 59 条 |
 | `data/raw/BV1tseyzCEoF_comments.csv` | 课程验收待训练语料（一级 266 + 楼中楼 204） | 470 条 |
-| `data/raw/sentiment_crawl/` | 跨分区大规模采集（18 分区 / 216 视频 / 每视频 50 条） | **10,800 条**（train 9,000 / test 1,800） |
-| `data/processed/`、`data/splits/` | 冒烟链路的清洗中间产物与划分（输入 `data/sample/bilibili_demo.csv`） | 24 条；train/val/test = 16/4/4 |
-| `models/checkpoints/`、`models/word2vec/` | 冒烟训练得到的两个检查点与词向量 | 2 个模型 + 词向量（约 21 KB） |
-| `outputs/realdata/` | **真实规模闭环**：18,644 条 → 清洗 18,613 条 → 划分 13,029 / 1,861 / 3,723，词表 9,308 | 约 30 MB |
-| `outputs/figures/`、`logs/`、`stats/`、`predictions/` | 训练曲线 / 混淆矩阵 / 词云、训练日志、指标、错误样本 | 约 2 MB |
-| `outputs/videos/` | 两个视频分析任务的落盘数据（`BV1GJ411x7h7` 三阶段 + 占位演示） | 约 40 KB |
+| `data/raw/sentiment_crawl/` | 跨分区大规模采集（18 分区 / 216 视频 / 每视频 50 条） | 10,800 条（train 9,000 / test 1,800） |
+| `outputs/realdata/` | **历史数据侧闭环**（旧数据版本）：18,644 条 → 清洗 18,613 条 → 划分 13,029 / 1,861 / 3,723，词表 9,308；**未保存对应训练权重、图表与指标** | 约 30 MB |
+| `outputs/videos/` | B 站任务历史落盘（`BV1GJ411x7h7` 三阶段 + 占位演示） | 约 40 KB |
 | `outputs/benchmarks/` | 爬虫效率基准（真实联网 / 离线 mock） | 约 5 KB |
 
-### 2. 口径说明（避免把冒烟结果当实验结论）
+### 2. 口径说明（避免混用不同数据版本与实验）
 
-- **冒烟产物**：`data/processed/`、`data/splits/`、`models/`、`outputs/figures|logs|stats|predictions`
-  来自 27 行人工演示数据（24 条有效、`max_len=16`、最佳轮次 1 epoch、词表 6 个词），两个模型
-  验证准确率均为 0.5 —— 只证明「清洗 → 划分 → 训练 → 评估 → 出图」链路跑通，**不能写进实验结论**；
-- **真实规模的数据侧结果**：`outputs/realdata/` 是 18,644 条公开语料完整跑通预处理的结果
-  （清洗 18,613 条、正负 9,305 / 9,308、词表 9,308 词、13,029 / 1,861 / 3,723 划分，CSV + NPZ 齐全），
-  用于证明数据规模与 7:1:2 划分达标；该目录**未保存对应的训练权重与图表**；
-- **可复现**：冒烟与真实规模的重跑命令见 [`outputs/README.md`](outputs/README.md) 与
-  [`models/README.md`](models/README.md)；各数据文件的字段、来源与 SHA256 见
-  [`data/README.md`](data/README.md)、[`data/raw/README.md`](data/raw/README.md) 与
-  [`data/raw/来源说明.md`](data/raw/来源说明.md)。
+- **当前权重 = CPU 复核**：`models/`、`outputs/figures|logs|stats|predictions` 与 `data/processed|splits`
+  同属 2026-10-30 本机 CPU 复核（`device=cpu`、数据版本 `753bc2014c69bdc1`）；
+  TextCNN 测试 Acc **89.60%** / F1 88.76%，BiLSTM-Attention **90.08%** / F1 89.20%，
+  混淆矩阵、权重大小与 SHA256 见 [`docs/模型训练与评估-2026-10-30.md`](docs/模型训练与评估-2026-10-30.md)；
+- **GPU 实验是历史记录**：RTX 4060 那轮（TextCNN 89.09% / BiLSTM 89.25%，均为第 4 轮）只保留在训练文档中
+  作为对照，对应权重未随仓库入库；仓库当前权重就是 CPU 复核那一份；
+- **冒烟产物已被替换**：原快照里的冒烟数据（24 条、`max_len=16`、val_acc=0.5）与冒烟权重已不在当前
+  `data/processed|splits`、`models/` 中；`outputs/logs` 仍保留 2026-10-17 的冒烟训练日志，仅作历史对照；
+- **旧数据版本不要混用**：`outputs/realdata/` 与 `data/raw/comments_labeled_balanced.csv` 属于第二轮
+  改进的历史口径（18,644 条），不能与当前 19,711 条 / 数据版本 `753bc2014c69bdc1` 混用；
+- **B 站领域没有人工标注测试集**：上述指标都是酒店 / 外卖公开语料结果，不能宣称 B 站评论准确率；
+  B 站视频任务的真实爬取仍是 opt-in（`VIDEO_REAL_CRAWL=1` / 任务设置），`detail.placeholder` 只表示
+  **评论数据**是否真实，不表示情感来源。
+- **可复现**：真实训练 / 评估与旧数据版本的重跑命令见 [`outputs/README.md`](outputs/README.md)、
+  [`models/README.md`](models/README.md) 与 [`data/README.md`](data/README.md)；
+  端到端冒烟验收见 `python scripts/e2e_smoke.py --frontend`（报告 `outputs/e2e/last_run.json`）；
+  各数据文件的字段、来源与 SHA256 见 [`data/README.md`](data/README.md)、
+  [`data/raw/README.md`](data/raw/README.md) 与 [`data/raw/来源说明.md`](data/raw/来源说明.md)。
+
+```bash
+# 当前正式数据 + 真实权重复现（CPU 口径）
+python -m scripts.prepare_training_data
+python -m src.embeddings --train-file data/splits/train.csv --vocab data/processed/vocab.json \
+  --out models/word2vec --embed-dim 128 --window 5 --min-count 3 --epochs 10 --workers 1 --seed 42
+python -m src.training.cli --model textcnn --embeddings models/word2vec/embedding_matrix.npy \
+  --epochs 20 --batch-size 64 --lr 0.001 --max-len 200 --seed 42 --device cpu --patience 3
+python -m src.training.cli --model bilstm_attention --embeddings models/word2vec/embedding_matrix.npy \
+  --epochs 20 --batch-size 64 --lr 0.001 --max-len 200 --seed 42 --device cpu --patience 3
+```
+
+> 冒烟链路（`data/sample/bilibili_demo.csv` + `--allow-small-dataset`）会**覆盖**当前正式数据，
+> 仅在确认要重置工作副本时使用，产物不能写进实验结论。
 

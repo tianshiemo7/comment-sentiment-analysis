@@ -1,0 +1,202 @@
+{
+  "generated_at": "2026-10-30T06:57:43+00:00",
+  "semantics": "正式训练实验记录：权重/数据/环境/源码/预处理快照的真实哈希关联",
+  "source_commit": "963c68bc79a85cce705516f7ae289b2c6688976f",
+  "dataset_version": "753bc2014c69bdc1",
+  "pipeline_version": "1.1.0",
+  "data": {
+    "split_counts": {
+      "train": 13797,
+      "val": 1971,
+      "test": 3943
+    },
+    "accepted_rows": 19711,
+    "excluded_rows": 42,
+    "vocab_size": 9753,
+    "label_map": {
+      "negative": 0,
+      "positive": 1
+    }
+  },
+  "environment": {
+    "python": "3.13.9",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "torch": "2.12.0",
+    "torch_cuda_available": false,
+    "packages": {
+      "numpy": "2.3.5",
+      "gensim": "4.4.0",
+      "jieba": "0.42.1",
+      "pandas": "3.0.3",
+      "scipy": "1.17.1",
+      "scikit-learn": "1.8.0"
+    },
+    "device_used": "cpu",
+    "cpu_count": 18
+  },
+  "model_name": "bilstm_attention",
+  "model_type": "bilstm_attention",
+  "architecture": {
+    "hyperparams": {
+      "vocab_size": 9753,
+      "embed_dim": 128,
+      "hidden_dim": 128,
+      "num_layers": 1,
+      "num_classes": 2,
+      "dropout": 0.5,
+      "attention_dim": 64,
+      "bidirectional": true,
+      "padding_idx": 0,
+      "freeze_embeddings": false
+    },
+    "class": "src.models.bilstm_attention.BiLSTMAttention"
+  },
+  "checkpoint": {
+    "keys": [
+      "config",
+      "epoch",
+      "hyperparams",
+      "metrics",
+      "model_name",
+      "model_state",
+      "model_type",
+      "vocab"
+    ],
+    "best_epoch": 3,
+    "best_val_loss": 0.30924975397259014,
+    "best_val_acc": 0.8797564687975646,
+    "path": "models/checkpoints/bilstm_attention/best.pt",
+    "bytes": 6736317,
+    "sha256": "715a604ae5e029326846e1c32558a7939f4deac40a85e8efa56dbbe61a588b63",
+    "config_json": {
+      "path": "models/checkpoints/bilstm_attention/config.json",
+      "bytes": 429,
+      "sha256": "a4a56a4514aeba35ba5440f2280de91e754609be710286b9a5d200234362eadb"
+    },
+    "metadata_json": {
+      "path": "models/checkpoints/bilstm_attention/metadata.json",
+      "bytes": 491,
+      "sha256": "666ec2134e3857819a56e13d721a2d43737567d1725e4eb852ee7eeca601596b"
+    }
+  },
+  "training": {
+    "config": {
+      "model_name": "bilstm_attention",
+      "train_path": "data\\splits\\train.csv",
+      "val_path": "data\\splits\\val.csv",
+      "max_len": 200,
+      "batch_size": 64,
+      "epochs": 20,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0,
+      "patience": 3,
+      "min_delta": 0.0001,
+      "seed": 42,
+      "device": "cpu",
+      "grad_clip": 5.0,
+      "log_every": 50,
+      "num_workers": 0,
+      "log_dir": "outputs\\logs",
+      "checkpoint_dir": "models\\checkpoints"
+    },
+    "history": [
+      {
+        "epoch": 1,
+        "train_loss": 0.351722,
+        "train_acc": 0.849895,
+        "val_loss": 0.315071,
+        "val_acc": 0.874176,
+        "lr": 0.001
+      },
+      {
+        "epoch": 2,
+        "train_loss": 0.262522,
+        "train_acc": 0.895557,
+        "val_loss": 0.323331,
+        "val_acc": 0.876712,
+        "lr": 0.001
+      },
+      {
+        "epoch": 3,
+        "train_loss": 0.220733,
+        "train_acc": 0.913604,
+        "val_loss": 0.30925,
+        "val_acc": 0.879756,
+        "lr": 0.001
+      },
+      {
+        "epoch": 4,
+        "train_loss": 0.187476,
+        "train_acc": 0.93042,
+        "val_loss": 0.337558,
+        "val_acc": 0.871639,
+        "lr": 0.001
+      },
+      {
+        "epoch": 5,
+        "train_loss": 0.149865,
+        "train_acc": 0.946075,
+        "val_loss": 0.3606,
+        "val_acc": 0.872653,
+        "lr": 0.001
+      },
+      {
+        "epoch": 6,
+        "train_loss": 0.127475,
+        "train_acc": 0.953396,
+        "val_loss": 0.398259,
+        "val_acc": 0.859462,
+        "lr": 0.001
+      }
+    ],
+    "log": {
+      "path": "outputs/logs/train_bilstm_attention_20261030_145328.json",
+      "bytes": 1726,
+      "sha256": "e495a1ead3622edab8b13a2d012352635bf5469c5ec936ab4d8f4e24b708c60f"
+    },
+    "wall_clock_seconds": 249.4
+  },
+  "test_metrics": {
+    "accuracy": 0.9008369261983261,
+    "precision": 0.9180887372013652,
+    "recall": 0.8672756582482536,
+    "f1": 0.8919591047250621,
+    "macro_precision": 0.9025226294702478,
+    "macro_recall": 0.8990556965592853,
+    "macro_f1": 0.9001628192948019,
+    "loss": 0.270623,
+    "test_size": 3943,
+    "source": "data\\splits\\test.csv"
+  },
+  "reload_check": {
+    "forward_ok": true,
+    "samples_checked": 20,
+    "samples_correct": 18,
+    "vocab_in_ckpt": 9753,
+    "vocab_size": 9753,
+    "max_len": 200
+  },
+  "preprocessing_snapshot": {
+    "vocab.json": {
+      "path": "data/processed/vocab.json",
+      "bytes": 707390,
+      "sha256": "01236bf8fe69c958b77eb8fc8cc7ec31c522e3068243e259cffe9b8a62b1a108"
+    },
+    "preprocessor.json": {
+      "path": "data/processed/preprocessor.json",
+      "bytes": 1997,
+      "sha256": "e9d25e158930c3ee88cbe9a2abc6eefbe1016f4484d2675851f25008145e7b96"
+    },
+    "label_map.json": {
+      "path": "data/processed/label_map.json",
+      "bytes": 37,
+      "sha256": "1ef73b5ead737694ecb847227fd0c4fee802f5a6a7644352085fe8ac681490eb"
+    },
+    "manifest.json": {
+      "path": "data/processed/manifest.json",
+      "bytes": 2560,
+      "sha256": "f1a52ede8761740741a9027c336dc4557ad05f87dbf2ea8b6d1f5a00d36038b1"
+    }
+  }
+}

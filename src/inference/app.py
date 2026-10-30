@@ -1,4 +1,4 @@
-"""FastAPI 推理服务应用（骨架阶段：规则占位预测，接口可用）。
+"""FastAPI 推理服务应用（真实检查点推理 + 缺权重时规则占位降级）。
 
 启动::
 
@@ -40,7 +40,7 @@
 - ``POST   /api/artifacts/{project_id}/analyze``（重新处理）
 - ``GET    /api/artifacts/{project_id}/stages``（三段阶段清单）
 - ``GET    /api/artifacts/{project_id}/table``（某阶段表格分页）
-- ``GET    /api/artifacts/{project_id}/comments``（逐条占位情感，可按 label 过滤）
+- ``GET    /api/artifacts/{project_id}/comments``（逐条情感，可按 label 过滤）
 - ``GET    /api/artifacts/{project_id}/analysis``（聚合占比 / 词频 / 长度分布）
 - ``GET    /api/artifacts/{project_id}/path``（**只读**返回该阶段 CSV 路径，无副作用）
 - ``POST   /api/artifacts/{project_id}/open``（在服务器本机打开 CSV）
@@ -48,9 +48,16 @@
 - ``POST   /api/solo-comments`` / ``GET /api/solo-comments`` /
   ``DELETE /api/solo-comments/{id}`` / ``DELETE /api/solo-comments?ids=a,b``
 
-**占位声明**：数据项目的情感结果来自 `src.inference.service.predict_rule_based`
-（规则 / 词典占位预测器，**不是训练模型**），接口 ``method`` 字段固定为
-``rule_placeholder``。安全约定见 `docs/API契约.md` 4.5.3：
+**情感来源如实标注**：预测逻辑与模型加载在 `service.py`，统一由
+:func:`service.get_predictor` / :func:`service.load_model_cached` 解析
+``models/checkpoints/<ACTIVE_MODEL>/best.pt``：
+
+- 检查点存在且 torch 可用 → 真实前向，``method`` 为**模型名**（如 ``textcnn``）；
+- 检查点缺失 / torch 未安装 → 降级 `service.predict_rule_based`（规则 / 词典占位，
+  **不是训练模型**），``method`` 为 ``rule_placeholder``。
+
+数据项目与视频任务的 `method` 同样来自 `service.resolve_method`，不再硬编码占位。
+安全约定见 `docs/API契约.md` 4.5.3：
 ``table`` / ``comments`` / ``analysis`` / ``open`` 只接受服务端生成的 id 与固定 stage 枚举，
 **对外绝不接受任何路径**。
 
@@ -170,9 +177,10 @@ app = FastAPI(
         "网站用户评论情感分析系统的推理服务：单条预测、批量预测（csv/xlsx）、模型列表，\n\n"
         "以及 B 站视频评论分析任务（``/api/videos`` 系列：提交 / 列表 / 详情 / 重试 / 删除），\n\n"
         "以及数据项目与单独评论（``/api/artifacts`` 与 ``/api/solo-comments`` 系列：\n"
-        "上传 → clean 管线 → 三张表 → 占位情感 → 聚合分析 → 本机打开 CSV）。\n\n"
-        "骨架阶段为占位实现（mock），真实模型与真实爬虫接入后接口契约保持不变；\n"
-        "数据项目的情感结果 ``method`` 字段固定为 ``rule_placeholder``（不是训练模型）。"
+        "上传 → clean 管线 → 三张表 → 情感 → 聚合分析 → 本机打开 CSV）。\n\n"
+        "情感结果优先用 ``models/checkpoints/<ACTIVE_MODEL>/best.pt`` 的真实模型推理，\n"
+        "``method`` 字段如实标注来源（模型名；检查点缺失 / torch 缺失时降级为\n"
+        "``rule_placeholder`` 规则占位，不是训练模型）。"
     ),
     docs_url="/docs",
     lifespan=lifespan,
@@ -201,9 +209,9 @@ def predict(payload: PredictRequest) -> PredictResponse:
 
     - 空文本由 Pydantic 校验（``min_length=1``）直接返回 422；
     - 纯空白文本在此显式返回 422；
-    - ``method`` 是**新增字段**：当前为 ``rule_placeholder``（规则 / 词典占位预测器，
-      **不是训练模型**），真实模型接入后自动变成模型名；前端据此在「单独评论」
-      里如实标注来源，而不是硬编码占位。
+    - ``method`` 如实反映来源：检查点可用时为**模型名**（如 ``textcnn``）；
+      检查点缺失 / torch 未安装时降级规则占位，为 ``rule_placeholder``；
+      前端据此标注来源，而不是硬编码占位。
     """
     text = payload.text.strip()
     if not text:
@@ -674,7 +682,7 @@ def get_artifact_table(
 @app.get(
     "/api/artifacts/{project_id}/comments",
     response_model=CommentsResponse,
-    summary="逐条评论占位情感（可展开）",
+    summary="逐条评论情感（可展开）",
     tags=["数据项目"],
 )
 def get_artifact_comments(
@@ -683,7 +691,7 @@ def get_artifact_comments(
     limit: int = Query(DEFAULT_COMMENTS_LIMIT, ge=1, description=f"每页条数，上限 {MAX_COMMENTS_LIMIT}"),
     label: str = Query("", description="positive | negative | neutral；不传为全部"),
 ) -> CommentsResponse:
-    """返回逐条评论的占位情感结果，``items[].text`` 取原文（``text_raw``）。
+    """返回逐条评论的情感结果，``items[].text`` 取原文（``text_raw``）。
 
     ``label`` 非法或 ``limit`` 越界 → **400**；项目不存在 → **404**。
     """
@@ -707,7 +715,8 @@ def get_artifact_comments(
 def get_artifact_analysis(project_id: str) -> AnalysisResponse:
     """返回 ``{method,total,sentiment{...ratio},keywords,length,sample}``。
 
-    ``method`` 如实反映来源，当前固定为 ``rule_placeholder``（规则占位，不是训练模型）；
+    ``method`` 如实反映来源：真实模型可用时为模型名（如 ``textcnn``），
+    降级规则占位时为 ``rule_placeholder``（不是训练模型）；
     三个 ``*_ratio`` 之和约等于 1（``total > 0`` 时）。项目不存在 → **404**。
     """
     try:

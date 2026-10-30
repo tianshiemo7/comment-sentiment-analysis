@@ -5,7 +5,8 @@ B 站视频评论情感分析系统的 Web 界面：
 以及课程要求的单条预测、批量预测、可视化、模型对比四个页面。
 
 B 站主流程的接口契约见 [`../docs/API契约.md`](../docs/API契约.md)（唯一契约来源，第四点五节为数据项目与单独评论）。
-后端未就绪时，`frontend/mock/` 会按契约返回数据，界面可完整演示；真实后端就绪后删除 `vite.config.js` 里的一行即可。
+**默认直连真实 FastAPI 后端（:8000）**；没有后端、只想演示界面时，用 `VITE_USE_MOCK=1 npm run dev`
+显式启用 `frontend/mock/`（按契约返回演示数据，默认不加载）。
 
 ---
 
@@ -21,24 +22,28 @@ B 站主流程的接口契约见 [`../docs/API契约.md`](../docs/API契约.md)�
 
 ```bash
 cd frontend
-npm install       # 安装依赖
-npm run dev       # 开发模式 -> http://localhost:3000（自带 mock，无需后端）
-npm run build     # 生产构建 -> frontend/dist/
-npm run preview   # 预览构建产物 -> http://localhost:3000（注意：mock 插件只在 dev 生效）
+npm install                    # 安装依赖
+npm run dev                    # 开发模式 -> http://localhost:3000（默认走 proxy 连真实后端 :8000）
+VITE_USE_MOCK=1 npm run dev    # 演示模式：启用 mock、无需后端（仅 dev 生效；PowerShell 用 $env:VITE_USE_MOCK=1; npm run dev）
+npm run build                  # 生产构建 -> frontend/dist/
+npm run preview                # 预览 dist/ -> http://localhost:3000（始终走 proxy 连真实后端，mock 不生效）
 ```
 
-前端通过 Vite 代理把 `/api`、`/health` 转发到 `http://localhost:8000`：
+前端通过 Vite 代理把 `/api`、`/health` 转发到 `http://localhost:8000`，所以默认需要先启动后端：
 
 ```bash
-# 仓库根目录（可选：不启动也能用 mock 演示 B 站主界面）
+# 仓库根目录
 python -m uvicorn src.inference.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-未启动后端时：
+**默认行为（不设 `VITE_USE_MOCK`）**：不启用 mock，所有 `/api/*` 与 `/health` 都走代理到真实 FastAPI；
+后端未启动时页面显示「待接入后端」/请求失败提示（不展示模拟结果）。
 
-- `/api/videos*`、`/api/artifacts*`、`/api/solo-comments*`、`POST /api/predict` 与 `/health` 由 **mock 插件**接管，
-  B 站主界面（含左栏三段、数据项目三张表与聚合图表）、单条预测与「保存到左栏」可完整演示；
-- 批量预测、模型对比、批量导出下载仍走代理到 FastAPI，未启动后端时显示「待接入后端」提示（不展示模拟结果）。
+演示模式 `VITE_USE_MOCK=1 npm run dev` 下，以下路径由 **mock 插件**接管：
+`/api/videos*`、`/api/artifacts*`、`/api/solo-comments*`、`/api/predict`、`/api/settings*`、
+`/api/crawler/session/check` 与 `/health`，无需后端即可完整演示 B 站主界面（含左栏三段、
+数据项目三张表与聚合图表）、单条预测与「保存到左栏」。
+批量预测、模型对比、批量导出下载在 mock 模式下仍走代理到 FastAPI，未启动后端时显示「待接入后端」提示（不展示模拟结果）。
 
 ---
 
@@ -47,10 +52,10 @@ python -m uvicorn src.inference.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 frontend/
 ├── index.html              # 入口 HTML（挂载 #app，内联 SVG favicon）
-├── vite.config.js          # 端口 3000 + /api、/health 代理 + mock 插件接入（删除一行即可关闭 mock）
+├── vite.config.js          # 端口 3000 + /api、/health 代理；mock 仅 VITE_USE_MOCK=1 时接入
 ├── package.json            # scripts: dev / build / preview
 ├── .gitignore              # 忽略 node_modules、dist
-├── mock/                   # ★ 仅开发用的 mock 层（真实后端就绪后可整个删除）
+├── mock/                   # ★ 仅演示模式（VITE_USE_MOCK=1）使用的 mock 层，默认不加载
 │   ├── index.js            #   Vite 插件 + connect 中间件（路由分发、multipart/JSON 解析、/__mock/reset）
 │   ├── store.js            #   视频任务内存仓库（提交/列表/详情/重试/删除）
 │   ├── pipeline.js         #   状态机纯函数（queued→crawling→processing→completed，progress/phases）
@@ -162,7 +167,8 @@ frontend/
 
 ### mock 层
 
-- 位置 `frontend/mock/`，通过 `vite.config.js` 中 `mockApiPlugin()` 接入，覆盖
+- 位置 `frontend/mock/`，仅在 `VITE_USE_MOCK=1 npm run dev` 时通过 `vite.config.js` 中的
+  `mockApiPlugin()` 接入（插件 `apply: 'serve'`，`npm run preview` 与生产构建均不生效），覆盖
   `/api/videos*`、`/api/artifacts*`（含 `path`）、`/api/solo-comments*`、`POST /api/predict` 与 `/health`；
   其它 `/api/*`（batch、models、批量下载）仍走代理到 FastAPI，互不影响。
 - 预置数据：视频 1 条 `completed` + 1 条长期 `crawling`；数据项目 1 条 `completed`（三张表 312/256/41 + 聚合分析）+ 1 条长期 `processing`；
@@ -174,7 +180,8 @@ frontend/
   `{text,label,confidence,probs,method}`，其中 `method` 当前为 `rule_placeholder`
   （真实后端已同样返回该字段；未来为模型名），供「保存到左栏」原样透传。
 - 调试接口 `POST /__mock/reset` 可恢复全部预置数据。
-- **真实后端就绪后：删除 `vite.config.js` 里的 `mockApiPlugin(),` 一行即可**（或直接删除 `mock/` 目录），业务代码无需改动。
+- **默认联调真实后端**：不设 `VITE_USE_MOCK` 就完全不加载 mock，`/api/*`、`/health` 全部走 proxy 到 :8000；
+  如需彻底移除 mock，删除 `vite.config.js` 中的 `mockApiPlugin()` 引用与 `mock/` 目录即可，业务代码无需改动。
 
 ---
 
@@ -211,11 +218,11 @@ frontend/
 
 | 页面 | 交互 | 调用的接口 | 状态 |
 | --- | --- | --- | --- |
-| **B站分析（首页）** | 顶部 BV 输入（即时校验）+ 右上角「上传爬取数据」+ 左栏**三段**（数据项目 / 单独评论 / 视频任务，各段可收起、状态存 localStorage）+ 右侧按选中类型渲染三类详情 | `/api/artifacts`（三段唯一列表源）、`/api/videos*`、`/api/artifacts*`、`/api/solo-comments*` | 前端已完成，mock 下可完整演示；接真实后端后仅需删 mock 插件 |
+| **B站分析（首页）** | 顶部 BV 输入（即时校验）+ 右上角「上传爬取数据」+ 左栏**三段**（数据项目 / 单独评论 / 视频任务，各段可收起、状态存 localStorage）+ 右侧按选中类型渲染三类详情 | `/api/artifacts`（三段唯一列表源）、`/api/videos*`、`/api/artifacts*`、`/api/solo-comments*` | 前端已完成，默认接真实后端；演示模式（`VITE_USE_MOCK=1`）可完整演示 |
 | ↳ 视频任务详情 | 未完成只显示进度块；完成显示饼图/折线/双词云/关键词排行/评论/模型指标 | `/api/videos/{bvid}/detail`、retry、delete | 原行为保留（已回归验证） |
-| ↳ 数据项目详情 | 头部（名称/初始行→结果行/来源文件/method 标识）+ 三张表切换与分页（列名动态）+ 可展开逐条评论（分页 + label 筛选）+ 占比饼图/词云/长度分布 + **页面最底部**三按钮 | `/api/artifacts/{id}/table|comments|analysis|path|open|analyze` | 前端已完成，mock 下可完整演示 |
+| ↳ 数据项目详情 | 头部（名称/初始行→结果行/来源文件/method 标识）+ 三张表切换与分页（列名动态）+ 可展开逐条评论（分页 + label 筛选）+ 占比饼图/词云/长度分布 + **页面最底部**三按钮 | `/api/artifacts/{id}/table|comments|analysis|path|open|analyze` | 前端已完成，默认接真实后端（method 按后端返回值动态显示） |
 | ↳ 单独评论详情 | **只渲染**原文（大字号）+ 极性徽章 + 置信度 + 概率条 + 时间 + method 标识，**不渲染任何图表** | 数据来自 `GET /api/artifacts` 的 `groups.solo` | 前端已完成 |
-| 单条预测 | 文本域 + 开始预测 + 清空 + **「保存到左栏」开关（默认开启）**；结果区展示极性、置信度、正负概率条 | POST `/api/predict`、POST `/api/solo-comments`（开关开启时） | 已封装，mock 下可完整演示 |
+| 单条预测 | 文本域 + 开始预测 + 清空 + **「保存到左栏」开关（默认开启）**；结果区展示极性、置信度、正负概率条 | POST `/api/predict`、POST `/api/solo-comments`（开关开启时） | 已封装，默认接真实后端（`method` 原样透传） |
 | 批量预测 | 文件选择（前端校验扩展名）+ 提交；结果表格 + 导出按钮（直接使用 `export_url` 下载） | POST `/api/predict/batch`、GET `/api/predict/batch/download/{file_id}` | 已可用（需后端运行） |
 | 实验可视化 | 四个占位卡片 + 产物文件对照表 | 无（契约中没有图表接口） | 待后端产出 PNG，需决策接入方式 |
 | 模型对比 | 指标表格（模型名/类型/Accuracy/P/R/F1/状态）+ 刷新 | GET `/api/models` | 已封装，待后端 |
@@ -235,8 +242,9 @@ frontend/
 
 ## 六、后续要接什么（TODO）
 
-- [ ] **真实后端就绪后**：删除 `vite.config.js` 中 `mockApiPlugin(),` 一行（或删除 `mock/` 目录），
-      并联调 `/api/videos*` 真实字段（重点核对 `phases[].status` 取值、`sentiment.*_ratio` 归一化、`trend[].bucket` 粒度）。
+- [x] **mock 默认关闭**（2026-10-30）：`npm run dev` 默认走 proxy 连真实后端（:8000）；
+      mock 仅在显式 `VITE_USE_MOCK=1` 时启用（dev 内演示用）。
+- [ ] **真实后端就绪后**：联调 `/api/videos*` 真实字段（重点核对 `phases[].status` 取值、`sentiment.*_ratio` 归一化、`trend[].bucket` 粒度）。
 - [ ] 旧首页 `views/HomeView.vue`（已不挂载）确认无用后删除。
 - [ ] mock 层的 `analysis.phases` 为契约外的附加字段（契约示例只在列表项给出 phases）——真实后端若不返回，
       详情区已回退使用列表项的 `phases`，需与后端确认是否保留。
@@ -332,10 +340,16 @@ npm run build      # 成功后在 frontend/dist/ 生成 index.html + assets/
 ls -la dist        # 确认 dist/index.html 存在
 ```
 
-B 站主界面（mock 模式，无需后端）：
+B 站主界面默认联调真实后端（先按第一节启动 FastAPI :8000）：
 
 ```bash
-npm run dev        # http://localhost:3000
+npm run dev        # http://localhost:3000，/api 与 /health 经 proxy 转发到 :8000
+```
+
+B 站主界面演示（mock 模式，无需后端）：
+
+```bash
+VITE_USE_MOCK=1 npm run dev    # PowerShell: $env:VITE_USE_MOCK=1; npm run dev
 # 预置：视频 2 条（1 completed + 1 crawling）、数据项目 2 条（1 completed + 1 processing）、单独评论 2 条
 # 提交任意合法 BV 号，约 30 秒走完 queued→crawling→processing→completed
 # 提交非法 BV（如 BV123）会即时显示中文格式提示且不提交
@@ -363,7 +377,7 @@ npm run dev        # http://localhost:3000
 上面「六·五」节的 24 项断言由仓库内脚本自动跑，不需要手工点：
 
 ```bash
-cd frontend && npm run dev                       # 先起前端（自带 mock，无需后端）
+cd frontend && VITE_USE_MOCK=1 npm run dev       # 先起前端（演示模式，无需后端）
 pip install playwright && playwright install chromium   # 仅在首次需要
 python ../scripts/verify_frontend_icons.py       # 默认打 http://localhost:3000
 ```

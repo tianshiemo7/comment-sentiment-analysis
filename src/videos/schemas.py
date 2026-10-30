@@ -6,9 +6,10 @@
 契约补充说明（本实现做出的、明确记录在案的选择）：
 
 - 列表项与提交响应**只含契约里列出的字段**，不多不少；
-- 详情里额外带一个 **顶层** ``placeholder: true`` 字段：诚实标注当前 detail 由
-  占位逻辑生成（真实爬虫已在 `src/crawler/` 实现，但 `/api/videos` 尚未接入）。它是
-  **新增字段**而非改名，前端可忽略；真实爬虫接入后置为 ``false``；
+- 详情里额外带一个 **顶层** ``placeholder`` 字段：标注 detail 里的**评论数据**是否来自
+  占位（未开启真实爬取）。真实爬取为 opt-in（任务设置 `real_crawl=true` / `VIDEO_REAL_CRAWL=1`），
+  采集到真实评论（或接入真实爬取后）为 ``false``。它是**新增字段**而非改名，前端可忽略；
+  该字段只表示评论数据来源，**不表示情感来源**（情感统一走真实模型 / 规则降级）；
 - 详情里额外带一个 **顶层** ``pipeline`` 对象（additive，spec 3.4）：账号模式、
   自动连续开关、下一步动作与本次任务的采集参数快照（不含 Cookie），未完成时也返回；
 - 状态枚举新增两个**等待态** ``crawled`` / ``cleaned``（spec 3.1），旧客户端可忽略；
@@ -76,7 +77,7 @@ class VideoSubmitRequest(BaseModel):
     注意：**不做 Pydantic `pattern` 校验**，否则非法 BV 号会得到 422；
     契约要求格式非法返回 **400**，因此正则校验放在 service 层（`InvalidBvidError`）。
 
-    ``settings`` 可选（spec 3.2）：省略 = 旧行为（占位流水线一次跑完，不暂停）；
+    ``settings`` 可选（spec 3.2）：省略 = 旧行为（一次跑完，不暂停）；
     传入（即使为空对象）= 启用分步流水线，与已保存设置部分合并后作为本任务快照。
     Cookie 永远取服务端设置，**不随任务传**；这里保持宽松的 ``dict`` 类型以免
     非法设置被 Pydantic 直接变成 422，校验在 service 层完成并映射为 400。
@@ -290,8 +291,9 @@ class VideoDetailResponse(BaseModel):
     placeholder: bool = Field(
         True,
         description=(
-            "诚实标注：detail 由占位逻辑生成（真实爬虫尚未接入）。"
-            "新增字段，前端可忽略；真实数据接入后为 false。"
+            "评论数据来源标注：true = 当前 detail 使用占位评论数据（未开启真实爬取）；"
+            "false = 真实爬取到的评论。新增字段，前端可忽略；"
+            "只表示评论数据来源，不表示情感来源（情感走统一真实模型，加载失败降级规则占位）。"
         ),
     )
     pipeline: PipelineInfo = Field(

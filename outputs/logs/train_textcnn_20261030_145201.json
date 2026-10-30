@@ -1,0 +1,72 @@
+{
+  "model": "textcnn",
+  "config": {
+    "model_name": "textcnn",
+    "train_path": "data\\splits\\train.csv",
+    "val_path": "data\\splits\\val.csv",
+    "max_len": 200,
+    "batch_size": 64,
+    "epochs": 20,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0,
+    "patience": 3,
+    "min_delta": 0.0001,
+    "seed": 42,
+    "device": "cpu",
+    "grad_clip": 5.0,
+    "log_every": 50,
+    "num_workers": 0,
+    "log_dir": "outputs\\logs",
+    "checkpoint_dir": "models\\checkpoints"
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.365869,
+      "train_acc": 0.840038,
+      "val_loss": 0.313337,
+      "val_acc": 0.876205,
+      "lr": 0.001
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.259238,
+      "train_acc": 0.899978,
+      "val_loss": 0.304404,
+      "val_acc": 0.880771,
+      "lr": 0.001
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.214024,
+      "train_acc": 0.917156,
+      "val_loss": 0.311077,
+      "val_acc": 0.879756,
+      "lr": 0.001
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.175803,
+      "train_acc": 0.934044,
+      "val_loss": 0.323414,
+      "val_acc": 0.878234,
+      "lr": 0.001
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.140796,
+      "train_acc": 0.949554,
+      "val_loss": 0.369035,
+      "val_acc": 0.866058,
+      "lr": 0.001
+    }
+  ],
+  "best_epoch": 2,
+  "best_score": 0.8807711821410451,
+  "checkpoint_path": "models\\checkpoints\\textcnn\\best.pt",
+  "labels": [
+    "negative",
+    "positive"
+  ],
+  "trained_at": "2026-10-30T06:53:05+00:00"
+}

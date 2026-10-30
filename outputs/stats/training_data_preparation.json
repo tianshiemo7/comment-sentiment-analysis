@@ -1,0 +1,156 @@
+{
+  "prepared_at": "2026-10-30T06:50:58.304780+00:00",
+  "source_commit": "a0b781d72158bde242c0626c9e354d2b328865ff",
+  "sources": [
+    {
+      "name": "waimai_10k",
+      "url": "https://raw.githubusercontent.com/SophonPlus/ChineseNlpCorpus/a0b781d72158bde242c0626c9e354d2b328865ff/datasets/waimai_10k/waimai_10k.csv",
+      "sha256": "b8b5c11c00b51578d35937fca56e03a126b45381f1ea4b22893237cb377a26fe",
+      "rows": 11987,
+      "homepage": "https://github.com/SophonPlus/ChineseNlpCorpus",
+      "license_note": "以上游发布页声明为准（仅限课程/研究用途）"
+    },
+    {
+      "name": "chnsenticorp",
+      "url": "https://raw.githubusercontent.com/SophonPlus/ChineseNlpCorpus/a0b781d72158bde242c0626c9e354d2b328865ff/datasets/ChnSentiCorp_htl_all/ChnSentiCorp_htl_all.csv",
+      "sha256": "1d414b9c65caf3a836abdb4efded621968502ad3338e1a9d885ae131c86083f0",
+      "rows": 7766,
+      "homepage": "https://github.com/SophonPlus/ChineseNlpCorpus",
+      "license_note": "以上游发布页声明为准（仅限课程/研究用途）"
+    }
+  ],
+  "annotation": "upstream_existing_labels",
+  "domain": "hotel_and_takeaway_reviews",
+  "bilibili_annotations": false,
+  "sampling": "all_rows_then_clean_audit_and_stratified_split",
+  "dataset_version": "753bc2014c69bdc1",
+  "stats": {
+    "total": 19711,
+    "vocab_size": 9753,
+    "min_freq": 3,
+    "max_len": 200,
+    "length": {
+      "count": 19711,
+      "mean": 34.39074628380092,
+      "median": 16,
+      "p90": 80.0,
+      "max": 1410
+    },
+    "labels": {
+      "negative": 10408,
+      "positive": 9303
+    },
+    "truncated_ratio": 0.019430774694333113,
+    "token_count": 483303,
+    "oov_count": 22893,
+    "oov_ratio": 0.04736780032402033,
+    "task": {
+      "name": "binary_sentiment",
+      "num_classes": 2,
+      "label_map": {
+        "negative": 0,
+        "positive": 1
+      },
+      "neutral_policy": "excluded_from_supervised_training",
+      "low_confidence_policy": "review_required_not_a_neutral_training_class"
+    },
+    "pipeline_version": "1.1.0",
+    "input_rows": 19753,
+    "excluded_rows": 42,
+    "exclusion_reasons": {
+      "conflicting_text_labels": 27,
+      "duplicate_text": 14,
+      "empty_after_cleaning": 1
+    },
+    "seed": 42,
+    "target_ratios": [
+      0.7,
+      0.1,
+      0.2
+    ],
+    "group_key": null,
+    "split_method": "stratified",
+    "course_requirements_met": true,
+    "course_check_issues": [],
+    "demo_mode": false,
+    "warnings": [
+      "未提供 video_id，采用按标签分层划分；不能据此声称跨视频独立评估"
+    ],
+    "splits": {
+      "train": {
+        "total": 13797,
+        "vocab_size": 9753,
+        "min_freq": 3,
+        "max_len": 200,
+        "length": {
+          "count": 13797,
+          "mean": 35.029571646010005,
+          "median": 16,
+          "p90": 81.0,
+          "max": 1410
+        },
+        "labels": {
+          "negative": 7285,
+          "positive": 6512
+        },
+        "truncated_ratio": 0.02065666449228093,
+        "token_count": 483303,
+        "oov_count": 22893,
+        "oov_ratio": 0.04736780032402033,
+        "groups": null
+      },
+      "val": {
+        "total": 1971,
+        "vocab_size": 9753,
+        "min_freq": 3,
+        "max_len": 200,
+        "length": {
+          "count": 1971,
+          "mean": 33.84677828513445,
+          "median": 17,
+          "p90": 81.0,
+          "max": 601
+        },
+        "labels": {
+          "negative": 1041,
+          "positive": 930
+        },
+        "truncated_ratio": 0.015728056823947234,
+        "token_count": 66712,
+        "oov_count": 4109,
+        "oov_ratio": 0.06159311668065715,
+        "groups": null
+      },
+      "test": {
+        "total": 3943,
+        "vocab_size": 9753,
+        "min_freq": 3,
+        "max_len": 200,
+        "length": {
+          "count": 3943,
+          "mean": 32.42733958914532,
+          "median": 16,
+          "p90": 77.0,
+          "max": 678
+        },
+        "labels": {
+          "negative": 2082,
+          "positive": 1861
+        },
+        "truncated_ratio": 0.016992137966015723,
+        "token_count": 127861,
+        "oov_count": 8059,
+        "oov_ratio": 0.06302938347111316,
+        "groups": null
+      }
+    },
+    "overall_oov_ratio": 0.05172184883371,
+    "overall_oov_count": 35061,
+    "overall_token_count": 677876,
+    "oov_scope": "train",
+    "train_oov_ratio": 0.04736780032402033,
+    "val_oov_ratio": 0.06159311668065715,
+    "test_oov_ratio": 0.06302938347111316
+  },
+  "limitation": "规模和类别检查通过不代表哔哩哔哩领域效果；仍需独立人工标注的 B 站测试集评估。"
+}

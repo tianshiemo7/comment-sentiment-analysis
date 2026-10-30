@@ -121,7 +121,8 @@ def solo_payload(item: dict[str, Any]) -> dict[str, Any]:
 def empty_analysis() -> dict[str, Any]:
     """未完成 / 无产物时的聚合分析兜底（全 0，绝不编造数据）。
 
-    `method` 仍如实标注为 ``rule_placeholder``（当前唯一的预测来源）。
+    无产物时 `method` 用契约缺省值 ``rule_placeholder``；有产物时由流水线写入
+    本次真实预测来源（模型名，或降级时的 ``rule_placeholder``）。
     """
     return {
         "method": METHOD_RULE_PLACEHOLDER,
@@ -342,7 +343,10 @@ class ArtifactService:
         limit: int = DEFAULT_COMMENTS_LIMIT,
         label: str | None = None,
     ) -> dict[str, Any]:
-        """返回逐条评论的占位情感结果（可按 `label` 过滤），按 clean 表行序号排列。"""
+        """返回逐条评论的情感结果（可按 `label` 过滤），按 clean 表行序号排列。
+
+        真实模型优先；检查点缺失 / torch 未安装时降级为规则占位（``rule_placeholder``）。
+        """
         self.store.require_project(project_id)
         limit = _checked_limit(limit, MAX_COMMENTS_LIMIT, "limit")
         offset = max(int(offset), 0)

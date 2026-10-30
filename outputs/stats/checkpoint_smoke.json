@@ -1,0 +1,457 @@
+{
+  "checked_at": "2026-10-30T06:57:40+00:00",
+  "results": [
+    {
+      "model_name": "textcnn",
+      "model_type": "textcnn",
+      "checkpoint": "D:\\DevforDS\\_csa_train\\models\\checkpoints\\textcnn\\best.pt",
+      "checkpoint_bytes": 6074780,
+      "checkpoint_keys": [
+        "config",
+        "epoch",
+        "hyperparams",
+        "metrics",
+        "model_name",
+        "model_state",
+        "model_type",
+        "vocab"
+      ],
+      "best_epoch": 2,
+      "best_val_acc": 0.8807711821410451,
+      "vocab_size": 9753,
+      "vocab_in_ckpt": 9753,
+      "max_len": 200,
+      "forward_ok": true,
+      "samples_checked": 20,
+      "samples_correct": 18,
+      "samples": [
+        {
+          "text": "根本就没有送 标点分隔 订了两单 标点分隔 商家说根本就没有看到这单子 标点分隔 没看到单子是怎么完成状态的 标点感叹",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.996848,
+            0.003152
+          ],
+          "tokens": 23
+        },
+        {
+          "text": "太慢了点吧 标点分隔 将近两个小时 标点分隔 一次郁闷的订单",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.993892,
+            0.006108
+          ],
+          "tokens": 11
+        },
+        {
+          "text": "整整一个小时 标点分隔 送餐状态没有更新 标点分隔 结束后显示12 06送达 标点分隔 实际上12 30才到",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.995225,
+            0.004775
+          ],
+          "tokens": 20
+        },
+        {
+          "text": "要好服务的酒店 标点分隔 椒江就这家了 帮客人晒衣服 标点分隔 服务贴心 海鲜味道也不错",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.005304,
+            0.994696
+          ],
+          "tokens": 17
+        },
+        {
+          "text": "交通还酸方便 挺干净的 前台的服务态度也不错",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.015642,
+            0.984358
+          ],
+          "tokens": 8
+        },
+        {
+          "text": "房子还好 标点分隔 地理位置也还不错 标点分隔 但是不值得这样的价位 同样的水平 标点分隔 徐汇区的华亭宾馆才600多元",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.346593,
+            0.653407
+          ],
+          "tokens": 27
+        },
+        {
+          "text": "很破的宾馆 标点分隔 号称四星不过实际的情况比好一点的2星都差 标点分隔 早饭也是惨不忍睹",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.984011,
+            0.015989
+          ],
+          "tokens": 17
+        },
+        {
+          "text": "入住398元的高级房 标点分隔 性价比较差 房顶墙皮象鱼鳞般翘起 标点分隔 现在想起来都觉得麻人 卫生间设施比较陈旧 补",
+          "label": "positive",
+          "pred": "negative",
+          "probs": [
+            0.570491,
+            0.429509
+          ],
+          "tokens": 45
+        },
+        {
+          "text": "地理位置不错 标点分隔 酒店内装修风格和设施一般 标点分隔 早餐不错 标点分隔 服务好",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.006934,
+            0.993066
+          ],
+          "tokens": 15
+        },
+        {
+          "text": "快递小哥很给力 标点分隔 取到餐就立马送来了 标点分隔 但是餐厅晚了好久才做出来 标点分隔 导致晚了好久才吃到饭",
+          "label": "positive",
+          "pred": "negative",
+          "probs": [
+            0.630897,
+            0.369103
+          ],
+          "tokens": 27
+        },
+        {
+          "text": "选的送达时间 11 45 标点分隔 结果10点58就给我送来了 那我选择送达时间还有什么意义 饭还是一如既往的好吃 标点",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.532546,
+            0.467454
+          ],
+          "tokens": 26
+        },
+        {
+          "text": "从机场到酒店大约25分钟 标点分隔 37元左右 酒店环境还不错 标点分隔 因为以前住过的原因感觉很亲切 离傅家庄公园非常",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.013283,
+            0.986717
+          ],
+          "tokens": 67
+        },
+        {
+          "text": "比预计的送达时间晚了半个多小时",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.970025,
+            0.029975
+          ],
+          "tokens": 8
+        },
+        {
+          "text": "东西呢 标点疑问 没收到怎么就完成了",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.980227,
+            0.019773
+          ],
+          "tokens": 8
+        },
+        {
+          "text": "缺点 服务员太少 标点分隔 忙的时候能排大队 标点分隔 用餐需要出酒店到外面吃 标点分隔 索性还不如不提供早餐呢 标点分",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.706377,
+            0.293623
+          ],
+          "tokens": 35
+        },
+        {
+          "text": "速度啊 标点分隔 要快点 标点分隔 都快被你们饿死了",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.724849,
+            0.275151
+          ],
+          "tokens": 10
+        },
+        {
+          "text": "第一次入住瀛洲宾馆 标点分隔 感觉很好 标点分隔 古典园林的设计给人安静祥和的感觉 让我意想不到的是 标点分隔 前台还有",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.092695,
+            0.907305
+          ],
+          "tokens": 88
+        },
+        {
+          "text": "卫生很好 标点分隔 早餐一般 标点分隔 不过很便宜 标点分隔 只有15元 房间内拖鞋质量太差 餐厅提供的菜肴味道不错",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.123037,
+            0.876963
+          ],
+          "tokens": 23
+        },
+        {
+          "text": "不是一般的慢 标点分隔 1 30才到 再也不会来了",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.992792,
+            0.007208
+          ],
+          "tokens": 10
+        },
+        {
+          "text": "送餐速度很快 标点分隔 但是菜有点凉了",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.833756,
+            0.166244
+          ],
+          "tokens": 8
+        }
+      ]
+    },
+    {
+      "model_name": "bilstm_attention",
+      "model_type": "bilstm_attention",
+      "checkpoint": "D:\\DevforDS\\_csa_train\\models\\checkpoints\\bilstm_attention\\best.pt",
+      "checkpoint_bytes": 6736317,
+      "checkpoint_keys": [
+        "config",
+        "epoch",
+        "hyperparams",
+        "metrics",
+        "model_name",
+        "model_state",
+        "model_type",
+        "vocab"
+      ],
+      "best_epoch": 3,
+      "best_val_acc": 0.8797564687975646,
+      "vocab_size": 9753,
+      "vocab_in_ckpt": 9753,
+      "max_len": 200,
+      "forward_ok": true,
+      "samples_checked": 20,
+      "samples_correct": 18,
+      "samples": [
+        {
+          "text": "根本就没有送 标点分隔 订了两单 标点分隔 商家说根本就没有看到这单子 标点分隔 没看到单子是怎么完成状态的 标点感叹",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.993579,
+            0.006421
+          ],
+          "tokens": 23
+        },
+        {
+          "text": "太慢了点吧 标点分隔 将近两个小时 标点分隔 一次郁闷的订单",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.9948,
+            0.0052
+          ],
+          "tokens": 11
+        },
+        {
+          "text": "整整一个小时 标点分隔 送餐状态没有更新 标点分隔 结束后显示12 06送达 标点分隔 实际上12 30才到",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.994385,
+            0.005615
+          ],
+          "tokens": 20
+        },
+        {
+          "text": "要好服务的酒店 标点分隔 椒江就这家了 帮客人晒衣服 标点分隔 服务贴心 海鲜味道也不错",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.028332,
+            0.971668
+          ],
+          "tokens": 17
+        },
+        {
+          "text": "交通还酸方便 挺干净的 前台的服务态度也不错",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.041969,
+            0.958031
+          ],
+          "tokens": 8
+        },
+        {
+          "text": "房子还好 标点分隔 地理位置也还不错 标点分隔 但是不值得这样的价位 同样的水平 标点分隔 徐汇区的华亭宾馆才600多元",
+          "label": "positive",
+          "pred": "negative",
+          "probs": [
+            0.637661,
+            0.362339
+          ],
+          "tokens": 27
+        },
+        {
+          "text": "很破的宾馆 标点分隔 号称四星不过实际的情况比好一点的2星都差 标点分隔 早饭也是惨不忍睹",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.970306,
+            0.029694
+          ],
+          "tokens": 17
+        },
+        {
+          "text": "入住398元的高级房 标点分隔 性价比较差 房顶墙皮象鱼鳞般翘起 标点分隔 现在想起来都觉得麻人 卫生间设施比较陈旧 补",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.244312,
+            0.755688
+          ],
+          "tokens": 45
+        },
+        {
+          "text": "地理位置不错 标点分隔 酒店内装修风格和设施一般 标点分隔 早餐不错 标点分隔 服务好",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.018758,
+            0.981242
+          ],
+          "tokens": 15
+        },
+        {
+          "text": "快递小哥很给力 标点分隔 取到餐就立马送来了 标点分隔 但是餐厅晚了好久才做出来 标点分隔 导致晚了好久才吃到饭",
+          "label": "positive",
+          "pred": "negative",
+          "probs": [
+            0.866225,
+            0.133775
+          ],
+          "tokens": 27
+        },
+        {
+          "text": "选的送达时间 11 45 标点分隔 结果10点58就给我送来了 那我选择送达时间还有什么意义 饭还是一如既往的好吃 标点",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.537624,
+            0.462376
+          ],
+          "tokens": 26
+        },
+        {
+          "text": "从机场到酒店大约25分钟 标点分隔 37元左右 酒店环境还不错 标点分隔 因为以前住过的原因感觉很亲切 离傅家庄公园非常",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.013982,
+            0.986018
+          ],
+          "tokens": 67
+        },
+        {
+          "text": "比预计的送达时间晚了半个多小时",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.955997,
+            0.044003
+          ],
+          "tokens": 8
+        },
+        {
+          "text": "东西呢 标点疑问 没收到怎么就完成了",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.990138,
+            0.009862
+          ],
+          "tokens": 8
+        },
+        {
+          "text": "缺点 服务员太少 标点分隔 忙的时候能排大队 标点分隔 用餐需要出酒店到外面吃 标点分隔 索性还不如不提供早餐呢 标点分",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.86216,
+            0.13784
+          ],
+          "tokens": 35
+        },
+        {
+          "text": "速度啊 标点分隔 要快点 标点分隔 都快被你们饿死了",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.518834,
+            0.481166
+          ],
+          "tokens": 10
+        },
+        {
+          "text": "第一次入住瀛洲宾馆 标点分隔 感觉很好 标点分隔 古典园林的设计给人安静祥和的感觉 让我意想不到的是 标点分隔 前台还有",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.025865,
+            0.974135
+          ],
+          "tokens": 88
+        },
+        {
+          "text": "卫生很好 标点分隔 早餐一般 标点分隔 不过很便宜 标点分隔 只有15元 房间内拖鞋质量太差 餐厅提供的菜肴味道不错",
+          "label": "positive",
+          "pred": "positive",
+          "probs": [
+            0.223262,
+            0.776738
+          ],
+          "tokens": 23
+        },
+        {
+          "text": "不是一般的慢 标点分隔 1 30才到 再也不会来了",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.995645,
+            0.004355
+          ],
+          "tokens": 10
+        },
+        {
+          "text": "送餐速度很快 标点分隔 但是菜有点凉了",
+          "label": "negative",
+          "pred": "negative",
+          "probs": [
+            0.966177,
+            0.033823
+          ],
+          "tokens": 8
+        }
+      ]
+    }
+  ]
+}

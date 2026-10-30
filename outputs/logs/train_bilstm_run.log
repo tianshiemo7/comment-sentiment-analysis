@@ -1,0 +1,82 @@
+[data] train=13797（{'negative': 7285, 'positive': 6512}） val=1971（{'negative': 1041, 'positive': 930}） vocab=9753
+[train] step 50 loss=0.4926
+[train] step 100 loss=0.2119
+[train] step 150 loss=0.2058
+[train] step 200 loss=0.1667
+[train] epoch 1/20 train_loss=0.3517 train_acc=0.8499 val_loss=0.3151 val_acc=0.8742
+[train] step 50 loss=0.2422
+[train] step 100 loss=0.2498
+[train] step 150 loss=0.2178
+[train] step 200 loss=0.3821
+[train] epoch 2/20 train_loss=0.2625 train_acc=0.8956 val_loss=0.3233 val_acc=0.8767
+[train] step 50 loss=0.1620
+[train] step 100 loss=0.2556
+[train] step 150 loss=0.1161
+[train] step 200 loss=0.0979
+[train] epoch 3/20 train_loss=0.2207 train_acc=0.9136 val_loss=0.3092 val_acc=0.8798
+[train] step 50 loss=0.2343
+[train] step 100 loss=0.1744
+[train] step 150 loss=0.1244
+[train] step 200 loss=0.1613
+[train] epoch 4/20 train_loss=0.1875 train_acc=0.9304 val_loss=0.3376 val_acc=0.8716
+[train] step 50 loss=0.1424
+[train] step 100 loss=0.1486
+[train] step 150 loss=0.1141
+[train] step 200 loss=0.1398
+[train] epoch 5/20 train_loss=0.1499 train_acc=0.9461 val_loss=0.3606 val_acc=0.8727
+[train] step 50 loss=0.0815
+[train] step 100 loss=0.0667
+[train] step 150 loss=0.2162
+[train] step 200 loss=0.1978
+[train] epoch 6/20 train_loss=0.1275 train_acc=0.9534 val_loss=0.3983 val_acc=0.8595
+[train] 早停：验证集连续 3 轮未提升，停止训练
+[train] 完成：best_epoch=3 best_val_acc=0.8798
+{
+  "model": "bilstm_attention",
+  "best_epoch": 3,
+  "best_val_acc": 0.879756,
+  "checkpoint": "models\\checkpoints\\bilstm_attention\\best.pt",
+  "log": "outputs\\logs\\train_bilstm_attention_20261030_145328.json",
+  "test_metrics": {
+    "accuracy": 0.9008369261983261,
+    "precision": 0.9180887372013652,
+    "recall": 0.8672756582482536,
+    "f1": 0.8919591047250621,
+    "macro_precision": 0.9025226294702478,
+    "macro_recall": 0.8990556965592853,
+    "macro_f1": 0.9001628192948019
+  },
+  "confusion_matrix": {
+    "matrix": [
+      [
+        1938,
+        144
+      ],
+      [
+        247,
+        1614
+      ]
+    ],
+    "tn": 1938,
+    "fp": 144,
+    "fn": 247,
+    "tp": 1614,
+    "labels": [
+      "negative",
+      "positive"
+    ]
+  },
+  "metrics_json": "outputs\\stats\\metrics_bilstm_attention.json",
+  "comparison_csv": "outputs\\stats\\model_comparison.csv",
+  "error_cases": "outputs\\predictions\\error_cases_bilstm_attention.csv",
+  "figures": [
+    "outputs\\figures\\loss_curve_bilstm_attention.png",
+    "outputs\\figures\\loss_curve.png",
+    "outputs\\figures\\accuracy_curve_bilstm_attention.png",
+    "outputs\\figures\\accuracy_curve.png",
+    "outputs\\figures\\confusion_matrix_bilstm_attention.png",
+    "outputs\\figures\\wordcloud_positive.png",
+    "outputs\\figures\\wordcloud_negative.png"
+  ]
+}
+EXIT=0 WALL_SEC=249.4

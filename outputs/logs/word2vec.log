@@ -1,0 +1,14 @@
+{
+  "sentences": 13797,
+  "model": "models\\word2vec\\word2vec.model",
+  "params": "models\\word2vec\\word2vec_params.json",
+  "embedding_matrix": "models\\word2vec\\embedding_matrix.npy",
+  "matrix_shape": [
+    9753,
+    128
+  ],
+  "vocab_covered": 9751,
+  "vocab_size": 9753,
+  "oov_strategy": "mean"
+}
+EXIT=0 WALL_SEC=17.3

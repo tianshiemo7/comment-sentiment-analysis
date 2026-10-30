@@ -1,7 +1,9 @@
 """后台处理流水线：`queued → crawling → processing → completed`（失败则 `failed`）。
 
-**默认仍是占位流水线**：不联网，按可配置时长推进状态机 + 生成占位 detail，
-让前端把状态、进度条、子步骤走通，绝不让任务永远卡在 `crawling`。
+**评论采集默认仍是占位数据**：不联网，按可配置时长推进状态机 + 生成占位 detail，
+让前端把状态、进度条、子步骤走通，绝不让任务永远卡在 `crawling`；
+**情感推理阶段已接真实模型**（`src.inference.service.get_predictor` / `predict_text`，
+加载失败回退 `predict_rule_based`），见下方「真实接入点」表。
 
 **两种运行模式**：
 
@@ -20,15 +22,22 @@
 ``src.crawler.fetch_video_comments``），账号模式下把服务端已保存 Cookie **逐任务**
 注入 ``BiliClient``（不读全局环境写回、不进日志与任务索引）。
 
-真实接入点（后续只需替换各阶段的数据来源，结构不变）：
+真实接入点（各阶段的数据来源，结构不变）：
 
 | 阶段 | 旧路径（占位） | 分步流水线 |
 | --- | --- | --- |
 | 采集评论 | 确定性种子「假装」爬到 N 条 | 真实爬虫 / 占位计数 → `crawl.json` |
 | 文本清洗 | 无实际操作，只推时间 | `clean_text` 去空去重 → `clean.json` |
-| 情感推理 | 无实际操作，只推时间 | 逐条 `predict_rule_based` → `analyze.json` |
+| 情感推理 | 无实际操作，只推时间（真实评论时由 `placeholder` 逐条预测） | **真实模型** `src.inference.service.predict_text` 逐条预测（加载失败回退 `predict_rule_based`）→ `analyze.json` |
 | 统计分析 | 无实际操作，只推时间 | `placeholder.build_detail(comments=...)` 聚合 |
 | 生成 detail | `placeholder.build_detail` | 同上（真实评论 → `placeholder: false`） |
+
+**情感推理已接真实模型**（2026-10-30）：优先
+``src.inference.service.get_predictor()`` 取当前生效模型，逐条走
+``predict_text(text, model=model)``；模型不可用（未训练 / torch 缺失 / 权重损坏）时
+回退规则占位 ``predict_rule_based``，单条推理异常退化为中性 0.5/0.5，不拖垮任务。
+``analyze.json`` 的顶层 ``method`` 如实标注本次来源（模型名 / ``rule_placeholder``；
+内部审计字段，不是 HTTP 响应字段）；``detail.placeholder`` 仍只表示评论数据是否真实。
 
 并发模型：**单工作线程 + 队列**（`service.VideoService`），不引入 Celery / Redis /
 APScheduler；`stop_event` 被置位时流水线立刻放弃当前阶段并抛
@@ -41,6 +50,7 @@ APScheduler；`stop_event` 被置位时流水线立刻放弃当前阶段并抛
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Mapping
@@ -48,6 +58,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
 
+from ..inference import service
 from . import crawler_adapter, placeholder
 from . import settings as video_settings
 from .config import PipelineConfig
@@ -62,6 +73,9 @@ from .messages import (
 )
 from .schemas import PHASE_NAMES
 from .store import VideoStore, now_iso
+
+#: 日志（模型加载失败只降级、不失败任务，但必须留下可排查的告警）
+_LOGGER = logging.getLogger(__name__)
 
 #: 进度区间划分：`(起始 progress, 结束 progress)`
 PHASE_PROGRESS_RANGES: tuple[tuple[int, int], ...] = ((0, 40), (40, 60), (60, 85), (85, 100))
@@ -549,29 +563,93 @@ def _clean_comment_records(
     }
 
 
+#: 单条预测失败时的中性兜底（与既有契约一致：positive 0.5 / negative 0.5）
+_NEUTRAL_CONFIDENCE = 0.5
+
+#: 「未显式传入模型」的哨兵（``None`` 是合法取值，表示规则占位模式）
+_MODEL_UNSET = object()
+
+
+def _neutral_prediction(text: str) -> dict[str, Any]:
+    """单条预测异常时的中性结果：不把整份 detail 拖垮。"""
+    return {
+        "text": text,
+        "label": "positive",
+        "confidence": _NEUTRAL_CONFIDENCE,
+        "probs": {"positive": _NEUTRAL_CONFIDENCE, "negative": _NEUTRAL_CONFIDENCE},
+    }
+
+
+def _active_predictor() -> Any:
+    """取当前生效的真实预测器；不可用（未训练 / torch 缺失 / 权重损坏）时返回 ``None``。
+
+    ``service.get_predictor`` 是 T1 锁定的统一接口：正常返回 ``Predictor``，
+    检查点缺失或 torch 不可用时返回 ``None``（走规则占位）；权重损坏时可能抛
+    :class:`RuntimeError`。两种情况都必须降级到规则占位，**不能让任务 failed**。
+    """
+    getter = getattr(service, "get_predictor", None)
+    if not callable(getter):
+        return None
+    try:
+        return getter()
+    except Exception:  # noqa: BLE001 - 加载失败回退规则占位，保任务可用
+        _LOGGER.warning("视频情感推理加载真实模型失败，回退规则占位", exc_info=True)
+        return None
+
+
+def _resolve_prediction_method(model: Any) -> str:
+    """本次预测的来源标识（真实模型 → 模型名；规则占位 → ``rule_placeholder``）。"""
+    resolver = getattr(service, "resolve_method", None)
+    if callable(resolver):
+        try:
+            return str(resolver(model))
+        except Exception:  # noqa: BLE001 - 来源标注失败不能拖垮任务
+            _LOGGER.warning("解析情感预测来源失败，按占位标注", exc_info=True)
+    if model is None:
+        return "rule_placeholder"
+    return str(getattr(model, "model_name", "") or "unknown_model")
+
+
+def _predict_one_text(text: str, model: Any) -> dict[str, Any]:
+    """单条情感预测：真实模型优先，模型缺失回退规则，单条异常退化为中性 0.5/0.5。"""
+    if model is not None:
+        try:
+            return service.predict_text(text, model=model)
+        except Exception:  # noqa: BLE001 - 单条预测失败不能拖垮整个任务
+            _LOGGER.warning("单条真实模型预测失败，退化为中性", exc_info=True)
+            return _neutral_prediction(text)
+    try:
+        rule = getattr(service, "predict_rule_based", None)
+        if callable(rule):
+            return rule(text)
+        # 兼容只保留统一入口的推理层：model=None 时 predict_text 走规则分支
+        return service.predict_text(text)
+    except Exception:  # noqa: BLE001 - 单条预测失败不能拖垮整个任务
+        return _neutral_prediction(text)
+
+
 def _predict_cleaned_records(
     records: list[Mapping[str, Any]],
+    *,
+    model: Any = _MODEL_UNSET,
 ) -> list[dict[str, Any]]:
-    """分析阶段：对每条清洗后评论调用 ``predict_rule_based``（确定性规则占位预测）。
+    """分析阶段：逐条情感预测（真实模型优先，规则占位回退）。
 
-    单条预测异常时退化为中性（0.5），不影响整份 detail 的构建。
+    优先 ``src.inference.service.get_predictor()`` 取真实模型，逐条
+    ``service.predict_text(text, model=model)``；模型不可用时回退
+    ``predict_rule_based``（结果与接入真实模型前一致，既有测试保持确定）。
+    单条预测异常时退化为中性（0.5/0.5），不影响整份 detail 的构建。
+
+    Args:
+        records: 清洗后的评论记录（至少含 ``text`` 字段）。
+        model: 可注入的预测器；**默认哨兵**表示按 :func:`_active_predictor`
+            现场解析（单测 / 分步流水线可显式传入，避免重复加载）。
     """
-    from ..inference.service import predict_rule_based
-
+    active_model = _active_predictor() if model is _MODEL_UNSET else model
     predictions: list[dict[str, Any]] = []
     for record in records:
         text = str(record.get("text") or "")
-        try:
-            predictions.append(predict_rule_based(text))
-        except Exception:  # noqa: BLE001 - 单条预测失败不能拖垮整个任务
-            predictions.append(
-                {
-                    "text": text,
-                    "label": "positive",
-                    "confidence": 0.5,
-                    "probs": {"positive": 0.5, "negative": 0.5},
-                }
-            )
+        predictions.append(_predict_one_text(text, active_model))
     return predictions
 
 
@@ -755,7 +833,7 @@ def _staged_analyze_stage(
     *,
     stop_event: threading.Event | None,
 ) -> dict[str, Any]:
-    """「情感推理 + 统计分析」阶段（分步流水线）：逐条预测 + 复用占位聚合生成 detail。"""
+    """「情感推理 + 统计分析」阶段（分步流水线）：逐条真实模型预测 + 复用占位聚合生成 detail。"""
     clean_artifact = store.read_stage(bvid, STAGE_CLEAN)
     crawl_artifact = store.read_stage(bvid, STAGE_CRAWL)
     if not isinstance(clean_artifact, Mapping) or not isinstance(crawl_artifact, Mapping):
@@ -768,7 +846,9 @@ def _staged_analyze_stage(
         for record in (clean_artifact.get("records") or [])
         if isinstance(record, Mapping)
     ]
-    predictions = _predict_cleaned_records(cleaned)
+    # 占位模式（没有真实清洗后评论）不加载模型权重：分析产物为空，也就没有需要标注的来源。
+    active_model = _active_predictor() if cleaned else None
+    predictions = _predict_cleaned_records(cleaned, model=active_model)
     total_for_progress = len(cleaned) or int(crawl_artifact.get("comment_total") or 0)
     store.write_stage(
         bvid,
@@ -777,6 +857,9 @@ def _staged_analyze_stage(
             "bvid": bvid,
             "comment_total": len(cleaned),
             "predictions": predictions,
+            # 内部审计字段（不是 HTTP 响应字段）：本次预测来源，如实标注
+            # 模型名（真实模型）或 rule_placeholder（加载失败回退规则占位）
+            "method": _resolve_prediction_method(active_model),
             "analyzed_at": now_iso(),
         },
     )

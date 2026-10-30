@@ -1,8 +1,9 @@
 /**
  * mock/index.js — Vite 开发服务器 mock 插件
  *
- * ⚠️ 真实后端（FastAPI :8000）就绪后，删除 vite.config.js 里的一行 `mockApiPlugin(),`
- *    即可完全关闭本 mock，前端业务代码一行都不用改（mock 只依赖契约字段约定）。
+ * ⚠️ 默认不加载：只有显式 `VITE_USE_MOCK=1 npm run dev`（demo 模式）才会接入本插件；
+ *    删除 vite.config.js 里的 `mockApiPlugin()` 引用（及本目录）即可彻底移除，
+ *    前端业务代码一行都不用改（mock 只依赖契约字段约定）。
  *
  * 挂载方式：configureServer 中「直接」调用 server.middlewares.use(...)，
  * 中间件注册位置早于 Vite 内建中间件（含 server.proxy），因此：

@@ -1,5 +1,15 @@
 {
-  "pipeline_version": "1.0.0",
+  "pipeline_version": "1.1.0",
+  "task": {
+    "name": "binary_sentiment",
+    "num_classes": 2,
+    "label_map": {
+      "negative": 0,
+      "positive": 1
+    },
+    "neutral_policy": "excluded_from_supervised_training",
+    "low_confidence_policy": "review_required_not_a_neutral_training_class"
+  },
   "lang": "zh",
   "max_len": 200,
   "stopwords": [
@@ -67,7 +77,7 @@
     "然而",
     "非常"
   ],
-  "userdict_text": "三连 10000\n一键三连 10000\n爷青回 10000\n绷不住 10000\n绷不住了 10000\nup主 10000\nb站 10000\n表情狗头 10000\n表情笑哭 10000\n表情吃瓜 10000\n表情喜欢 10000\n表情生气 10000\n表情难过 10000\n表情点赞 10000\n表情爱心 10000\n表情踩 10000\n表情哭泣 10000\n表情未知 10000\n标点感叹 10000\n标点疑问 10000\n",
+  "userdict_text": "三连 10000\n一键三连 10000\n爷青回 10000\n绷不住 10000\n绷不住了 10000\nup主 10000\nb站 10000\n表情狗头 10000\n表情笑哭 10000\n表情吃瓜 10000\n表情喜欢 10000\n表情生气 10000\n表情难过 10000\n表情点赞 10000\n表情爱心 10000\n表情踩 10000\n表情哭泣 10000\n表情未知 10000\n标点感叹 10000\n标点疑问 10000\n标点分隔 10000\n",
   "emoji_map": {
     "[doge]": "表情狗头",
     "[笑哭]": "表情笑哭",

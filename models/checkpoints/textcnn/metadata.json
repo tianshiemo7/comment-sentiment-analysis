@@ -1,17 +1,19 @@
 {
   "model_name": "textcnn",
   "model_type": "textcnn",
-  "epoch": 1,
+  "epoch": 2,
   "metrics": {
-    "val_loss": 0.7755347490310669,
-    "val_acc": 0.5
+    "val_loss": 0.30440391507141484,
+    "val_acc": 0.8807711821410451
   },
   "hyperparams": {
-    "vocab_size": 6,
-    "embed_dim": 8,
-    "num_filters": 2,
+    "vocab_size": 9753,
+    "embed_dim": 128,
+    "num_filters": 100,
     "filter_sizes": [
-      2
+      2,
+      3,
+      4
     ],
     "num_classes": 2,
     "dropout": 0.5,

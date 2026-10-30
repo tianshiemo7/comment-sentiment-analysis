@@ -1,0 +1,77 @@
+[data] train=13797（{'negative': 7285, 'positive': 6512}） val=1971（{'negative': 1041, 'positive': 930}） vocab=9753
+[train] step 50 loss=0.4299
+[train] step 100 loss=0.3295
+[train] step 150 loss=0.3873
+[train] step 200 loss=0.2581
+[train] epoch 1/20 train_loss=0.3659 train_acc=0.8400 val_loss=0.3133 val_acc=0.8762
+[train] step 50 loss=0.2396
+[train] step 100 loss=0.3654
+[train] step 150 loss=0.2944
+[train] step 200 loss=0.3137
+[train] epoch 2/20 train_loss=0.2592 train_acc=0.9000 val_loss=0.3044 val_acc=0.8808
+[train] step 50 loss=0.2882
+[train] step 100 loss=0.1932
+[train] step 150 loss=0.1964
+[train] step 200 loss=0.2514
+[train] epoch 3/20 train_loss=0.2140 train_acc=0.9172 val_loss=0.3111 val_acc=0.8798
+[train] step 50 loss=0.1852
+[train] step 100 loss=0.1234
+[train] step 150 loss=0.0809
+[train] step 200 loss=0.2229
+[train] epoch 4/20 train_loss=0.1758 train_acc=0.9340 val_loss=0.3234 val_acc=0.8782
+[train] step 50 loss=0.0870
+[train] step 100 loss=0.1995
+[train] step 150 loss=0.1297
+[train] step 200 loss=0.0994
+[train] epoch 5/20 train_loss=0.1408 train_acc=0.9496 val_loss=0.3690 val_acc=0.8661
+[train] 早停：验证集连续 3 轮未提升，停止训练
+[train] 完成：best_epoch=2 best_val_acc=0.8808
+{
+  "model": "textcnn",
+  "best_epoch": 2,
+  "best_val_acc": 0.880771,
+  "checkpoint": "models\\checkpoints\\textcnn\\best.pt",
+  "log": "outputs\\logs\\train_textcnn_20261030_145201.json",
+  "test_metrics": {
+    "accuracy": 0.8960182602079635,
+    "precision": 0.9059876888640179,
+    "recall": 0.8699623858140785,
+    "f1": 0.887609649122807,
+    "macro_precision": 0.8968713954524171,
+    "macro_recall": 0.8946353715813908,
+    "macro_f1": 0.8954329510361558
+  },
+  "confusion_matrix": {
+    "matrix": [
+      [
+        1914,
+        168
+      ],
+      [
+        242,
+        1619
+      ]
+    ],
+    "tn": 1914,
+    "fp": 168,
+    "fn": 242,
+    "tp": 1619,
+    "labels": [
+      "negative",
+      "positive"
+    ]
+  },
+  "metrics_json": "outputs\\stats\\metrics_textcnn.json",
+  "comparison_csv": "outputs\\stats\\model_comparison.csv",
+  "error_cases": "outputs\\predictions\\error_cases_textcnn.csv",
+  "figures": [
+    "outputs\\figures\\loss_curve_textcnn.png",
+    "outputs\\figures\\loss_curve.png",
+    "outputs\\figures\\accuracy_curve_textcnn.png",
+    "outputs\\figures\\accuracy_curve.png",
+    "outputs\\figures\\confusion_matrix_textcnn.png",
+    "outputs\\figures\\wordcloud_positive.png",
+    "outputs\\figures\\wordcloud_negative.png"
+  ]
+}
+EXIT=0 WALL_SEC=80.6

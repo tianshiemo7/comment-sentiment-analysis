@@ -78,8 +78,8 @@ outputs/videos/
 
 ## 真实爬取（opt-in，默认关闭）
 
-默认 `real_crawl=False`：不发起任何网络请求、不加载模型权重，detail 由
-`placeholder.py` 用「`sha256(bvid)` 派生的确定性伪随机」生成，响应顶层
+默认 `real_crawl=False`：不发起任何网络请求；占位路径不产生真实评论，也就**不会加载模型权重**，
+detail 由 `placeholder.py` 用「`sha256(bvid)` 派生的确定性伪随机」生成，响应顶层
 `placeholder: true`，标题/UP 主带「占位」字样。
 
 设置 `VIDEO_REAL_CRAWL=1`（或测试里 `PipelineConfig(real_crawl=True)`）后，
@@ -100,24 +100,54 @@ outputs/videos/
 - `comment_count` / `video.comment_total` = 真实条数；
 - `top_comments`、`keywords`（已过滤 URL/@提及/[表情] 噪声）、`trend`（按 `ctime_utc` 分天）、
   `length_stats` 来自真实评论；
-- 顶层 `placeholder=false` **只表示评论数据真实**；情感极性仍是
-  `predict_rule_based`（`method=rule_placeholder`），真实模型接入后才会变化；
+- 顶层 `placeholder=false` **只表示评论数据真实**（语义不变）；情感极性由**真实模型**预测，
+  见下一节；
 - 采集失败或空结果：任务落 `failed`（`error` 含可读原因），不会卡在 `crawling`；
 - 真实采集已消耗真实网络时间，因此不再额外 sleep「采集评论」的模拟时长。
 
-**诚实说明**：真实采集只改变「评论数据」来源，文本清洗/情感推理/统计分析仍是占位或规则实现。
-完整真实链路需要接入 `src/preprocessing` 与训练出的模型检查点。
+## 情感推理（真实模型优先，2026-10-30 接入）
 
-## 与契约的两点明确说明（新增而非改名）
+「情感推理」阶段不再硬编码规则预测：
+
+1. 优先 `src.inference.service.get_predictor()` 取当前生效模型（`ACTIVE_MODEL`，默认
+   `bilstm_attention`），逐条走 `service.predict_text(text, model=model)`；
+   旧路径（真实评论 → `placeholder.build_detail(comments=...)`）与分步路径
+   （逐条预测 → `analyze.json` → 复用占位聚合）**两条路径都走真实模型**；
+2. 模型不可用时**回退规则占位**：检查点不存在 / PyTorch 未安装 → `get_predictor()` 返回
+   `None` → `predict_rule_based`；权重损坏（`RuntimeError`）同样降级，只记 warning，
+   **不会让任务 `failed`**；
+3. 单条预测异常退化为中性 `0.5/0.5`，不影响整份 detail；
+4. `method` 如实标注来源：`POST /api/predict` 与数据项目接口的 `method` 字段为模型名，
+   回退时为 `rule_placeholder`；视频任务把本次来源写进**内部审计产物**
+   `outputs/videos/<bvid>/analyze.json` 的顶层 `method`（HTTP 详情契约**不新增字段**）；
+5. `detail.placeholder` 语义保持「评论数据是否真实」，与模型结果无关；
+6. **冒烟权重提醒**：仓库 `models/checkpoints/` 当前是词表仅 6 项的冒烟检查点（用于验证
+   加载 / 推理链路），**不代表真实准确率**；真实训练权重由训练任务另行产出。
+
+```bash
+# 真实采集的离线用例（monkeypatch，不联网）
+python -m pytest tests/test_videos_real_crawl.py -q
+# 真实模型加载 / FakePredictor 注入 / 加载失败回退（仓库自带的冒烟检查点）
+python -m pytest tests/test_videos_real_model.py -q
+```
+
+**诚实说明**：真实采集只改变「评论数据」来源；文本清洗已接
+`src.preprocessing.clean.clean_text`，情感推理已接 `src.inference` 真实模型
+（加载失败回退规则占位）；统计分析仍复用 `placeholder.py` 的聚合逻辑。
+
+## 与契约的明确说明（新增而非改名）
 
 1. 详情响应多一个**顶层** `placeholder` 字段，用于诚实标注数据来源
-   （占位数据 `true`；真实爬取评论 `false`，但情感方法仍可能是规则占位）；
+   （占位数据 `true`；真实爬取评论 `false`——**只表示评论数据真实**，情感推理已接真实
+   模型、加载失败回退规则占位；来源由 `method` 如实标注：`/api/predict` / 数据项目接口，
+   视频任务见内部 `analyze.json` 的 `method`）；
 2. 详情未完成时：`sentiment` 为 `null`，`trend` / `top_comments` 为 `[]`，
    `keywords` 保持 `{"positive": [], "negative": []}` 的结构，`analysis.length_stats` 为 `null`；
    `model` 是「当前生效模型」的静态指标（与视频无关），因此始终返回对象。
 
 `model` 字段：优先读 `GET /api/models` 背后的 `outputs/stats/metrics_<model>.json`
-**真实指标**；未训练（指标全 0）时退回契约示例里的占位指标，保证前端图表可渲染。
+**真实指标**；指标文件缺失或指标全为 0（尚未训练）时退回契约示例里的占位指标，
+保证前端图表可渲染（字段不变，不改契约）。
 
 ## 分层
 
@@ -129,14 +159,15 @@ outputs/videos/
 | `errors.py` | 400 / 409 / 404 异常与契约锁定的错误文案 |
 | `messages.py` | 各状态 `message` 文案 |
 | `store.py` | 线程安全 + 原子写的落盘存储 |
-| `pipeline.py` | 单任务流水线（可中断、可失败、进度单调） |
-| `placeholder.py` | 占位 detail 生成（诚实标注） |
+| `pipeline.py` | 单任务流水线（可中断、可失败、进度单调；情感阶段真实模型优先） |
+| `placeholder.py` | 占位 / 真实评论 detail 生成（真实模型预测 + 诚实标注） |
 | `service.py` | 业务逻辑 + 队列 / 单工作线程 / 启动恢复 / 优雅退出 |
 
 ## 自测
 
 ```bash
 python -m pytest tests/test_videos_api.py tests/test_videos_pipeline.py -q
-python -m pytest tests/test_videos_real_crawl.py -q    # 真实采集的离线用例（monkeypatch，不联网）
-python -m pytest tests/ -q                           # 全量（当前 462 项）
+python -m pytest tests/test_videos_real_crawl.py -q      # 真实采集的离线用例（monkeypatch，不联网）
+python -m pytest tests/test_videos_real_model.py -q      # 真实模型加载 / FakePredictor 注入 / 回退
+python -m pytest tests/ -q                              # 全量（既有用例在规则占位模式下保持确定）
 ```

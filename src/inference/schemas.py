@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .service import METHOD_RULE_PLACEHOLDER
+
 #: 标签取值（顺序与 `src/models/base.py` 的 logits 顺序一致）
 LABEL_PATTERN = "^(positive|negative)$"
 
@@ -34,9 +36,9 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     """``POST /api/predict`` 响应。
 
-    ``method`` 是**新增字段**（纯增量）：如实标注本次结果的来源，
-    当前固定为 ``rule_placeholder``（规则 / 词典占位预测器，**不是训练模型**），
-    接入真实模型后为模型名（如 ``bilstm_attention``）。
+    ``method`` 如实标注本次结果的来源：真实检查点可用时为**模型名**
+    （如 ``bilstm_attention`` / ``textcnn``）；检查点缺失或 torch 未安装时降级为
+    ``rule_placeholder``（规则 / 词典占位预测器，**不是训练模型**）。
     ``text`` / ``label`` / ``confidence`` / ``probs`` 四个既有字段的名字与语义**保持不变**。
     """
 
@@ -48,10 +50,11 @@ class PredictResponse(BaseModel):
         description='两类概率，形如 {"positive": 0.93, "negative": 0.07}，和为 1',
     )
     method: str = Field(
-        "rule_placeholder",
+        METHOD_RULE_PLACEHOLDER,
         description=(
-            "预测来源：当前为 rule_placeholder（规则 / 词典占位，不是训练模型），"
-            "真实模型接入后为模型名。新增字段，前端可用它决定是否显示「规则占位」标识。"
+            "预测来源：真实模型可用时为模型名（如 textcnn），"
+            "降级规则占位时为 rule_placeholder（不是训练模型）。"
+            "新增字段，前端可用它决定是否显示「规则占位」标识。"
         ),
     )
 
@@ -96,7 +99,7 @@ class ModelInfo(BaseModel):
     name: str = Field(..., description="模型名称，如 textcnn / bilstm_attention")
     type: str = Field(..., description="模型类型（与 name 对应，供前端分组展示）")
     metrics: ModelMetrics = Field(..., description="测试集指标")
-    ready: bool = Field(..., description="检查点是否就绪（False 表示仍是占位实现）")
+    ready: bool = Field(..., description="检查点是否就绪（False 表示预测会降级为规则占位）")
 
 
 class ModelsResponse(BaseModel):

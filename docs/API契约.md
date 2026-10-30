@@ -7,9 +7,11 @@
 转发 `/api`、`/health` 到后端。所有路径前端的写法都是**同源相对路径**（如 `/api/videos`）。
 
 情感类别口径：监督训练固定为正负二分类（`negative=0、positive=1、num_classes=2`）。
-下文响应示例及筛选条件中的 `neutral` 保留给当前规则推理未命中正负词时的占位结果，
+下文响应示例及筛选条件中的 `neutral` 保留给当前规则推理未命中正负词时的占位结果
+（真实模型推理只输出 positive/negative，不会产生 neutral），
 不是已训练模型的第三类，也不是低置信度预测的默认归类。训练入口排除 neutral/uncertain/irrelevant，
-不把规则占位结果回灌为人工标签。真实二分类模型上线后只输出 positive/negative；低置信度需另行定义复核状态。
+不把模型预测结果回灌为人工标签。真实二分类模型已接入推理服务（加载失败时回退规则占位，
+`method` 如实标注）；低置信度需另行定义复核状态。
 
 ---
 
@@ -220,8 +222,12 @@ GET /api/videos/{bvid}/detail
 
 约定：
 
-- `placeholder`：`true` 表示当前结果由**占位逻辑**生成（真实爬虫与模型尚未接入）；
-  接入真实数据后置为 `false`，前端可据此显示「占位数据」提示。
+- `placeholder`：`true` 表示当前 detail 的**评论数据**由占位逻辑生成
+  （默认 `crawl.real_crawl=false` 时的确定性伪随机数据；真实爬虫接入后置为 `false`，
+  前端可据此显示「占位数据」提示）。**该字段只标注评论数据来源**：情感推理已接入真实模型
+  （加载失败时回退规则占位），预测来源由 `method` 字段如实标注
+  （`POST /api/predict` 与数据项目接口；视频任务见内部产物 `analyze.json` 的 `method`，
+  不新增详情响应字段）。
 - **顶层 `pipeline`**（2026-10-17 新增，additive，未完成时也返回）：`account_mode`
   （`anonymous` / `account`）、`auto_clean`、`auto_analyze`、`next_action`
   （`null` / `"clean"` / `"analyze"`）与本任务的 `crawl` 参数快照。
@@ -506,7 +512,9 @@ cleaned →（continue）→ queued → processing（情感推理→统计分析
 - `crawled` / `cleaned` 视为**已停止**，前端不再自动轮询；`continue` / `retry` / 重新提交后恢复轮询；
 - 开启自动连续时不允许在中间态停留（除非该阶段失败）；
 - 中间产物落盘 `outputs/videos/<bvid>/crawl.json`（原始评论或占位计数）、
-  `clean.json`（清洗后评论）与 `analyze.json`（逐条规则预测结果，供审计）；
+  `clean.json`（清洗后评论）与 `analyze.json`（逐条情感预测结果 + 顶层 `method`
+  来源标注：真实模式为模型名，加载失败回退时为 `rule_placeholder`；供审计，
+  不属于 HTTP 响应字段）；
   详情文件仍为 `outputs/videos/<bvid>.json`；
 - 服务重启：`queued` / `crawling` / `processing` 重置为 `queued` 重新跑；
   `crawled` / `cleaned` **保持等待态**，等待用户操作；
@@ -570,7 +578,8 @@ cleaned →（continue）→ queued → processing（情感推理→统计分析
 ### 4.5.1 数据项目
 
 **来源**：界面右上角「上传爬取数据」按钮 → 上传爬虫产出的 CSV/XLSX → 后端**落盘**
-→ 自动按 `clean` 模式跑一遍 `src/preprocessing` 管线 → 产出可查看的表格与情感分析占位结果。
+→ 自动按 `clean` 模式跑一遍 `src/preprocessing` 管线 → 产出可查看的表格与情感分析结果
+（真实模型优先，加载失败回退规则占位，`method` 如实标注）。
 
 **标题**：上传时未指定名称时显示为「未自定义数据」。
 
@@ -583,7 +592,7 @@ data/uploads/<project_id>/
 ├── initial.csv                 初始数据（上传原件解析后的统一 CSV，UTF-8 BOM）
 ├── clean.csv                   筛选后-保留（清洗 + 分词后的评论）
 ├── excluded.csv                筛选后-排除（含排除原因列）
-├── sentiment.csv               逐条情感（占位实现，含 label/confidence/probs）
+├── sentiment.csv               逐条情感（真实模型优先，加载失败回退规则占位；含 label/confidence/probs/method）
 └── analysis.json               聚合情感分析（占比、词频、长度分布）
 ```
 
@@ -624,7 +633,8 @@ data/uploads/<project_id>/
 ```
 
 `status` 取值：`queued` | `processing` | `completed` | `failed`。
-`method` 取值：`rule_placeholder`（当前占位）或具体模型名（如 `bilstm_attention`）。
+`method` 取值：真实模式为具体模型名（如 `textcnn` / `bilstm_attention`）；
+模型加载失败回退规则占位时为 `rule_placeholder`。
 `stages[].columns` 为该表列数；`rows` 为数据行数（不含表头）。
 
 #### 上传：`POST /api/artifacts/upload`
@@ -716,7 +726,8 @@ data/uploads/<project_id>/
 }
 ```
 
-`method` 必须如实反映来源：当前为 `rule_placeholder`，前端据此显示「规则占位」标识。
+`method` 必须如实反映来源：真实模型可用时为模型名（如 `textcnn` / `bilstm_attention`），
+模型加载失败回退规则占位时为 `rule_placeholder`，前端据此显示模型名 / 「规则占位（降级）」标识。
 
 #### 打开 CSV：`POST /api/artifacts/{project_id}/open`
 

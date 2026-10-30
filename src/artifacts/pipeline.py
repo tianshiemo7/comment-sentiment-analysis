@@ -5,18 +5,20 @@
 | 阶段 | 真实工作 | 复用来源 |
 | --- | --- | --- |
 | 文本清洗 | 对 `initial.csv` 跑 clean 模式管线，产出 `clean.csv` / `excluded.csv` | `src.preprocessing.pipeline.prepare_comments` |
-| 情感推理 | 对 clean 阶段的**原文**逐条预测，写 `sentiment.csv` | `src.inference.service.predict_rule_based` |
+| 情感推理 | 对 clean 阶段的**原文**逐条预测，写 `sentiment.csv` | `src.inference.service`（真实检查点可用时走模型，否则规则占位降级） |
 | 聚合统计 | 占比 / 词频 / 长度分布 / 抽样，写 `analysis.json` | 本模块（纯统计，非模型逻辑） |
 
-**占位声明（诚实标注）**：情感结果全部来自
-`src.inference.service.predict_rule_based` —— 规则 / 词典**占位**预测器，
-**不是训练模型**，准确率远低于真实模型，仅用于骨架演示与接口联调；
-对外 `method` 字段固定为 ``rule_placeholder``。真实模型接入后只需替换本模块
-情感阶段的数据来源（`predict_rule_based` → `src.inference.service.predict_text`），
-接口结构与 `method` 字段语义不变。
+**情感来源如实标注**：情感阶段统一走
+:func:`src.inference.service.predict_text`，模型由
+:func:`src.inference.service.get_predictor` / :func:`src.inference.service.load_model_cached`
+（环境变量 ``ACTIVE_MODEL``，带缓存）解析；`sentiment.csv` 的 ``method`` 列与
+`analysis.json` 的 ``method`` 字段都取 :func:`src.inference.service.resolve_method`
+的真实值 —— 真实检查点可用时为**模型名**（如 ``textcnn``），检查点缺失 / torch
+未安装时才降级为 ``rule_placeholder``（规则 / 词典占位预测器，**不是训练模型**）。
+任何地方都不再硬编码 ``rule_placeholder``。
 
-三分类说明：占位预测器本身只给 positive / negative 两个方向，
-当它给出的两类概率相等（``0.5 / 0.5``，即没有任何情感词命中、原始情感分为 0）时，
+三分类说明：模型本身只给 positive / negative 两个方向，当两类概率相等
+（``0.5 / 0.5``，即清洗后无有效分词或占位预测器没有命中情感词）时，
 本模块如实标注为 ``neutral``（置信度 0.5），不凭空编造极性。
 
 进度区间：清洗 ``0~45`` → 情感 ``45~85`` → 统计 ``85~100``，阶段时长可配
@@ -36,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ..inference.service import predict_rule_based
+from ..inference import service as inference_service
 from ..preprocessing.pipeline import prepare_comments
 from . import preview
 from .config import ArtifactsConfig
@@ -256,8 +258,23 @@ def _stage_counts(store: ArtifactStore, project_id: str) -> list[dict[str, Any]]
 
 
 # --------------------------------------------------------------------------- #
-# 阶段二：占位情感（复用 src.inference.service.predict_rule_based）
+# 阶段二：情感推理（真实检查点可用时走模型，否则降级规则占位）
 # --------------------------------------------------------------------------- #
+def _active_predictor() -> tuple[Any, str, str]:
+    """解析当前活跃预测器，返回 ``(model | None, model_name, method)``。
+
+    - 真实检查点可用：``(Predictor, "textcnn" 等, 模型名)``；
+    - 检查点缺失 / torch 缺失：``(None, ACTIVE_MODEL, "rule_placeholder")``，
+      后续逐条走 :func:`src.inference.service.predict_text` 的规则占位降级分支。
+
+    ``method`` 统一由 :func:`src.inference.service.resolve_method` 计算，**不硬编码**，
+    保证 `sentiment.csv` 与 `analysis.json` 如实标注真实来源。
+    """
+    model = inference_service.get_predictor()
+    model_name = getattr(model, "model_name", None) or inference_service.get_active_model_name()
+    return model, model_name, inference_service.resolve_method(model, model_name)
+
+
 def _sentiment_stage(
     store: ArtifactStore,
     project_id: str,
@@ -265,15 +282,20 @@ def _sentiment_stage(
     directory: Path,
     on_update: Callable[[dict[str, Any] | None], None] | None,
 ) -> None:
-    """对 clean 阶段的原文逐条预测，写 `sentiment.csv`（UTF-8 BOM）。"""
+    """对 clean 阶段的原文逐条预测，写 `sentiment.csv`（UTF-8 BOM）。
+
+    ``method`` 列取当前活跃模型的真实来源（:func:`_active_predictor`），
+    并把同一值回填到项目记录，供 `/api/artifacts/{id}/analysis` 与项目对象使用。
+    """
     clean_path = directory / "clean.csv"
     sentiment_path = directory / "sentiment.csv"
     rows = list(_iter_clean_rows(clean_path))
+    model, model_name, method = _active_predictor()
     with sentiment_path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(SENTIMENT_COLUMNS))
         writer.writeheader()
         for index, row in enumerate(rows):
-            prediction = predict_comment(row["text"])
+            prediction = predict_comment(row["text"], model=model, model_name=model_name)
             writer.writerow(
                 {
                     "index": index,
@@ -282,23 +304,32 @@ def _sentiment_stage(
                     "confidence": prediction["confidence"],
                     "prob_positive": prediction["probs"].get("positive", 0.0),
                     "prob_negative": prediction["probs"].get("negative", 0.0),
-                    "method": METHOD_RULE_PLACEHOLDER,
+                    "method": method,
                 }
             )
     _require(
-        _apply(store, project_id, run_id, on_update, sentiment_total=len(rows)),
+        _apply(store, project_id, run_id, on_update, sentiment_total=len(rows), method=method),
         project_id,
     )
 
 
-def predict_comment(text: str) -> dict[str, Any]:
-    """对一条原文做**占位**情感预测（唯一预测入口，供流水线与测试共用）。
+def predict_comment(
+    text: str,
+    model: Any = None,
+    model_name: str | None = None,
+) -> dict[str, Any]:
+    """对一条原文做情感预测（唯一预测入口，供流水线与测试共用）。
 
-    直接复用 :func:`src.inference.service.predict_rule_based`（**不是训练模型**）；
-    当占位预测器给出 ``0.5 / 0.5``（没有任何情感词命中、原始情感分为 0）时，
+    统一走 :func:`src.inference.service.predict_text`：
+
+    - ``model`` 为 :class:`src.inference.service.Predictor` 时走真实前向；
+    - ``model is None``（检查点缺失 / torch 缺失）时降级到
+      :func:`src.inference.service.predict_rule_based`（规则 / 词典占位，**不是训练模型**）。
+
+    当两类概率相等（``0.5 / 0.5``，清洗后无有效内容或占位预测器没有命中情感词）时，
     如实标注为三分类里的 ``neutral``，不凭空编造极性。
     """
-    result = predict_rule_based(text)
+    result = inference_service.predict_text(text, model=model, model_name=model_name)
     probs = dict(result["probs"])
     if probs.get("positive") == probs.get("negative"):
         return {"label": "neutral", "confidence": 0.5, "probs": probs}
@@ -333,7 +364,7 @@ def _stats_stage(
             raise ValueError(f"sentiment.csv 缺少第 {index} 行的情感结果，无法聚合统计")
         predictions.append(sentiment)
 
-    analysis = build_analysis(clean_rows, predictions)
+    analysis = build_analysis(clean_rows, predictions, method=_active_predictor()[2])
     store.write_artifact_json(project_id, "analysis.json", analysis)
 
     counts = analysis["sentiment"]
@@ -349,14 +380,22 @@ def _stats_stage(
                 "negative": counts["negative"],
                 "neutral": counts["neutral"],
             },
-            method=METHOD_RULE_PLACEHOLDER,
+            method=analysis["method"],
         ),
         project_id,
     )
 
 
-def build_analysis(clean_rows: list[dict[str, Any]], predictions: list[dict[str, Any]]) -> dict[str, Any]:
-    """由 clean 行与逐条占位情感构造 `analysis.json` 的内容（契约 4.5.1）。
+def build_analysis(
+    clean_rows: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    *,
+    method: str = METHOD_RULE_PLACEHOLDER,
+) -> dict[str, Any]:
+    """由 clean 行与逐条情感构造 `analysis.json` 的内容（契约 4.5.1）。
+
+    ``method`` 必须由 :func:`_active_predictor` 解析出的真实来源传入
+    （占位模式 ``rule_placeholder`` / 真实模型为模型名），不允许在落盘内容里硬编码。
 
     ``sentiment`` 里的三个占比之和恒为 1（``total > 0`` 时）；``total == 0`` 时全为 0。
     """
@@ -381,7 +420,7 @@ def build_analysis(clean_rows: list[dict[str, Any]], predictions: list[dict[str,
         for index in range(min(SAMPLE_LIMIT, total))
     ]
     return {
-        "method": METHOD_RULE_PLACEHOLDER,
+        "method": method,
         "total": total,
         "sentiment": {
             "positive": positive,

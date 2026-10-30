@@ -8,7 +8,8 @@
 - 项目状态：``queued`` | ``processing`` | ``completed`` | ``failed``；
 - 阶段：``initial`` | ``clean`` | ``excluded``（固定枚举，**对外绝不接受路径**）；
 - 情感标签：``positive`` | ``negative`` | ``neutral``；
-- 占位方法名：``rule_placeholder``（**不是训练模型**，见 `src/inference/service.py`）。
+- 降级方法名：``rule_placeholder``（真实模型不可用时的规则占位降级；模型可用时
+  为模型名 ``textcnn`` / ``bilstm_attention``，见 `src/inference/service.py`）。
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ STAGE_LABELS: dict[str, str] = {
 #: 情感标签枚举（契约锁定）
 SENTIMENT_LABELS: tuple[str, ...] = ("positive", "negative", "neutral")
 
-#: 占位方法名（在本模块转出）：当前所有情感结果都来自规则 / 词典占位预测器。
+#: 降级方法名（在本模块转出）：真实模型不可用时才出现的规则 / 词典占位来源。
 #: 常量本身定义在 `src.inference.service.METHOD_RULE_PLACEHOLDER`（预测来源的唯一真相），
 #: 这里只做转出，保证数据项目与 `POST /api/predict` 用的是同一个字符串。
 
@@ -131,7 +132,10 @@ class ProjectItem(BaseModel):
     sentiment: SentimentCounts | None = Field(None, description="未完成时为 null")
     method: str = Field(
         METHOD_RULE_PLACEHOLDER,
-        description="情感来源；当前固定为 rule_placeholder（规则占位，不是训练模型）",
+        description=(
+            "情感来源：真实模型名（textcnn / bilstm_attention）；"
+            "模型不可用时降级为 rule_placeholder（规则占位）。默认值仅为契约缺省兼容"
+        ),
     )
     error: str | None = Field(None, description="失败原因；未失败时为 null")
 
@@ -182,13 +186,16 @@ class TableResponse(BaseModel):
 
 
 class CommentItem(BaseModel):
-    """`comments[].items[]`：逐条评论的占位情感结果。"""
+    """`comments[].items[]`：逐条评论的情感结果（真实模型优先，加载失败为规则占位降级）。"""
 
     index: int = Field(..., ge=0, description="在 clean 表里的行序号（从 0 开始）")
     text: str = Field(..., description="原文（取 text_raw，与批量预测接口语义一致）")
     label: str = Field(..., description="positive | negative | neutral")
     confidence: float = Field(..., ge=0.0, le=1.0)
-    probs: dict[str, float] = Field(default_factory=dict, description="两类概率（占位预测器输出）")
+    probs: dict[str, float] = Field(
+        default_factory=dict,
+        description="两类概率（模型 softmax 输出；降级时为规则预测器输出）",
+    )
 
 
 class CommentsResponse(BaseModel):
@@ -249,7 +256,10 @@ class AnalysisResponse(BaseModel):
 
     method: str = Field(
         METHOD_RULE_PLACEHOLDER,
-        description="情感来源；当前固定为 rule_placeholder（规则占位，不是训练模型）",
+        description=(
+            "情感来源：真实模型名（textcnn / bilstm_attention）；"
+            "模型不可用时降级为 rule_placeholder（规则占位）。默认值仅为契约缺省兼容"
+        ),
     )
     total: int = Field(0, ge=0)
     sentiment: AnalysisSentiment
@@ -314,7 +324,9 @@ class SoloCreateRequest(BaseModel):
     label: Any = Field(None, description="positive | negative | neutral")
     confidence: Any = Field(None, description="置信度，∈ [0, 1]")
     probs: Any = Field(None, description="两类概率，与 POST /api/predict 的返回一致")
-    method: Any = Field(None, description="情感来源，默认 rule_placeholder")
+    method: Any = Field(
+        None, description="情感来源：真实模型名（textcnn / bilstm_attention）或 rule_placeholder"
+    )
 
 
 class SoloCommentItem(BaseModel):
@@ -325,7 +337,10 @@ class SoloCommentItem(BaseModel):
     label: str = Field(..., description="positive | negative | neutral")
     confidence: float = Field(..., ge=0.0, le=1.0)
     probs: dict[str, float] = Field(default_factory=dict)
-    method: str = Field(METHOD_RULE_PLACEHOLDER, description="当前固定为 rule_placeholder")
+    method: str = Field(
+        METHOD_RULE_PLACEHOLDER,
+        description="情感来源：真实模型名或 rule_placeholder（默认值仅为缺省兼容）",
+    )
     created_at: str = Field(..., description="创建时间（ISO8601，带时区）")
 
 

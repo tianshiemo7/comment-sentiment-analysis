@@ -29,6 +29,24 @@ if str(REPO_ROOT) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
+def placeholder_model_mode(monkeypatch):
+    """让既有用例在**规则占位模式**下运行，保证断言结果确定。
+
+    真实模型接入后，``models/checkpoints/`` 里的检查点（含仓库内的冒烟检查点）会被
+    ``src.inference.service.load_model`` 正常加载，导致既有契约/占位用例的期望值随
+    权重变化。这里统一把 ``ACTIVE_MODEL`` 指向一个不存在的模型名，让 ``load_model``
+    返回 ``None`` 走 ``predict_rule_based``；需要测真实模型的用例在用例内部
+    ``monkeypatch.setenv("ACTIVE_MODEL", "textcnn")`` 并清缓存即可覆盖。
+    """
+    from src.inference import service
+
+    monkeypatch.setenv(service.ENV_ACTIVE_MODEL, "__pytest_placeholder__")
+    service.load_model_cached.cache_clear()
+    yield
+    service.load_model_cached.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def isolated_predictions_dir(tmp_path, monkeypatch):
     """把 ``src.inference.batch.PREDICTIONS_DIR`` 指向本次用例的临时目录。"""
     from src.inference import batch as batch_io

@@ -110,7 +110,7 @@ function closeSettings() {
 
   <footer class="app-footer">
     课程设计项目 · 后端推理服务 FastAPI (:8000) · 前端 Vite (:3000) ·
-    B 站分析接口契约见 docs/API契约.md（mock 层位于 frontend/mock/，后端就绪后删除 vite.config.js 中一行即可）
+    默认经 Vite 代理连真实后端；接口契约见 docs/API契约.md（无后端演示用 VITE_USE_MOCK=1）
   </footer>
 
   <SettingsDialog v-if="settingsOpen" @close="closeSettings" />

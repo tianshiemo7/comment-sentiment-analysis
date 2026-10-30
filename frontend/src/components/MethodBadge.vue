@@ -3,8 +3,8 @@
  * components/MethodBadge.vue — 情感结果来源标识
  *
  * 契约（docs/API契约.md 4.5.1 / 4.5.2）：method === 'rule_placeholder' 表示结果由
- * **规则占位**逻辑生成（真实模型尚未接入），前端必须给出醒目标识，避免误认为模型结果。
- * 其它取值（如 bilstm_attention）按模型名展示。
+ * **规则占位**逻辑生成（真实模型不可用时的降级），前端必须给出醒目标识，避免误认为模型结果。
+ * 其它取值（如 bilstm_attention / textcnn）按真实模型名展示。
  */
 import { computed } from 'vue'
 import Icon from './Icon.vue'

@@ -1,4 +1,43 @@
-﻿text,label,tokens,comment_id,exclude_reason,input_file,input_row,source,status,text_hash,text_raw,video_id
-这个教程的背景音乐叫什么,neutral,这个 教程 背景音乐 叫 什么,demo025,neutral,bilibili_demo.csv,26,人工编写演示样本,excluded,59c1c068e42509ec7bdeb8e118906886636d0502ceae9db8607b71eb0e62ff05,这个教程的背景音乐叫什么,demo_video06
-,positive,,demo026,empty_after_cleaning,bilibili_demo.csv,27,人工编写演示样本,excluded,e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,,demo_video06
-这个教程讲解清晰看完就学会了,positive,这个 教程 讲解 清晰 看 完 就 学会,demo027,duplicate_text,bilibili_demo.csv,28,人工编写演示样本,excluded,45f05bc4459a86608ec32ec59bf247a5215d5a4c61a06fbc7cd47497651bda35,这个教程讲解清晰看完就学会了,demo_video01
+﻿text,label,tokens,comment_id,exclude_reason,input_file,input_row,source,source_row,status,text_hash,text_raw
+,negative,,chnsenticorp-6376,empty_after_cleaning,comments_labeled.csv,18363,chnsenticorp,6376,excluded,e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,
+很快很好,positive,很快 很 好,waimai_10k-798,duplicate_text,comments_labeled.csv,798,waimai_10k,798,excluded,34a9f3372600b1cebbd09615d822d2ad80dcefaec7805e1daf56b0988d1718cb,很快很好～
+味道还可以,positive,味道 还 可以,waimai_10k-983,conflicting_text_labels,comments_labeled.csv,983,waimai_10k,983,excluded,f8c95b465a41e153a2499e19543e8286f0f3bf58985683acc0e51bb004347332,味道还可以。
+不错很好吃,positive,不错 很 好吃,waimai_10k-1209,conflicting_text_labels,comments_labeled.csv,1209,waimai_10k,1209,excluded,2e86dae2bea487e072b090dc01ec54ba66ad483fce2b38c8a0f1ff477864b4ca,不错很好吃
+就是有点慢,positive,就是 有点 慢,waimai_10k-1213,conflicting_text_labels,comments_labeled.csv,1213,waimai_10k,1213,excluded,0397a88c98977852fc51ba7393a4e7cbca4b379412196c399171596f9434ff27,就是有点慢
+不怎么好吃,positive,不怎么 好吃,waimai_10k-1461,conflicting_text_labels,comments_labeled.csv,1461,waimai_10k,1461,excluded,cc475c1a422b46381d11d7107c093048c8299973458125f8b71e46ec2b88f9b8,不怎么好吃
+送的挺快的,positive,送 挺快,waimai_10k-1471,conflicting_text_labels,comments_labeled.csv,1471,waimai_10k,1471,excluded,aaa4e98f36fd588a9ca49538025c1503037e541ae40ec936d1c9d462d986f37a,送的挺快的
+太慢了,positive,太慢,waimai_10k-1569,conflicting_text_labels,comments_labeled.csv,1569,waimai_10k,1569,excluded,af9ec17c0d887aedbf6f613713d77cd9a2fb15bb896766e0a3096523480aabfd,太慢了。。。
+等了两个半小时,positive,等 两个 半小时,waimai_10k-1766,conflicting_text_labels,comments_labeled.csv,1766,waimai_10k,1766,excluded,3f818b03204d09b90bcc70b0443bb05c9551f65c21738e0576826d0ff3c34c42,等了两个半小时
+速度有点慢,positive,速度 有点 慢,waimai_10k-1774,conflicting_text_labels,comments_labeled.csv,1774,waimai_10k,1774,excluded,01bb0930f839c24c39fb689a003f721d414d0c7ca363f2eaaf8f96f40f133af1,速度有点慢
+等了两个小时,positive,等 两个 小时,waimai_10k-1850,conflicting_text_labels,comments_labeled.csv,1850,waimai_10k,1850,excluded,a9b983fddb99ead1cf1ecc11de08a38bbc6955e6b4d999788bb103c869618778,等了两个小时。
+挺好的 标点分隔 挺快的,positive,挺 好 标点分隔 挺快,waimai_10k-2006,duplicate_text,comments_labeled.csv,2006,waimai_10k,2006,excluded,f46833a0ab2c6ac245799bc510e3aa4e03a02ab488d40dc7f167bea78513690e,"挺好的,挺快的"
+就是有点少,positive,就是 有点 少,waimai_10k-2072,conflicting_text_labels,comments_labeled.csv,2072,waimai_10k,2072,excluded,cf4160d4a48620cac187e1bc7ab1e07b6602e44280dd348546d2e5c311b6c9c9,就是有点少
+不错 标点分隔 很好吃,positive,不错 标点分隔 很 好吃,waimai_10k-2125,duplicate_text,comments_labeled.csv,2125,waimai_10k,2125,excluded,4196707fc698c5ca877ee534aac6e750797975db6aae99feb014ef78a23fae68,"不错,很好吃。。。"
+很快 标点分隔 很好,positive,很快 标点分隔 很 好,waimai_10k-2207,duplicate_text,comments_labeled.csv,2207,waimai_10k,2207,excluded,4e31076ff6fb321cbd10f7224269b75dcae9abf326543b02b466ce9065102f4b,很快，很好
+今天太慢了,positive,今天 太慢,waimai_10k-2309,conflicting_text_labels,comments_labeled.csv,2309,waimai_10k,2309,excluded,8d9a448f2581fb6247d06dcfc4d6bff6bcceb58f461e82b8d59c86a8be21544c,今天太慢了
+还是不错的,positive,还是 不错,waimai_10k-3224,conflicting_text_labels,comments_labeled.csv,3224,waimai_10k,3224,excluded,0b23ab8fb3d707289ffaf236170f80c51dd49a18f98f5de1171a81a87480030a,还是不错的
+送餐太慢了 标点感叹,positive,送餐 太慢 标点感叹,waimai_10k-3304,conflicting_text_labels,comments_labeled.csv,3304,waimai_10k,3304,excluded,51291b77769001dc07d665e3a67550e81c01fab17bd37d99b4843d1b4d530236,送餐太慢了！！！！！
+挺好的 标点分隔 不错,positive,挺 好 标点分隔 不错,waimai_10k-3312,duplicate_text,comments_labeled.csv,3312,waimai_10k,3312,excluded,bfac9650ea486697bc6324c92103cb926f400a6e4cd52177310a889c3445044e,挺好的，不错
+好极了好极了好极了,positive,好极了 好极了 好极了,waimai_10k-3626,duplicate_text,comments_labeled.csv,3626,waimai_10k,3626,excluded,9022fd7f2a57f19459eab7ced643d27498120ec4bfb992a9db36419222df9fae,好极了好极了好极了。
+味道还可以,negative,味道 还 可以,waimai_10k-4412,conflicting_text_labels,comments_labeled.csv,4412,waimai_10k,4412,excluded,f8c95b465a41e153a2499e19543e8286f0f3bf58985683acc0e51bb004347332,味道还可以。
+就是有点少,negative,就是 有点 少,waimai_10k-4889,conflicting_text_labels,comments_labeled.csv,4889,waimai_10k,4889,excluded,cf4160d4a48620cac187e1bc7ab1e07b6602e44280dd348546d2e5c311b6c9c9,就是有点少。。。
+就是有点慢,negative,就是 有点 慢,waimai_10k-5021,conflicting_text_labels,comments_labeled.csv,5021,waimai_10k,5021,excluded,0397a88c98977852fc51ba7393a4e7cbca4b379412196c399171596f9434ff27,就是有点慢
+真的很慢,negative,真的 很慢,waimai_10k-5343,duplicate_text,comments_labeled.csv,5343,waimai_10k,5343,excluded,70d56c74fc7a2ccd7918b47de24637b7cd642ccf9b4b0d26932163e3dab9780a,真的很慢。。。
+太慢了,negative,太慢,waimai_10k-5400,conflicting_text_labels,comments_labeled.csv,5400,waimai_10k,5400,excluded,af9ec17c0d887aedbf6f613713d77cd9a2fb15bb896766e0a3096523480aabfd,太慢了……
+还是不错的,negative,还是 不错,waimai_10k-7050,conflicting_text_labels,comments_labeled.csv,7050,waimai_10k,7050,excluded,0b23ab8fb3d707289ffaf236170f80c51dd49a18f98f5de1171a81a87480030a,还是不错的
+太慢了,negative,太慢,waimai_10k-8188,conflicting_text_labels,comments_labeled.csv,8188,waimai_10k,8188,excluded,af9ec17c0d887aedbf6f613713d77cd9a2fb15bb896766e0a3096523480aabfd,太慢了………
+送的挺快的,negative,送 挺快,waimai_10k-8332,conflicting_text_labels,comments_labeled.csv,8332,waimai_10k,8332,excluded,aaa4e98f36fd588a9ca49538025c1503037e541ae40ec936d1c9d462d986f37a,送的挺快的
+不错很好吃,negative,不错 很 好吃,waimai_10k-8545,conflicting_text_labels,comments_labeled.csv,8545,waimai_10k,8545,excluded,2e86dae2bea487e072b090dc01ec54ba66ad483fce2b38c8a0f1ff477864b4ca,不错很好吃
+不怎么好吃,negative,不怎么 好吃,waimai_10k-8943,conflicting_text_labels,comments_labeled.csv,8943,waimai_10k,8943,excluded,cc475c1a422b46381d11d7107c093048c8299973458125f8b71e46ec2b88f9b8,不怎么好吃
+送餐时间太长了,negative,送餐 时间 太长,waimai_10k-9024,duplicate_text,comments_labeled.csv,9024,waimai_10k,9024,excluded,4ab46068de9b9ed607710a5165b40af2da31f933bbd01473e3896b5be9d1660e,送餐时间太长了
+送餐太慢了 标点感叹,negative,送餐 太慢 标点感叹,waimai_10k-9356,conflicting_text_labels,comments_labeled.csv,9356,waimai_10k,9356,excluded,51291b77769001dc07d665e3a67550e81c01fab17bd37d99b4843d1b4d530236,送餐太慢了！！！
+不好吃,negative,不好 吃,waimai_10k-9497,duplicate_text,comments_labeled.csv,9497,waimai_10k,9497,excluded,ec5d7d46e8a5a08ca41238e9fa7086acb0d24c194783db1b3c17ef704f7c2c72,不好吃...
+送餐太慢了 标点分隔 等了一个半小时,negative,送餐 太慢 标点分隔 等 一个半 小时,waimai_10k-9698,duplicate_text,comments_labeled.csv,9698,waimai_10k,9698,excluded,d60e0b731563087d243b7f262675a86dc3aee2f075e3eb74674016d7a17b79ca,"送餐太慢了,等了一个半小时"
+等的花儿都谢了,negative,等 花儿 都 谢,waimai_10k-9731,duplicate_text,comments_labeled.csv,9731,waimai_10k,9731,excluded,9a6cb8bbccf487ad771d14516529c53669aca7cea98ff8a776ea5df60e5dab4d,等的花儿都谢了。
+真的很难吃,negative,真的 很 难吃,waimai_10k-9820,duplicate_text,comments_labeled.csv,9820,waimai_10k,9820,excluded,57916ba9ad1c33badb34394cd27d4c017dfec1f6d551127106843318852ea1c6,真的很难吃
+等了两个半小时,negative,等 两个 半小时,waimai_10k-10667,conflicting_text_labels,comments_labeled.csv,10667,waimai_10k,10667,excluded,3f818b03204d09b90bcc70b0443bb05c9551f65c21738e0576826d0ff3c34c42,等了两个半小时。。。
+味道很一般,negative,味道 很 一般,waimai_10k-10706,duplicate_text,comments_labeled.csv,10706,waimai_10k,10706,excluded,b128cff60c64dce30bb66633b0d0f7438bd53aec8f2ed6f4ef17a021a175a98b,味道很一般…
+今天太慢了,negative,今天 太慢,waimai_10k-10940,conflicting_text_labels,comments_labeled.csv,10940,waimai_10k,10940,excluded,8d9a448f2581fb6247d06dcfc4d6bff6bcceb58f461e82b8d59c86a8be21544c,今天太慢了~
+味道一般,negative,味道 一般,waimai_10k-11132,duplicate_text,comments_labeled.csv,11132,waimai_10k,11132,excluded,e8a46f1c2710223c498a8f0f2d143ef6d6d8b1fcb53970e11e9ffd537511c178,味道一般～
+速度有点慢,negative,速度 有点 慢,waimai_10k-11369,conflicting_text_labels,comments_labeled.csv,11369,waimai_10k,11369,excluded,01bb0930f839c24c39fb689a003f721d414d0c7ca363f2eaaf8f96f40f133af1,速度有点慢
+等了两个小时,negative,等 两个 小时,waimai_10k-11710,conflicting_text_labels,comments_labeled.csv,11710,waimai_10k,11710,excluded,a9b983fddb99ead1cf1ecc11de08a38bbc6955e6b4d999788bb103c869618778,等了两个小时。。。。

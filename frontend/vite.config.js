@@ -15,12 +15,15 @@ const proxy = {
 }
 
 /**
- * 是否启用 mock 接口层。
+ * 是否启用 mock 接口层（数据来源 frontend/mock/）。
  *
- * - 默认启用：后端未启动时也能完整演示界面（数据来源 frontend/mock/）。
- * - 后端就绪后关闭：`VITE_USE_MOCK=0 npm run dev`（或直接删掉下面那行 mockApiPlugin()）。
+ * - **默认关闭**：`npm run dev` 通过下面的 proxy 直连真实 FastAPI 后端（:8000），
+ *   与真实模型/接口联调；后端未启动时页面会显示「待接入后端」类错误提示。
+ * - 仅显式开启（无后端时演示界面用）：`VITE_USE_MOCK=1 npm run dev`。
+ *   Windows cmd 为 `set VITE_USE_MOCK=1 && npm run dev`，PowerShell 为
+ *   `$env:VITE_USE_MOCK=1; npm run dev`（或直接删掉下面那行 mockApiPlugin() 永久移除）。
  */
-const useMock = process.env.VITE_USE_MOCK !== '0'
+const useMock = process.env.VITE_USE_MOCK === '1'
 
 export default defineConfig({
   plugins: [
@@ -28,10 +31,12 @@ export default defineConfig({
     /**
      * ------------------------------------------------------------------
      * mock 插件：无后端时按 docs/API契约.md 返回 /api/videos* 与 /health。
-     * 真实后端就绪后 —— 【设 VITE_USE_MOCK=0，或删除下面这一行 mockApiPlugin(), 即可】，
-     * 无需改动任何业务代码。mock 代码全部位于 frontend/mock/，删除该目录同样安全。
+     * 仅在 `VITE_USE_MOCK=1 npm run dev` 时接入；默认不接入，`/api/*`、`/health`
+     * 全部走下面的 proxy 到 :8000 真实 FastAPI。mock 代码全部位于 frontend/mock/，
+     * 删除该目录同样安全（需同时删掉本文件的 import）。
      * 插件内的中间件注册早于 Vite proxy，所以 mock 存在时不会被转发到 :8000；
-     * 关闭后 /api/videos* 会自动走下面的 proxy 到 FastAPI。
+     * 未启用时请求一律走 proxy 到 FastAPI。
+     * 注意：插件 `apply: 'serve'`，只在 dev server 生效，`npm run preview` 始终走 proxy。
      * ------------------------------------------------------------------
      */
     ...(useMock ? [mockApiPlugin()] : []),

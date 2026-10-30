@@ -9,14 +9,16 @@
 | :mod:`~src.artifacts.config` | 流水线阶段时长等可配置项（环境变量覆盖） |
 | :mod:`~src.artifacts.errors` | 业务异常（HTTP 层映射为 400 / 404 / 413） |
 | :mod:`~src.artifacts.messages` | 状态文案（中文，与前端展示一致） |
-| :mod:`~src.artifacts.pipeline` | 后台流水线：`clean` 管线 → 占位情感 → 聚合统计 |
+| :mod:`~src.artifacts.pipeline` | 后台流水线：`clean` 管线 → 真实模型情感（加载失败降级规则占位）→ 聚合统计 |
 | :mod:`~src.artifacts.preview` | 只读解析 CSV（分页表格、逐条评论、阶段行列数） |
 | :mod:`~src.artifacts.opener` | 本机打开 CSV（`os.startfile` / `open` / `xdg-open`，可注入假实现） |
 | :mod:`~src.artifacts.service` | 业务服务：项目 CRUD、单线程队列、启动恢复、单独评论 CRUD |
 
-**占位声明（诚实标注）**：本包的情感结果全部来自
-`src.inference.service.predict_rule_based` —— 一个规则 / 词典**占位**预测器，
-**不是训练模型**；对外 `method` 字段固定为 `"rule_placeholder"`。
+**真实模型说明（如实标注）**：本包的情感结果优先由 `src.inference.service` 的统一预测器
+（`Predictor` + `predict_text`）计算，``method`` 如实为模型名 ``textcnn`` / ``bilstm_attention``；
+只有检查点缺失、torch 未安装或权重不可用时才降级为
+`src.inference.service.predict_rule_based`（规则 / 词典**占位**预测器，**不是训练模型**），
+此时 ``method`` 如实为 ``"rule_placeholder"``。
 """
 
 from __future__ import annotations

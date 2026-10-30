@@ -1,0 +1,64 @@
+{
+  "input_sha256": "6776c519d7c19c7f4bb4e777479fa183ebf7d5dceb7f19aaffa109dd972fd3d6",
+  "preprocessor_sha256": "5c40107a135beb31377c335a631afb564c019fef8d56fbc030d86d247b43f780",
+  "task": {
+    "name": "binary_sentiment",
+    "num_classes": 2,
+    "label_map": {
+      "negative": 0,
+      "positive": 1
+    },
+    "neutral_policy": "excluded_from_supervised_training",
+    "low_confidence_policy": "review_required_not_a_neutral_training_class"
+  },
+  "course_requirements_met": true,
+  "demo_mode": false,
+  "course_check_issues": [],
+  "input_rows": 19753,
+  "accepted_rows": 19711,
+  "excluded_rows": 42,
+  "split_counts": {
+    "train": 13797,
+    "val": 1971,
+    "test": 3943
+  },
+  "seed": 42,
+  "ratios": [
+    0.7,
+    0.1,
+    0.2
+  ],
+  "group_key": null,
+  "min_freq": 3,
+  "max_vocab_size": 30000,
+  "pipeline_version": "1.1.0",
+  "text_column": null,
+  "sheet_name": null,
+  "split_sha256": "b51583a21d2e4103f992eb2445870e9ff52c954feedbb541757f11ab71778c2a",
+  "dataset_version": "753bc2014c69bdc1",
+  "input_file": "comments_labeled.csv",
+  "label_map": {
+    "negative": 0,
+    "positive": 1
+  },
+  "vocab_fit_split": "train",
+  "python_dependency_versions": {
+    "numpy": "2.3.5",
+    "jieba": "0.42.1"
+  },
+  "files": {
+    "data/processed/cleaned.csv": "0734b73a370d7486d6e03ed6cbb091b9fb0d5044e75b617747d8a3544c36c4a8",
+    "data/processed/excluded.csv": "9a6e914ed20fc5bf77d6dcb9a8dba097998395275485ca657960563375382453",
+    "data/processed/vocab.json": "01236bf8fe69c958b77eb8fc8cc7ec31c522e3068243e259cffe9b8a62b1a108",
+    "data/processed/preprocessor.json": "e9d25e158930c3ee88cbe9a2abc6eefbe1016f4484d2675851f25008145e7b96",
+    "data/processed/label_map.json": "1ef73b5ead737694ecb847227fd0c4fee802f5a6a7644352085fe8ac681490eb",
+    "data/processed/split_manifest.csv": "3ba52256dbc5ca6d9505efcd585cf34e372df9e0c7e216de6db6fe1a554adfa0",
+    "data/splits/train.csv": "ba42b71b7341346722f80cf7dcd1b59544dda5f2347d48f9e2d5eae0ee714373",
+    "data/splits/train.npz": "e7de4d7b18a8a8452f6437611310a945dc1bf6c65c71aff32a235c4783d03524",
+    "data/splits/val.csv": "871c8184a7a3e821564ffc16495af3011b0138f94768623b0c6c24b6f5cfa126",
+    "data/splits/val.npz": "125606e91104bcadb49ffe0feff44db74af5ac4761b829486a3ac0616aa5e9b2",
+    "data/splits/test.csv": "2f03868a281814c932fbabb3aca1f52ccddc9f5b3793306f975ac296a6d979a4",
+    "data/splits/test.npz": "593f4604cee6d71a28564c8e9bef2435a6ff1be1f22693083c3579785b1a6dc0",
+    "outputs/stats/dataset_stats.json": "9d76e44d053d969070045bc585b01863e73a1fe57466fc1b1c7e97e33720e61f"
+  }
+}

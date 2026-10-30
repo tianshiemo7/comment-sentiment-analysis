@@ -7,9 +7,9 @@ outputs/videos/
 ├── index.json          # 任务索引（列表接口与恢复逻辑的唯一真相来源）
 ├── BV1xx411c7mD.json   # 该视频的完整 detail（契约第三节的结构）
 ├── BV1xx411c7mD/       # 分步流水线的任务级中间产物（settings 提交时才有）
-│   ├── crawl.json      # 采集产物：原始评论记录 / 占位计数
+│   ├── crawl.json      # 采集产物：原始评论记录 / 未真实采集时的占位计数（detail.placeholder=true）
 │   ├── clean.json      # 清洗后评论（clean_text + 去空去重）
-│   └── analyze.json    # 逐条规则预测结果（审计用）
+│   └── analyze.json    # 逐条情感预测结果（真实模型；降级时规则占位；含 method 来源，审计用）
 └── BV1ab411c7mE.json
 ```
 

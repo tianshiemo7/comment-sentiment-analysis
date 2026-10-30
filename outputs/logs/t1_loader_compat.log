@@ -1,0 +1,114 @@
+D:\PyEnv\3.13.9\Lib\site-packages\jieba\_compat.py:18: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+Building prefix dict from the default dictionary ...
+Loading model from cache D:\Temp\jieba.cache
+Loading model cost 0.483 seconds.
+Prefix dict has been built successfully.
+{
+  "textcnn": {
+    "loaded": true,
+    "model_name": "textcnn",
+    "model_type": "textcnn",
+    "vocab_size": 9753,
+    "max_len": 200,
+    "labels": [
+      "negative",
+      "positive"
+    ],
+    "predictions": [
+      {
+        "text": "这个商品质量很好，物流很快，非常满意",
+        "label": "positive",
+        "confidence": 0.992436,
+        "probs": {
+          "positive": 0.992436,
+          "negative": 0.007564
+        }
+      },
+      {
+        "text": "质量太差了，用一次就坏，非常失望",
+        "label": "negative",
+        "confidence": 0.997268,
+        "probs": {
+          "positive": 0.002732,
+          "negative": 0.997268
+        }
+      },
+      {
+        "text": "",
+        "label": "positive",
+        "confidence": 0.5,
+        "probs": {
+          "positive": 0.5,
+          "negative": 0.5
+        }
+      },
+      {
+        "text": "还行吧，一般般",
+        "label": "negative",
+        "confidence": 0.881308,
+        "probs": {
+          "positive": 0.118692,
+          "negative": 0.881308
+        }
+      }
+    ],
+    "batch_ok": true,
+    "batch_labels_match": true,
+    "probs_sum_1": true,
+    "deterministic": true
+  },
+  "bilstm_attention": {
+    "loaded": true,
+    "model_name": "bilstm_attention",
+    "model_type": "bilstm_attention",
+    "vocab_size": 9753,
+    "max_len": 200,
+    "labels": [
+      "negative",
+      "positive"
+    ],
+    "predictions": [
+      {
+        "text": "这个商品质量很好，物流很快，非常满意",
+        "label": "positive",
+        "confidence": 0.978189,
+        "probs": {
+          "positive": 0.978189,
+          "negative": 0.021811
+        }
+      },
+      {
+        "text": "质量太差了，用一次就坏，非常失望",
+        "label": "negative",
+        "confidence": 0.98763,
+        "probs": {
+          "positive": 0.01237,
+          "negative": 0.98763
+        }
+      },
+      {
+        "text": "",
+        "label": "positive",
+        "confidence": 0.5,
+        "probs": {
+          "positive": 0.5,
+          "negative": 0.5
+        }
+      },
+      {
+        "text": "还行吧，一般般",
+        "label": "negative",
+        "confidence": 0.926826,
+        "probs": {
+          "positive": 0.073174,
+          "negative": 0.926826
+        }
+      }
+    ],
+    "batch_ok": true,
+    "batch_labels_match": true,
+    "probs_sum_1": true,
+    "deterministic": true
+  }
+}

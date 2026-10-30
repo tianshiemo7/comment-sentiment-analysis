@@ -1,31 +1,64 @@
-"""推理服务核心层：模型加载与预测逻辑（与 Web 框架解耦）。
+"""推理服务核心层：真实检查点加载与预测逻辑（与 Web 框架解耦）。
 
-**当前为占位实现，不是训练模型**：:func:`load_model` 始终返回 ``None``，
-预测走 :func:`predict_rule_based` —— 一个**规则 / 词典占位预测器**
-（内置小型中文情感词表 + 程度副词加权 + 否定词翻转 + 按小句切分统计）。
-它只保证「明显好评 → positive、明显差评 → negative」这一方向正确，
-不是任何形式的机器学习模型，准确率远低于真实模型，仅用于骨架演示与接口联调。
-同一文本每次返回完全相同的概率（确定性），且概率严格落在 ``(0, 1)`` 内。
+## 两条预测路径（诚实标注，不做假）
 
-替换为真实模型的步骤（只改本文件即可）：
+1. **真实模型**：``models/checkpoints/<name>/best.pt`` 存在且 PyTorch 可用时，
+   :func:`load_model` 读取检查点、重建 ``TextCNN`` / ``BiLSTMAttention``、
+   加载权重并封装成 :class:`Predictor`；:func:`predict_text` / :func:`predict_batch`
+   走真实前向，:func:`resolve_method` 返回模型名。
+2. **规则 / 词典占位**：检查点不存在或 torch 未安装时，:func:`load_model` 返回
+   ``None``（服务继续可用，不抛 ``ImportError``），预测降级到
+   :func:`predict_rule_based`，结果为 ``method="rule_placeholder"``。
+   **占位预测器不是训练模型**，只用于无权重环境的骨架演示与接口联调，
+   准确率远低于真实模型。
 
-1. :func:`load_model`：读 ``models/checkpoints/<name>/best.pt``（`:mod:`src.models.base.load_checkpoint`）
-   与词表 ``data/processed/vocab.json``，构造 `TextCNN` / `BiLSTMAttention`，
-   ``load_state_dict`` 后 ``eval()``，返回一个可调用的预测器对象；
-2. :func:`predict_text`：分词 → ``encode_ids`` → 前向 → ``softmax`` → 极性与置信度；
-   ``load_model`` 一旦返回非 ``None`` 对象，:func:`predict_text` 即走真实分支，
-   占位函数 :func:`predict_rule_based` 不再被调用（可删除，或保留为
-   ``SENTIMENT_MOCK=1`` 的降级分支）。
+## 检查点格式（与 `src.training.trainer` 保存的一致）
+
+``torch.load(best.pt)`` 返回 dict，键与用途：
+
+- ``model_state``：模型 ``state_dict()``（必需）；
+- ``config``：训练配置，读 ``max_len``（缺失时用 200）；
+- ``vocab``：``Vocab.to_dict()`` 词表快照（优先使用，缺失时回退
+  ``<checkpoint>/preprocessing/vocab.json`` → ``data/processed/vocab.json``）；
+- ``hyperparams``：模型构造超参（``vocab_size`` / ``embed_dim`` / ``filter_sizes`` …）；
+- ``model_type`` / ``model_name`` / ``epoch`` / ``metrics``：元信息与训练指标。
+
+真实训练目录通常还带 ``preprocessing/`` 资源包（``vocab.json`` /
+``preprocessor.json`` / ``label_map.json`` / ``manifest.json``），由
+``src.preprocessing.processor.load_preprocessing_bundle`` 校验 manifest 哈希后使用；
+没有该目录时回退 ``TextPreprocessor.from_resources(max_len=...)``。
+（仓库当前的冒烟检查点没有 ``preprocessing/``，真实大头权重目录则带。）
+
+## 降级与报错边界（可用性优先，但不掩盖坏权重）
+
+- 检查点**不存在**或 **torch 缺失** → :func:`load_model` 返回 ``None``（降级规则占位）；
+- 检查点**存在但损坏 / 格式不支持 / 与词表或超参不匹配** → 抛 ``RuntimeError``
+  （可读提示，绝不把坏权重静默当成占位模式）；
+- 推理设备由环境变量 ``INFERENCE_DEVICE`` 控制：默认 ``cpu``，``auto`` 时有 CUDA 用
+  CUDA；显式 ``cuda`` 但不可用时告警并回退 ``cpu``；
+- 清洗分词后为空的文本由 :class:`Predictor` 返回确定性的 ``0.5 / 0.5`` 中性兜底
+  （不抛异常），保证批量接口健壮。
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Sequence
+
+from ..models.base import load_checkpoint, require_torch
+from ..models.bilstm_attention import BiLSTMAttention
+from ..models.cnn import TextCNN
+from ..preprocessing.processor import TextPreprocessor, load_preprocessing_bundle
+from ..preprocessing.tokenize import encode_ids
+from ..preprocessing.vocab import Vocab
+
+logger = logging.getLogger("src.inference")
 
 #: 标签顺序固定（与 src/models/base.py 的 LABELS 一致，不得调换）
 LABELS = ("negative", "positive")
@@ -34,8 +67,11 @@ LABELS = ("negative", "positive")
 DEFAULT_MODEL_NAME = "bilstm_attention"
 ENV_ACTIVE_MODEL = "ACTIVE_MODEL"
 
-#: 预测来源标识：当前所有结果都来自规则 / 词典**占位**预测器（**不是训练模型**）。
-#: 真实模型接入后 :func:`resolve_method` 会自动返回模型名，本常量只用于占位分支。
+#: 推理设备环境变量：``cpu``（默认）/ ``auto`` / ``cuda`` / ``cuda:0``
+ENV_INFERENCE_DEVICE = "INFERENCE_DEVICE"
+
+#: 预测来源标识：只在**降级到规则 / 词典占位预测器**（不是训练模型）时使用。
+#: 真实模型可用后 :func:`resolve_method` 返回模型名。
 METHOD_RULE_PLACEHOLDER = "rule_placeholder"
 
 #: 支持的模型清单（`GET /api/models` 的输出顺序）
@@ -44,8 +80,23 @@ SUPPORTED_MODELS: tuple[tuple[str, str], ...] = (
     ("bilstm_attention", "bilstm_attention"),
 )
 
-CHECKPOINT_DIR = Path("models") / "checkpoints"
-STATS_DIR = Path("outputs") / "stats"
+#: 检查点支持的模型类型（与 `src/models/*.py` 的 ``model_type`` 一致）
+SUPPORTED_MODEL_TYPES: tuple[str, ...] = ("textcnn", "bilstm_attention")
+
+#: 仓库根目录：所有路径从源码位置解析，保证从任意工作目录启动服务都能找到权重
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CHECKPOINT_DIR = REPO_ROOT / "models" / "checkpoints"
+PROCESSED_DIR = REPO_ROOT / "data" / "processed"
+STATS_DIR = REPO_ROOT / "outputs" / "stats"
+
+#: 检查点未记录 max_len 时的默认序列长度（与 .env.example 的 MAX_LEN 一致）
+DEFAULT_MAX_LEN = 200
+
+#: :meth:`Predictor.predict_batch` 的默认批大小（避免一次性占用过多内存）
+DEFAULT_BATCH_SIZE = 64
+
+#: 清洗分词后为空的文本的确定性兜底概率（两类各 0.5，标签取 positive）
+EMPTY_TOKEN_PROBS: dict[str, float] = {"positive": 0.5, "negative": 0.5}
 
 #: 未训练时返回的占位指标
 EMPTY_METRICS: dict[str, float] = {
@@ -61,54 +112,472 @@ def get_active_model_name() -> str:
     return os.getenv(ENV_ACTIVE_MODEL, DEFAULT_MODEL_NAME)
 
 
-def load_model(model_name: str | None = None) -> Any:
-    """加载并返回用于预测的模型对象。
+# --------------------------------------------------------------------------- #
+# 真实模型预测器：预处理 → 编码 → 前向 → softmax
+# --------------------------------------------------------------------------- #
+@dataclass
+class Predictor:
+    """真实检查点封装：输出与规则占位预测器同构（``text/label/confidence/probs``）。
+
+    Attributes:
+        model_name: 检查点名（``ACTIVE_MODEL`` / 请求指定的名字），即 ``method`` 的值。
+        model_type: 模型类型，``textcnn`` / ``bilstm_attention``。
+        model: 构建好的模型包装对象（``TextCNN`` / ``BiLSTMAttention``，已 ``eval()``）。
+        vocab: :class:`src.preprocessing.vocab.Vocab` 词表（与权重配套）。
+        max_len: 编码后的固定序列长度（来自检查点 ``config.max_len``）。
+        labels: 标签顺序（``negative`` / ``positive``，与模型输出列一一对应）。
+        processor: 与检查点配套的清洗 + 分词处理器。
+        device: 推理设备字符串（``cpu`` / ``cuda`` …）。
+        batch_size: :meth:`predict_batch` 的单批条数。
+        torch: ``torch`` 模块（延迟导入后由 :func:`load_model` 注入）。
+    """
+
+    model_name: str
+    model_type: str
+    model: Any
+    vocab: Any
+    max_len: int
+    labels: tuple[str, ...] = LABELS
+    processor: TextPreprocessor | None = None
+    device: str = "cpu"
+    batch_size: int = DEFAULT_BATCH_SIZE
+    torch: Any = None
+
+    # ------------------------------------------------------------------ #
+    # 推理
+    # ------------------------------------------------------------------ #
+    def _tokens(self, text: str) -> list[str]:
+        """清洗 + 分词；无有效内容时返回空列表（由调用方做中性兜底）。"""
+        if self.processor is None:  # pragma: no cover - load_model 保证非空
+            raise RuntimeError("Predictor 缺少预处理资源，无法推理")
+        _cleaned, tokens = self.processor.transform(text)
+        return tokens
+
+    def _forward_logits(self, input_ids: Any) -> Any:
+        """统一两种模型的前向：BiLSTM-Attention 返回 ``(logits, attn)``，只取 logits。"""
+        output = self.model.forward(input_ids)
+        if isinstance(output, tuple):
+            output = output[0]
+        return output
+
+    def _probabilities(self, ids_batch: Sequence[Sequence[int]]) -> list[dict[str, Any]]:
+        """对一批 id 序列做一次前向，返回逐条 ``label / confidence / probs``。
+
+        ``probs`` 四舍五入到 6 位，且用互补方式计算另一类概率，保证两类和恒为 1；
+        ``label`` 取最大概率对应的标签（与占位预测器一致的 ``>=`` 平局约定）。
+        """
+        torch = self.torch
+        if torch is None:  # pragma: no cover - load_model 保证注入
+            raise RuntimeError("Predictor 缺少 torch 模块，无法推理")
+        tensor = torch.tensor(
+            [list(ids) for ids in ids_batch], dtype=torch.long, device=self.device
+        )
+        with torch.no_grad():
+            logits = self._forward_logits(tensor)
+            probabilities = torch.softmax(logits.float(), dim=1).cpu().tolist()
+        results: list[dict[str, Any]] = []
+        for row in probabilities:
+            positive = round(float(row[1]), 6)
+            negative = round(1.0 - positive, 6)
+            label = self.labels[1] if positive >= negative else self.labels[0]
+            results.append(
+                {
+                    "label": label,
+                    "confidence": max(positive, negative),
+                    "probs": {"positive": positive, "negative": negative},
+                }
+            )
+        return results
+
+    @staticmethod
+    def _empty_result(text: str) -> dict[str, Any]:
+        """清洗分词后为空：确定性返回两类各 0.5（标签 positive），不抛异常。"""
+        return {
+            "text": text,
+            "label": "positive",
+            "confidence": 0.5,
+            "probs": dict(EMPTY_TOKEN_PROBS),
+        }
+
+    def predict(self, text: str) -> dict[str, Any]:
+        """预测单条文本，返回 ``{"text","label","confidence","probs"}``。"""
+        text_value = "" if text is None else str(text)
+        tokens = self._tokens(text_value)
+        if not tokens:
+            return self._empty_result(text_value)
+        ids = encode_ids(tokens, self.vocab, self.max_len)
+        prediction = self._probabilities([ids])[0]
+        return {"text": text_value, **prediction}
+
+    def predict_batch(self, texts: Sequence[str]) -> list[dict[str, Any]]:
+        """批量预测（按 ``batch_size`` 分批前向），每项 ``index/text/label/confidence``。
+
+        空文本 / 清洗后无有效内容的条目返回确定性兜底（``confidence=0.5``），
+        不中断整批；返回顺序与输入下标严格一致。
+        """
+        text_list = ["" if text is None else str(text) for text in texts]
+        pending: list[tuple[int, str, list[int]]] = []
+        results: dict[int, dict[str, Any]] = {}
+        for index, text_value in enumerate(text_list):
+            tokens = self._tokens(text_value)
+            if not tokens:
+                results[index] = {
+                    "index": index,
+                    "text": text_value,
+                    "label": "positive",
+                    "confidence": 0.5,
+                }
+                continue
+            pending.append((index, text_value, encode_ids(tokens, self.vocab, self.max_len)))
+
+        batch_size = max(1, int(self.batch_size))
+        for start in range(0, len(pending), batch_size):
+            chunk = pending[start : start + batch_size]
+            for (index, text_value, _ids), prediction in zip(
+                chunk, self._probabilities([row[2] for row in chunk])
+            ):
+                results[index] = {
+                    "index": index,
+                    "text": text_value,
+                    "label": prediction["label"],
+                    "confidence": prediction["confidence"],
+                }
+        return [results[index] for index in range(len(text_list)) if index in results]
+
+
+# --------------------------------------------------------------------------- #
+# 检查点加载（任何格式 / 一致性问题都转成可读的 RuntimeError）
+# --------------------------------------------------------------------------- #
+#: 构造 TextCNN 时允许从 hyperparams 透传的键
+_TEXT_CNN_KEYS: tuple[str, ...] = (
+    "embed_dim",
+    "num_filters",
+    "filter_sizes",
+    "num_classes",
+    "dropout",
+    "padding_idx",
+    "freeze_embeddings",
+)
+
+#: 构造 BiLSTMAttention 时允许从 hyperparams 透传的键
+_BILSTM_KEYS: tuple[str, ...] = (
+    "embed_dim",
+    "hidden_dim",
+    "num_layers",
+    "num_classes",
+    "dropout",
+    "attention_dim",
+    "bidirectional",
+    "padding_idx",
+    "freeze_embeddings",
+)
+
+
+def _checkpoint_path(model_name: str) -> Path:
+    """检查点路径 ``models/checkpoints/<name>/best.pt``。"""
+    return CHECKPOINT_DIR / model_name / "best.pt"
+
+
+def _resolve_inference_device(torch_module: Any) -> str:
+    """解析 ``INFERENCE_DEVICE``：默认 cpu；``auto`` 时有 CUDA 用 CUDA。"""
+    requested = (os.getenv(ENV_INFERENCE_DEVICE, "") or "").strip().lower() or "cpu"
+    cuda = getattr(torch_module, "cuda", None)
+    cuda_available = bool(cuda is not None and cuda.is_available())
+    if requested == "auto":
+        return "cuda" if cuda_available else "cpu"
+    if requested.startswith("cuda"):
+        if not cuda_available:
+            logger.warning("INFERENCE_DEVICE=%s 但当前环境没有可用 CUDA，回退 CPU", requested)
+            return "cpu"
+        return requested
+    if requested in {"cpu", "mps"}:
+        return requested
+    logger.warning("无法识别的 INFERENCE_DEVICE=%r，回退 CPU", requested)
+    return "cpu"
+
+
+def _load_processor_and_vocab(
+    checkpoint_dir: Path, model_name: str
+) -> tuple[TextPreprocessor | None, Vocab | None]:
+    """优先加载检查点自带的 ``preprocessing/`` 资源包（校验 manifest 哈希）。
+
+    Returns:
+        ``(processor | None, vocab | None)``；资源包缺失时返回 ``(None, None)``，
+        校验失败时 ``logging.warning`` 后降级（仍尽量使用其中未损坏的 ``vocab.json``）。
+    """
+    bundle_dir = checkpoint_dir / "preprocessing"
+    if not bundle_dir.is_dir():
+        return None, None
+    try:
+        processor, vocab, _labels = load_preprocessing_bundle(bundle_dir)
+        return processor, vocab
+    except Exception as exc:  # noqa: BLE001 - 资源包问题只降级，不阻断服务
+        logger.warning(
+            "检查点 %s 的 preprocessing/ 资源包校验失败，回退仓库默认预处理资源：%s（%s: %s）",
+            model_name,
+            bundle_dir,
+            type(exc).__name__,
+            exc,
+        )
+    vocab_path = bundle_dir / "vocab.json"
+    if vocab_path.is_file():
+        try:
+            return None, Vocab.load(vocab_path)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"检查点 {model_name} 的预处理词表损坏：{vocab_path}"
+                f"（{type(exc).__name__}: {exc}）"
+            ) from exc
+    return None, None
+
+
+def _load_vocab(
+    checkpoint_dir: Path,
+    state: dict[str, Any],
+    model_name: str,
+    bundle_vocab: Vocab | None,
+) -> Vocab:
+    """按优先级加载词表：检查点内嵌快照 → ``preprocessing/vocab.json`` → ``data/processed/vocab.json``。"""
+    raw = state.get("vocab")
+    if isinstance(raw, dict) and raw:
+        try:
+            return Vocab.from_dict(raw)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"检查点 {model_name} 内嵌词表损坏：{type(exc).__name__}: {exc}"
+            ) from exc
+    if bundle_vocab is not None:
+        return bundle_vocab
+    fallback = PROCESSED_DIR / "vocab.json"
+    if fallback.is_file():
+        try:
+            return Vocab.load(fallback)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"仓库默认词表损坏：{fallback}（{type(exc).__name__}: {exc}）"
+            ) from exc
+    raise RuntimeError(
+        f"检查点 {model_name} 缺少配套词表：检查点内无 vocab 快照，"
+        f"{checkpoint_dir / 'preprocessing' / 'vocab.json'} 与 {fallback} 均不存在"
+    )
+
+
+def _build_model_instance(model_type: str, hyperparams: dict[str, Any], vocab_size: int) -> Any:
+    """按检查点 ``hyperparams`` 重建模型对象（过滤掉构造器不接受 / 缺省的键）。"""
+    allowed = _TEXT_CNN_KEYS if model_type == "textcnn" else _BILSTM_KEYS
+    kwargs: dict[str, Any] = {}
+    for key in allowed:
+        if key not in hyperparams:
+            continue
+        value = hyperparams[key]
+        if key == "filter_sizes":
+            value = tuple(int(size) for size in value)
+        kwargs[key] = value
+    kwargs["vocab_size"] = int(vocab_size)
+
+    num_classes = kwargs.get("num_classes")
+    if num_classes is not None and int(num_classes) != len(LABELS):
+        raise RuntimeError(
+            f"检查点 num_classes={num_classes}，但服务只支持二分类（标签顺序 {LABELS}）"
+        )
+    if model_type == "textcnn":
+        return TextCNN(**kwargs)
+    return BiLSTMAttention(**kwargs)
+
+
+def _build_predictor(
+    model_name: str,
+    checkpoint_path: Path,
+    state: dict[str, Any],
+    torch_module: Any,
+) -> Predictor:
+    """由检查点 state 重建 :class:`Predictor`；格式 / 一致性问题统一抛 ``RuntimeError``。"""
+    if not isinstance(state, dict):
+        raise RuntimeError(
+            f"检查点格式不受支持：{checkpoint_path} 的顶层不是 dict（{type(state).__name__}）"
+        )
+    model_state = state.get("model_state")
+    if not isinstance(model_state, dict) or not model_state:
+        raise RuntimeError(f"检查点缺少 model_state 权重：{checkpoint_path}")
+
+    model_type = str(state.get("model_type") or state.get("model_name") or model_name).strip()
+    if model_type not in SUPPORTED_MODEL_TYPES:
+        raise RuntimeError(
+            f"不支持的模型类型：{model_type!r}（检查点 {checkpoint_path}；"
+            f"当前仅支持 {' / '.join(SUPPORTED_MODEL_TYPES)}）"
+        )
+
+    raw_config = state.get("config")
+    config = raw_config if isinstance(raw_config, dict) else {}
+    raw_hyperparams = state.get("hyperparams")
+    hyperparams = raw_hyperparams if isinstance(raw_hyperparams, dict) else {}
+
+    raw_max_len = config.get("max_len")
+    try:
+        max_len = int(raw_max_len) if raw_max_len is not None else DEFAULT_MAX_LEN
+    except (TypeError, ValueError):
+        max_len = DEFAULT_MAX_LEN
+    if max_len < 1:
+        max_len = DEFAULT_MAX_LEN
+
+    checkpoint_dir = checkpoint_path.parent
+    processor, bundle_vocab = _load_processor_and_vocab(checkpoint_dir, model_name)
+    vocab = _load_vocab(checkpoint_dir, state, model_name, bundle_vocab)
+
+    expected_vocab_size = hyperparams.get("vocab_size")
+    if expected_vocab_size is not None:
+        try:
+            expected_vocab_size = int(expected_vocab_size)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"检查点 hyperparams['vocab_size'] 非法：{expected_vocab_size!r}"
+            ) from exc
+        if expected_vocab_size != len(vocab):
+            raise RuntimeError(
+                f"词表规模与检查点 hyperparams 不一致：权重声明 vocab_size={expected_vocab_size}，"
+                f"实际词表 {len(vocab)} 项（检查点 {checkpoint_path}）"
+            )
+
+    model = _build_model_instance(model_type, hyperparams, len(vocab))
+    try:
+        model.build()
+        model.load_state_dict(model_state)
+        model.eval()
+    except Exception as exc:  # noqa: BLE001 - 权重与结构不匹配必须显式暴露
+        raise RuntimeError(
+            f"检查点权重与模型结构不匹配：{checkpoint_path}"
+            f"（{type(exc).__name__}: {exc}）"
+        ) from exc
+
+    device = _resolve_inference_device(torch_module)
+    if device != "cpu":
+        try:
+            model.to(device)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"无法把模型迁移到推理设备 {device}：{type(exc).__name__}: {exc}"
+            ) from exc
+
+    if processor is None:
+        # 冒烟检查点 / 早期训练产物没有 preprocessing/：回退仓库默认资源
+        try:
+            processor = TextPreprocessor.from_resources(max_len=max_len)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"无法加载仓库默认预处理资源（resources/）：{type(exc).__name__}: {exc}"
+            ) from exc
+
+    logger.info(
+        "已加载真实模型：%s（type=%s, device=%s, max_len=%d, vocab=%d）",
+        model_name,
+        model_type,
+        device,
+        max_len,
+        len(vocab),
+    )
+    return Predictor(
+        model_name=model_name,
+        model_type=model_type,
+        model=model,
+        vocab=vocab,
+        max_len=max_len,
+        labels=LABELS,
+        processor=processor,
+        device=device,
+        torch=torch_module,
+    )
+
+
+def load_model(model_name: str | None = None) -> Predictor | None:
+    """加载检查点并返回 :class:`Predictor`；不可用时返回 ``None``（降级规则占位）。
+
+    返回 ``None`` 的两种情况（服务保持可用，**不抛异常**）：
+
+    - ``models/checkpoints/<name>/best.pt`` 不存在（未训练 / 名字写错）；
+    - PyTorch 未安装（``ImportError``，会 ``logging.warning`` 并提示安装方式）。
+
+    检查点存在但**损坏 / 格式不支持 / 与词表或超参不匹配**时抛 ``RuntimeError``
+    （可读提示），避免把坏权重静默降级成占位结果。
 
     Args:
         model_name: 模型名，``None`` 时取 :func:`get_active_model_name`。
 
     Returns:
-        ``None`` 表示**占位（mock）模式**；真实实现应返回一个具备
-        ``predict(text) -> {"label": str, "confidence": float, "probs": dict}`` 的对象。
-
-    TODO(实现):
-        1. ``name = model_name or get_active_model_name()``；
-        2. ``path = CHECKPOINT_DIR / name / "best.pt"``，不存在则返回 ``None``（降级到 mock）；
-        3. ``torch = src.models.base.require_torch()``，``state = load_checkpoint(path)``；
-        4. 按 ``name`` 构造 ``TextCNN`` / ``BiLSTMAttention``，``build()`` + ``load_state_dict``；
-        5. ``model.eval()``，与词表一起封装为 ``Predictor`` 返回；
-        6. torch 缺失或权重损坏时捕获异常并重新抛 ``RuntimeError``（提示检查点路径与安装命令）。
+        :class:`Predictor`，或 ``None``（降级规则占位）。
     """
-    return None
+    name = str(model_name or get_active_model_name() or DEFAULT_MODEL_NAME).strip()
+    if not name:
+        name = DEFAULT_MODEL_NAME
+    path = _checkpoint_path(name)
+    if not path.is_file():
+        return None
+    try:
+        torch_module = require_torch()
+    except ImportError as exc:
+        logger.warning("PyTorch 不可用，模型 %s 降级为规则占位预测：%s", name, exc)
+        return None
+    try:
+        state = load_checkpoint(path)
+    except FileNotFoundError:
+        return None  # 检查点刚被删除：与「不存在」同义
+    except ImportError:  # pragma: no cover - require_torch 已在上面检查
+        return None
+    except Exception as exc:  # noqa: BLE001 - 损坏的权重必须显式暴露
+        raise RuntimeError(
+            f"检查点损坏或无法读取：{path}（{type(exc).__name__}: {exc}）"
+        ) from exc
+    try:
+        return _build_predictor(name, path, state, torch_module)
+    except RuntimeError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 兜底转成可读错误，不泄漏裸异常
+        raise RuntimeError(
+            f"检查点格式不受支持或已损坏：{path}（{type(exc).__name__}: {exc}）"
+        ) from exc
 
 
 @lru_cache(maxsize=4)
-def load_model_cached(model_name: str | None = None) -> Any:
+def load_model_cached(model_name: str | None = None) -> Predictor | None:
     """带缓存的 :func:`load_model` 包装，避免每次 HTTP 请求重复读盘。
 
-    注意：模型文件在服务运行期间被替换时，缓存不会自动失效，
-    需重启服务（或后续加 mtime 校验）。
+    缓存键是 ``model_name``（``None`` 也是一个键）。检查点文件在服务运行期间被替换
+    时缓存不会自动失效：需重启服务，或调用 ``load_model_cached.cache_clear()``
+    （测试在切换 ``ACTIVE_MODEL`` 后必须清缓存，见 ``tests/conftest.py``）。
     """
     return load_model(model_name)
 
 
+def get_predictor() -> Predictor | None:
+    """返回当前活跃模型（``ACTIVE_MODEL``）的 :class:`Predictor`（带缓存）。
+
+    检查点不存在或 torch 缺失时返回 ``None``，调用方应回退
+    :func:`predict_rule_based`（服务保持可用，而不是启动失败）。
+    """
+    return load_model_cached(get_active_model_name())
+
+
 def is_mock_mode(model: Any) -> bool:
-    """``model is None`` 即为 mock 模式（真实模型应为对象）。"""
+    """``model is None`` 即**降级（规则占位）模式**；真实模型应为对象。"""
     return model is None
 
 
 def resolve_method(model: Any = None, model_name: str | None = None) -> str:
     """返回本次预测的**来源标识**，供 ``method`` 字段如实标注。
 
-    - 占位模式（``load_model`` 返回 ``None``）→ :data:`METHOD_RULE_PLACEHOLDER`；
-    - 真实模型（``load_model`` 返回对象）→ 实际模型名（``model_name`` 或 :func:`get_active_model_name`）。
-
-    真实模型接入后本函数无需改动：``POST /api/predict`` 与数据项目的 ``method``
-    会自动变成模型名，前端也就不会把模型结果错标成「规则占位」。
+    - 降级模式（``load_model`` 返回 ``None`` / ``get_predictor()`` 为 ``None``）
+      → :data:`METHOD_RULE_PLACEHOLDER`；
+    - 真实模型 → 实际模型名：优先显式 ``model_name``，其次 ``Predictor.model_name``，
+      最后回退当前生效模型名（``ACTIVE_MODEL``）。
     """
     if is_mock_mode(model):
         return METHOD_RULE_PLACEHOLDER
-    return model_name or get_active_model_name()
+    if model_name:
+        return model_name
+    predictor_name = getattr(model, "model_name", None)
+    if predictor_name:
+        return str(predictor_name)
+    return get_active_model_name()
+
 
 
 def predict_text(text: str, model: Any = None, model_name: str | None = None) -> dict[str, Any]:
@@ -116,26 +585,30 @@ def predict_text(text: str, model: Any = None, model_name: str | None = None) ->
 
     Args:
         text: 评论文本（调用方应已去除首尾空白）。
-        model: :func:`load_model` 的返回值；``None`` 走 mock 分支。
+        model: :class:`Predictor`（或任何带 ``predict(text)`` 的对象）；
+            ``None`` 走规则占位分支。
         model_name: 模型名（仅用于日志与真实实现的检查点定位）。
 
     Returns:
         ``{"text": str, "label": "positive"|"negative", "confidence": float,
            "probs": {"positive": float, "negative": float}}``
 
-    TODO(实现):
-        - ``model is None`` 时返回 :func:`predict_rule_based`（规则词典占位，接口联调用）；
-        - 否则：分词（`src.preprocessing.tokenize`）→ ``encode_ids``（补到 max_len）
-          → 前向得 logits → ``softmax`` → 取最大类；
-        - BiLSTM-Attention 的 ``forward`` 返回 ``(logits, attn)``，此处只取 logits；
-        - 置信度 = 最大类概率，``probs`` 保留两位小数以内的 float。
+    - ``model is None`` → :func:`predict_rule_based`（规则词典**占位**，接口联调用，
+      不是训练模型）；
+    - 否则调用模型的 ``predict(text)``：分词（`src.preprocessing.tokenize`）→
+      ``encode_ids``（补到 max_len）→ 前向得 logits → ``softmax`` → 取最大类；
+      BiLSTM-Attention 的 ``(logits, attn)`` 已在 :class:`Predictor` 内部只取 logits。
     """
     if is_mock_mode(model):
         return predict_rule_based(text)
-    raise NotImplementedError(
-        "TODO: 真实模型推理尚未实现，请实现 src/inference/service.py:load_model 与 predict_text "
-        "（当前 load_model 始终返回 None，因此本分支不会被触发）"
-    )
+    predictor = getattr(model, "predict", None)
+    if not callable(predictor):
+        raise TypeError(
+            f"model 必须是 None 或带 predict(text) 的预测器对象，收到 {type(model).__name__}"
+        )
+    result = dict(predictor(text))
+    result.setdefault("text", text)
+    return result
 
 
 def predict_batch(
@@ -145,18 +618,20 @@ def predict_batch(
 ) -> list[dict[str, Any]]:
     """批量预测，返回逐条结果（含 ``index``）。
 
+    真实模型有 ``predict_batch`` 时优先用它（`Predictor` 内部分批前向，减少 Python
+    循环开销）；否则逐条调用 :func:`predict_text`，结果与单条接口完全一致。
+
     Args:
         texts: 文本列表。
         model / model_name: 同 :func:`predict_text`。
 
     Returns:
         ``[{"index": 0, "text": str, "label": str, "confidence": float}, ...]``
-
-    TODO(实现):
-        - 真实实现应按 ``batch_size`` 分批前向（避免一次性占用过多显存/内存），
-          例如每批 64 条；
-        - 目前逐条调用 :func:`predict_text`，结果与单条接口完全一致。
     """
+    if not is_mock_mode(model):
+        batch_predict = getattr(model, "predict_batch", None)
+        if callable(batch_predict):
+            return [dict(item) for item in batch_predict(list(texts))]
     results: list[dict[str, Any]] = []
     for index, text in enumerate(texts):
         prediction = predict_text(text, model=model, model_name=model_name)
@@ -176,9 +651,8 @@ def available_models() -> list[dict[str, Any]]:
 
     指标优先读取 ``outputs/stats/metrics_<model>.json`` 的 ``metrics`` 字段
     （由 `src.evaluation.report.save_metrics_json` 产出）；
-    检查点 ``models/checkpoints/<model>/best.pt`` 存在才认为 ``ready=True``。
-
-    TODO(实现): 真实训练产出指标后，此处会自然读出真实数值，无需改接口。
+    检查点 ``models/checkpoints/<model>/best.pt`` 存在才认为 ``ready=True``
+    （``ready=False`` 时该模型预测会降级为规则占位）。
     """
     models: list[dict[str, Any]] = []
     for name, model_type in SUPPORTED_MODELS:
@@ -216,8 +690,8 @@ def available_models() -> list[dict[str, Any]]:
 # - 先按标点切成小句再统计，避免「不好，但是很好」里前一句的否定词
 #   跨越小句去翻转后一句的情感词。
 #
-# 真实模型接入后（``load_model`` 返回非 ``None``），本段与
-# :func:`predict_rule_based` 可以整体删除。
+# 真实模型可用时（``load_model`` 返回 ``Predictor``）本段不会参与预测，
+# 但**保留为降级分支**：检查点缺失 / torch 缺失时服务仍可用。
 # --------------------------------------------------------------------------- #
 
 POSITIVE_WORDS: dict[str, float] = {
@@ -491,8 +965,8 @@ def predict_rule_based(text: str) -> dict[str, Any]:
 
     **这不是训练模型**：仅用内置情感词表 + 程度副词 + 否定翻转 + 按小句统计，
     让骨架演示时「明显好评 → positive、明显差评 → negative」，方向符合直觉。
-    真实模型接入后 :func:`load_model` 返回非 ``None``，:func:`predict_text`
-    走真实前向分支，本函数不再被调用（可删除）。
+    真实模型可用时 :func:`predict_text` 走真实前向分支；只有检查点缺失或 torch
+    未安装时才调用本函数（**保留的降级分支**，保证服务始终可用）。
 
     Args:
         text: 评论文本。

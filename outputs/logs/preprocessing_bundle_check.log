@@ -1,0 +1,22 @@
+{
+  "textcnn": {
+    "bundle_validation": "PASS",
+    "vocab_size": 9753,
+    "max_len": 200,
+    "labels": {
+      "negative": 0,
+      "positive": 1
+    },
+    "warnings": []
+  },
+  "bilstm_attention": {
+    "bundle_validation": "PASS",
+    "vocab_size": 9753,
+    "max_len": 200,
+    "labels": {
+      "negative": 0,
+      "positive": 1
+    },
+    "warnings": []
+  }
+}

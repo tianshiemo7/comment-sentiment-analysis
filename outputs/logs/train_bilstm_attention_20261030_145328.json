@@ -1,0 +1,80 @@
+{
+  "model": "bilstm_attention",
+  "config": {
+    "model_name": "bilstm_attention",
+    "train_path": "data\\splits\\train.csv",
+    "val_path": "data\\splits\\val.csv",
+    "max_len": 200,
+    "batch_size": 64,
+    "epochs": 20,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0,
+    "patience": 3,
+    "min_delta": 0.0001,
+    "seed": 42,
+    "device": "cpu",
+    "grad_clip": 5.0,
+    "log_every": 50,
+    "num_workers": 0,
+    "log_dir": "outputs\\logs",
+    "checkpoint_dir": "models\\checkpoints"
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.351722,
+      "train_acc": 0.849895,
+      "val_loss": 0.315071,
+      "val_acc": 0.874176,
+      "lr": 0.001
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.262522,
+      "train_acc": 0.895557,
+      "val_loss": 0.323331,
+      "val_acc": 0.876712,
+      "lr": 0.001
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.220733,
+      "train_acc": 0.913604,
+      "val_loss": 0.30925,
+      "val_acc": 0.879756,
+      "lr": 0.001
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.187476,
+      "train_acc": 0.93042,
+      "val_loss": 0.337558,
+      "val_acc": 0.871639,
+      "lr": 0.001
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.149865,
+      "train_acc": 0.946075,
+      "val_loss": 0.3606,
+      "val_acc": 0.872653,
+      "lr": 0.001
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.127475,
+      "train_acc": 0.953396,
+      "val_loss": 0.398259,
+      "val_acc": 0.859462,
+      "lr": 0.001
+    }
+  ],
+  "best_epoch": 3,
+  "best_score": 0.8797564687975646,
+  "checkpoint_path": "models\\checkpoints\\bilstm_attention\\best.pt",
+  "labels": [
+    "negative",
+    "positive"
+  ],
+  "trained_at": "2026-10-30T06:57:14+00:00"
+}

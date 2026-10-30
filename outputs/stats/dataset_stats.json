@@ -1,30 +1,40 @@
 {
-  "total": 24,
-  "vocab_size": 6,
+  "total": 19711,
+  "vocab_size": 9753,
   "min_freq": 3,
   "max_len": 200,
   "length": {
-    "count": 24,
-    "mean": 6.375,
-    "median": 6.0,
-    "p90": 7.0,
-    "max": 8
+    "count": 19711,
+    "mean": 34.39074628380092,
+    "median": 16,
+    "p90": 80.0,
+    "max": 1410
   },
   "labels": {
-    "negative": 12,
-    "positive": 12
+    "negative": 10408,
+    "positive": 9303
   },
-  "truncated_ratio": 0.0,
-  "token_count": 153,
-  "oov_count": 97,
-  "oov_ratio": 0.6339869281045751,
-  "pipeline_version": "1.0.0",
-  "input_rows": 27,
-  "excluded_rows": 3,
+  "truncated_ratio": 0.019430774694333113,
+  "token_count": 483303,
+  "oov_count": 22893,
+  "oov_ratio": 0.04736780032402033,
+  "task": {
+    "name": "binary_sentiment",
+    "num_classes": 2,
+    "label_map": {
+      "negative": 0,
+      "positive": 1
+    },
+    "neutral_policy": "excluded_from_supervised_training",
+    "low_confidence_policy": "review_required_not_a_neutral_training_class"
+  },
+  "pipeline_version": "1.1.0",
+  "input_rows": 19753,
+  "excluded_rows": 42,
   "exclusion_reasons": {
-    "duplicate_text": 1,
-    "empty_after_cleaning": 1,
-    "neutral": 1
+    "conflicting_text_labels": 27,
+    "duplicate_text": 14,
+    "empty_after_cleaning": 1
   },
   "seed": 42,
   "target_ratios": [
@@ -32,82 +42,87 @@
     0.1,
     0.2
   ],
-  "group_key": "video_id",
-  "split_method": "grouped_stratified",
-  "course_requirements_met": false,
-  "course_check_issues": [
-    "训练集 16 条，少于 8000 条",
-    "测试集 4 条，少于 2000 条",
-    "val 条数比例偏离目标超过 5 个百分点"
+  "group_key": null,
+  "split_method": "stratified",
+  "course_requirements_met": true,
+  "course_check_issues": [],
+  "demo_mode": false,
+  "warnings": [
+    "未提供 video_id，采用按标签分层划分；不能据此声称跨视频独立评估"
   ],
-  "demo_mode": true,
-  "warnings": [],
   "splits": {
     "train": {
-      "total": 16,
-      "vocab_size": 6,
+      "total": 13797,
+      "vocab_size": 9753,
       "min_freq": 3,
       "max_len": 200,
       "length": {
-        "count": 16,
-        "mean": 6.375,
-        "median": 6.0,
-        "p90": 7.0,
-        "max": 8
+        "count": 13797,
+        "mean": 35.029571646010005,
+        "median": 16,
+        "p90": 81.0,
+        "max": 1410
       },
       "labels": {
-        "negative": 8,
-        "positive": 8
+        "negative": 7285,
+        "positive": 6512
       },
-      "truncated_ratio": 0.0,
-      "token_count": 102,
-      "oov_count": 64,
-      "oov_ratio": 0.6274509803921569,
-      "groups": 4
+      "truncated_ratio": 0.02065666449228093,
+      "token_count": 483303,
+      "oov_count": 22893,
+      "oov_ratio": 0.04736780032402033,
+      "groups": null
     },
     "val": {
-      "total": 4,
-      "vocab_size": 6,
+      "total": 1971,
+      "vocab_size": 9753,
       "min_freq": 3,
       "max_len": 200,
       "length": {
-        "count": 4,
-        "mean": 6.25,
-        "median": 6.5,
-        "p90": 7.0,
-        "max": 7
+        "count": 1971,
+        "mean": 33.84677828513445,
+        "median": 17,
+        "p90": 81.0,
+        "max": 601
       },
       "labels": {
-        "negative": 2,
-        "positive": 2
+        "negative": 1041,
+        "positive": 930
       },
-      "truncated_ratio": 0.0,
-      "token_count": 25,
-      "oov_count": 16,
-      "oov_ratio": 0.64,
-      "groups": 1
+      "truncated_ratio": 0.015728056823947234,
+      "token_count": 66712,
+      "oov_count": 4109,
+      "oov_ratio": 0.06159311668065715,
+      "groups": null
     },
     "test": {
-      "total": 4,
-      "vocab_size": 6,
+      "total": 3943,
+      "vocab_size": 9753,
       "min_freq": 3,
       "max_len": 200,
       "length": {
-        "count": 4,
-        "mean": 6.5,
-        "median": 6.5,
-        "p90": 7.0,
-        "max": 7
+        "count": 3943,
+        "mean": 32.42733958914532,
+        "median": 16,
+        "p90": 77.0,
+        "max": 678
       },
       "labels": {
-        "negative": 2,
-        "positive": 2
+        "negative": 2082,
+        "positive": 1861
       },
-      "truncated_ratio": 0.0,
-      "token_count": 26,
-      "oov_count": 17,
-      "oov_ratio": 0.6538461538461539,
-      "groups": 1
+      "truncated_ratio": 0.016992137966015723,
+      "token_count": 127861,
+      "oov_count": 8059,
+      "oov_ratio": 0.06302938347111316,
+      "groups": null
     }
-  }
+  },
+  "overall_oov_ratio": 0.05172184883371,
+  "overall_oov_count": 35061,
+  "overall_token_count": 677876,
+  "oov_scope": "train",
+  "train_oov_ratio": 0.04736780032402033,
+  "val_oov_ratio": 0.06159311668065715,
+  "test_oov_ratio": 0.06302938347111316
 }
