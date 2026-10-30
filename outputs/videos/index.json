@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-17T17:40:45+08:00",
+  "total": 2,
+  "videos": [
+    {
+      "bvid": "BV1xx411c7mD",
+      "title": "【占位数据】BV1xx411c7mD 的示例视频标题",
+      "owner": "占位UP主（真实爬虫待接入）",
+      "cover_url": null,
+      "status": "completed",
+      "progress": 100,
+      "message": "分析完成",
+      "phases": [
+        {
+          "name": "采集评论",
+          "status": "done"
+        },
+        {
+          "name": "文本清洗",
+          "status": "done"
+        },
+        {
+          "name": "情感推理",
+          "status": "done"
+        },
+        {
+          "name": "统计分析",
+          "status": "done"
+        }
+      ],
+      "comment_count": 2216,
+      "created_at": "2026-10-16T18:21:08+08:00",
+      "updated_at": "2026-10-16T18:21:39+08:00",
+      "error": null,
+      "run_id": 1,
+      "seq": 1
+    },
+    {
+      "bvid": "BV1GJ411x7h7",
+      "title": "【官方 MV】Never Gonna Give You Up - Rick Astley",
+      "owner": null,
+      "cover_url": null,
+      "status": "completed",
+      "progress": 100,
+      "message": "分析完成",
+      "phases": [
+        {
+          "name": "采集评论",
+          "status": "done"
+        },
+        {
+          "name": "文本清洗",
+          "status": "done"
+        },
+        {
+          "name": "情感推理",
+          "status": "done"
+        },
+        {
+          "name": "统计分析",
+          "status": "done"
+        }
+      ],
+      "comment_count": 20,
+      "created_at": "2026-10-17T17:35:02+08:00",
+      "updated_at": "2026-10-17T17:40:45+08:00",
+      "error": null,
+      "run_id": 12,
+      "seq": 5,
+      "settings_snapshot": {
+        "account": {
+          "mode": "account"
+        },
+        "crawl": {
+          "real_crawl": true,
+          "max_pages": 1,
+          "max_sub_pages": 1,
+          "page_size": 20,
+          "include_replies": false,
+          "sort_mode": "time",
+          "max_items": 40,
+          "delay_seconds": 2.5,
+          "timeout_seconds": 15.0,
+          "require_login": true,
+          "init_buvid": false
+        },
+        "pipeline": {
+          "auto_clean": false,
+          "auto_analyze": false
+        }
+      },
+      "resume_stage": "analyze",
+      "stage_state": {
+        "crawl": "done",
+        "clean": "done",
+        "analyze": "done"
+      }
+    }
+  ]
+}

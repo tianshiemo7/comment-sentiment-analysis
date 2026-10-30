@@ -1,0 +1,4 @@
+﻿text,label,tokens,comment_id,exclude_reason,input_file,input_row,source,status,text_hash,text_raw,video_id
+这个教程的背景音乐叫什么,neutral,这个 教程 背景音乐 叫 什么,demo025,neutral,bilibili_demo.csv,26,人工编写演示样本,excluded,59c1c068e42509ec7bdeb8e118906886636d0502ceae9db8607b71eb0e62ff05,这个教程的背景音乐叫什么,demo_video06
+,positive,,demo026,empty_after_cleaning,bilibili_demo.csv,27,人工编写演示样本,excluded,e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,,demo_video06
+这个教程讲解清晰看完就学会了,positive,这个 教程 讲解 清晰 看 完 就 学会,demo027,duplicate_text,bilibili_demo.csv,28,人工编写演示样本,excluded,45f05bc4459a86608ec32ec59bf247a5215d5a4c61a06fbc7cd47497651bda35,这个教程讲解清晰看完就学会了,demo_video01

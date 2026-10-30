@@ -1,0 +1,19 @@
+{
+  "model_name": "textcnn",
+  "train_path": "data\\splits\\train.csv",
+  "val_path": "data\\splits\\val.csv",
+  "max_len": 16,
+  "batch_size": 4,
+  "epochs": 1,
+  "learning_rate": 0.001,
+  "weight_decay": 0.0,
+  "patience": 3,
+  "min_delta": 0.0001,
+  "seed": 42,
+  "device": "auto",
+  "grad_clip": 5.0,
+  "log_every": 50,
+  "num_workers": 0,
+  "log_dir": "outputs\\logs",
+  "checkpoint_dir": "models\\checkpoints"
+}

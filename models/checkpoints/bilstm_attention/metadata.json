@@ -1,0 +1,25 @@
+{
+  "model_name": "bilstm_attention",
+  "model_type": "bilstm_attention",
+  "epoch": 1,
+  "metrics": {
+    "val_loss": 0.6964299082756042,
+    "val_acc": 0.5
+  },
+  "hyperparams": {
+    "vocab_size": 6,
+    "embed_dim": 8,
+    "hidden_dim": 4,
+    "num_layers": 1,
+    "num_classes": 2,
+    "dropout": 0.2,
+    "attention_dim": 3,
+    "bidirectional": true,
+    "padding_idx": 0,
+    "freeze_embeddings": false
+  },
+  "labels": [
+    "negative",
+    "positive"
+  ]
+}

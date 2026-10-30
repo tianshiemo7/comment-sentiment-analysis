@@ -1,0 +1,187 @@
+{
+  "bvid": "BV1GJ411x7h7",
+  "comment_total": 20,
+  "predictions": [
+    {
+      "text": "怎么我又被骗了 标点疑问 表情笑哭",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "珍珠铬爱剪辑 花季语速快 牢鱼缸 舰长shark",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "10月份活动送大会员",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "表情笑哭 脱单doge",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "爱玩植2的新手 我居然被你骗了",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "已经骗人骗到1亿了吗",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "sfsastronau",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "78人正在看",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "念诗之王 怎么没有这个",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "一分钟被骗进来5次有感觉吗 标点疑问",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "我是诈骗者 来欣赏自己杰作了 表情狗头",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "被骗的来",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "好久没看 竟然破亿了以前看的时候还是7000万多播放量",
+      "label": "positive",
+      "confidence": 0.6667,
+      "probs": {
+        "positive": 0.6667,
+        "negative": 0.3333
+      }
+    },
+    {
+      "text": "脱单doge",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "什么叫做恐怖的一亿播放量 辣眼睛",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "有谁是志愿进来的 标点疑问 表情狗头",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "亿 标点感叹",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "播放量破亿了都 惊讶",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "躲雨的躯体是从 来",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    },
+    {
+      "text": "1亿 标点感叹",
+      "label": "positive",
+      "confidence": 0.5,
+      "probs": {
+        "positive": 0.5,
+        "negative": 0.5
+      }
+    }
+  ],
+  "analyzed_at": "2026-10-17T17:40:32+08:00"
+}

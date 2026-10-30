@@ -1,0 +1,19 @@
+{
+  "mode": "clean",
+  "pipeline_version": "1.0.0",
+  "input_sha256": "18e5bb1bc7cc9c5bba5baebd4014ede1159864359cb0a1f98d29392b72ffa37a",
+  "preprocessor_sha256": "8c35d90031b434158323188cab5eed21c1def29f76fa2414d7a270db39947659",
+  "text_column": null,
+  "sheet_name": null,
+  "records_sha256": "881a0b6cae6cc9d331b5ec3effd685d18c6e3e19a01357a2b13c5c4041610af1",
+  "dataset_version": "4646f47b5aa723b5",
+  "input_file": "BV1GJ411x7h7_comments.csv",
+  "vocab_fitted": false,
+  "next_step": "sentiment_prediction",
+  "files": {
+    "data/processed/comments_cleaned.csv": "266cab7f97aa34da73284d14eac32fda9dacd18c59d5960a176d31e8d2ab8391",
+    "data/processed/comments_excluded.csv": "3e49b4bcebdac6dce6c8155f4359792d25d19fff4c001343a594b0b007350d20",
+    "data/processed/comments_preprocessor.json": "3fb61c67213f2b0bf399e5bd866623b5398497a6dc82ab0d9a948874ae65b891",
+    "outputs/stats/comments_stats.json": "9be6e44cf6881f7f8e3f81f2d55b2b90b3abd21d3a0e2e563a583841514278fa"
+  }
+}

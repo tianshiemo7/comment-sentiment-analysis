@@ -1,0 +1,16 @@
+{
+  "model": "textcnn",
+  "metrics": {
+    "accuracy": 0.5,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "macro_precision": 0.25,
+    "macro_recall": 0.5,
+    "macro_f1": 0.3333333333333333,
+    "loss": 0.775535,
+    "test_size": 4,
+    "source": "data\\splits\\test.csv"
+  },
+  "updated_at": "2026-10-17T03:49:28+00:00"
+}

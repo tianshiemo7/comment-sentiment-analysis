@@ -1,0 +1,276 @@
+{
+  "video": {
+    "bvid": "BV1xx411c7mD",
+    "title": "【占位数据】BV1xx411c7mD 的示例视频标题",
+    "owner": "占位UP主（真实爬虫待接入）",
+    "cover_url": null,
+    "pubdate": "2025-11-10T18:21:39+08:00",
+    "crawled_at": "2026-10-16T18:21:39+08:00",
+    "comment_total": 2216
+  },
+  "analysis": {
+    "status": "completed",
+    "progress": 100,
+    "message": "分析完成",
+    "length_stats": {
+      "avg_chars": 24.0,
+      "max_chars": 257
+    }
+  },
+  "sentiment": {
+    "total": 2216,
+    "positive": 1351,
+    "negative": 626,
+    "neutral": 239,
+    "positive_ratio": 0.61,
+    "negative_ratio": 0.282,
+    "neutral_ratio": 0.108
+  },
+  "trend": [
+    {
+      "bucket": "2026-10-03",
+      "positive": 99,
+      "negative": 46,
+      "neutral": 18
+    },
+    {
+      "bucket": "2026-10-04",
+      "positive": 85,
+      "negative": 40,
+      "neutral": 15
+    },
+    {
+      "bucket": "2026-10-05",
+      "positive": 94,
+      "negative": 44,
+      "neutral": 16
+    },
+    {
+      "bucket": "2026-10-06",
+      "positive": 91,
+      "negative": 42,
+      "neutral": 16
+    },
+    {
+      "bucket": "2026-10-07",
+      "positive": 70,
+      "negative": 32,
+      "neutral": 13
+    },
+    {
+      "bucket": "2026-10-08",
+      "positive": 61,
+      "negative": 28,
+      "neutral": 11
+    },
+    {
+      "bucket": "2026-10-09",
+      "positive": 109,
+      "negative": 51,
+      "neutral": 19
+    },
+    {
+      "bucket": "2026-10-10",
+      "positive": 91,
+      "negative": 42,
+      "neutral": 17
+    },
+    {
+      "bucket": "2026-10-11",
+      "positive": 124,
+      "negative": 58,
+      "neutral": 22
+    },
+    {
+      "bucket": "2026-10-12",
+      "positive": 96,
+      "negative": 44,
+      "neutral": 17
+    },
+    {
+      "bucket": "2026-10-13",
+      "positive": 104,
+      "negative": 48,
+      "neutral": 18
+    },
+    {
+      "bucket": "2026-10-14",
+      "positive": 111,
+      "negative": 51,
+      "neutral": 20
+    },
+    {
+      "bucket": "2026-10-15",
+      "positive": 98,
+      "negative": 45,
+      "neutral": 18
+    },
+    {
+      "bucket": "2026-10-16",
+      "positive": 117,
+      "negative": 54,
+      "neutral": 21
+    }
+  ],
+  "keywords": {
+    "positive": [
+      {
+        "word": "好用",
+        "count": 107,
+        "weight": 1.0
+      },
+      {
+        "word": "更新稳定",
+        "count": 97,
+        "weight": 0.907
+      },
+      {
+        "word": "很有帮助",
+        "count": 95,
+        "weight": 0.888
+      },
+      {
+        "word": "内容扎实",
+        "count": 85,
+        "weight": 0.794
+      },
+      {
+        "word": "值得推荐",
+        "count": 77,
+        "weight": 0.72
+      },
+      {
+        "word": "节奏舒服",
+        "count": 64,
+        "weight": 0.598
+      },
+      {
+        "word": "剪辑用心",
+        "count": 56,
+        "weight": 0.523
+      },
+      {
+        "word": "讲解详细",
+        "count": 34,
+        "weight": 0.318
+      }
+    ],
+    "negative": [
+      {
+        "word": "标题党",
+        "count": 107,
+        "weight": 1.0
+      },
+      {
+        "word": "更新太慢",
+        "count": 96,
+        "weight": 0.897
+      },
+      {
+        "word": "画质差",
+        "count": 95,
+        "weight": 0.888
+      },
+      {
+        "word": "广告太多",
+        "count": 90,
+        "weight": 0.841
+      },
+      {
+        "word": "节奏拖沓",
+        "count": 74,
+        "weight": 0.692
+      },
+      {
+        "word": "卡顿",
+        "count": 43,
+        "weight": 0.402
+      },
+      {
+        "word": "重复啰嗦",
+        "count": 27,
+        "weight": 0.252
+      },
+      {
+        "word": "内容注水",
+        "count": 25,
+        "weight": 0.234
+      }
+    ]
+  },
+  "model": {
+    "name": "bilstm_attention",
+    "accuracy": 0.912,
+    "precision": 0.908,
+    "recall": 0.915,
+    "f1": 0.911
+  },
+  "top_comments": {
+    "positive": [
+      {
+        "text": "讲得太清楚了，比我自己看书收获还大，已经三连。",
+        "like": 5784,
+        "confidence": 0.999,
+        "label": "positive"
+      },
+      {
+        "text": "这个系列的质量一直很稳，每期都值得看。",
+        "like": 3415,
+        "confidence": 0.978,
+        "label": "positive"
+      },
+      {
+        "text": "节奏把握得很好，干货密度高，感谢UP主。",
+        "like": 2697,
+        "confidence": 0.948,
+        "label": "positive"
+      },
+      {
+        "text": "终于有人把这块讲明白了，收藏慢慢消化。",
+        "like": 1897,
+        "confidence": 0.936,
+        "label": "positive"
+      },
+      {
+        "text": "看完立刻做出效果，太实用了，强烈推荐。",
+        "like": 1837,
+        "confidence": 0.966,
+        "label": "positive"
+      }
+    ],
+    "negative": [
+      {
+        "text": "中间那段广告太长了，直接劝退。",
+        "like": 2832,
+        "confidence": 0.979,
+        "label": "negative"
+      },
+      {
+        "text": "标题和内容不符，纯标题党浪费我时间。",
+        "like": 2476,
+        "confidence": 0.971,
+        "label": "negative"
+      },
+      {
+        "text": "更新太慢了，等得都忘了前面讲什么。",
+        "like": 2123,
+        "confidence": 0.942,
+        "label": "negative"
+      },
+      {
+        "text": "画质有点糊，声音还忽大忽小，看着累。",
+        "like": 1389,
+        "confidence": 0.968,
+        "label": "negative"
+      },
+      {
+        "text": "十分钟能讲完的内容硬拖了半小时。",
+        "like": 951,
+        "confidence": 0.925,
+        "label": "negative"
+      }
+    ]
+  },
+  "error": null,
+  "placeholder": true
+}

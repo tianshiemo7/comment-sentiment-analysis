@@ -1,0 +1,14 @@
+{
+  "vector_size": 128,
+  "window": 5,
+  "min_count": 3,
+  "sg": 1,
+  "negative": 5,
+  "epochs": 3,
+  "workers": 1,
+  "seed": 42,
+  "trained_at": "2026-10-17T03:38:56+00:00",
+  "corpus_sentences": 16,
+  "corpus_tokens": 102,
+  "vocab_size": 4
+}

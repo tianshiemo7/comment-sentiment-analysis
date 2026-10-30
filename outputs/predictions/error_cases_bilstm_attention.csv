@@ -1,0 +1,3 @@
+﻿text,true_label,pred_label,confidence
+这个教程只讲废话没有帮助,negative,positive,0.548487
+这个教程标题夸张内容太水,negative,positive,0.538719

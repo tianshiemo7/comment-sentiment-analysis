@@ -1,0 +1,126 @@
+{
+  "video": {
+    "bvid": "BV1GJ411x7h7",
+    "title": "【官方 MV】Never Gonna Give You Up - Rick Astley",
+    "owner": null,
+    "cover_url": null,
+    "pubdate": null,
+    "crawled_at": "2026-10-17T17:40:44+08:00",
+    "comment_total": 20
+  },
+  "analysis": {
+    "status": "completed",
+    "progress": 100,
+    "message": "分析完成",
+    "length_stats": {
+      "avg_chars": 12.8,
+      "max_chars": 27
+    }
+  },
+  "sentiment": {
+    "total": 20,
+    "positive": 20,
+    "negative": 0,
+    "neutral": 0,
+    "positive_ratio": 1.0,
+    "negative_ratio": 0.0,
+    "neutral_ratio": 0.0
+  },
+  "trend": [
+    {
+      "bucket": "2026-10-17",
+      "positive": 20,
+      "negative": 0,
+      "neutral": 0
+    }
+  ],
+  "keywords": {
+    "positive": [
+      {
+        "word": "播放",
+        "count": 3,
+        "weight": 1.0
+      },
+      {
+        "word": "标点疑问",
+        "count": 3,
+        "weight": 1.0
+      },
+      {
+        "word": "doge",
+        "count": 2,
+        "weight": 0.667
+      },
+      {
+        "word": "标点感叹",
+        "count": 2,
+        "weight": 0.667
+      },
+      {
+        "word": "脱单",
+        "count": 2,
+        "weight": 0.667
+      },
+      {
+        "word": "表情狗头",
+        "count": 2,
+        "weight": 0.667
+      },
+      {
+        "word": "表情笑哭",
+        "count": 2,
+        "weight": 0.667
+      },
+      {
+        "word": "进来",
+        "count": 2,
+        "weight": 0.667
+      }
+    ],
+    "negative": []
+  },
+  "model": {
+    "name": "bilstm_attention",
+    "accuracy": 0.5,
+    "precision": 0.5,
+    "recall": 1.0,
+    "f1": 0.6666666666666666
+  },
+  "top_comments": {
+    "positive": [
+      {
+        "text": "已经骗人骗到1亿了吗",
+        "like": 6,
+        "confidence": 0.5,
+        "label": "positive"
+      },
+      {
+        "text": "我是诈骗者 来欣赏自己杰作了 表情狗头",
+        "like": 6,
+        "confidence": 0.5,
+        "label": "positive"
+      },
+      {
+        "text": "脱单doge",
+        "like": 5,
+        "confidence": 0.5,
+        "label": "positive"
+      },
+      {
+        "text": "爱玩植2的新手 我居然被你骗了",
+        "like": 4,
+        "confidence": 0.5,
+        "label": "positive"
+      },
+      {
+        "text": "好久没看 竟然破亿了以前看的时候还是7000万多播放量",
+        "like": 3,
+        "confidence": 0.667,
+        "label": "positive"
+      }
+    ],
+    "negative": []
+  },
+  "error": null,
+  "placeholder": false
+}

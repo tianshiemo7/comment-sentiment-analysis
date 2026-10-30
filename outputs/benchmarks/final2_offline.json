@@ -1,0 +1,162 @@
+{
+  "mode": "offline",
+  "source": "本地 mock B 站 API（含 WBI 校验 / 分页 / 楼中楼 / 风控恢复）",
+  "config": {
+    "pages": 5,
+    "per_page": 20,
+    "include_replies": true,
+    "delay_seconds": 0,
+    "risk_mode": "412",
+    "mock_latency_seconds": 0.0
+  },
+  "result": {
+    "wall_seconds": 0.48,
+    "requests": 29,
+    "robots_fetches": 1,
+    "retries": 0,
+    "risk_control_hits": 1,
+    "mock_server_requests": 30,
+    "mock_risk_hits": 1,
+    "wbi_failures": 0,
+    "response_bytes": 24924,
+    "comments_new": 135,
+    "comments_total": 135,
+    "requests_per_second": 60.45,
+    "comments_per_second": 281.42,
+    "client_overhead_ms_per_request": 16.542,
+    "latency_ms": {
+      "avg": 14.48,
+      "p50": 14.11,
+      "p95": 28.48,
+      "max": 28.95
+    },
+    "rss_mb_before": 43.49,
+    "rss_mb_after": 43.6
+  },
+  "normalize": {
+    "iterations": 20000,
+    "elapsed_seconds": 0.1922,
+    "ops_per_second": 104061.0
+  },
+  "csv_write": {
+    "rows": 20000,
+    "elapsed_seconds": 0.0823,
+    "rows_per_second": 242910.0
+  },
+  "limiter": {
+    "requests": 500,
+    "configured_min_interval": 2.5,
+    "jitter": 0.3,
+    "simulated_total_seconds": 1430.999,
+    "fixed_sleep_total_seconds": 1247.5,
+    "interval_min": 2.5,
+    "interval_max": 3.248,
+    "interval_mean": 2.868,
+    "unique_intervals": 358
+  },
+  "sample_records": 135,
+  "repeat": 3,
+  "runs": [
+    {
+      "wall_seconds": 0.484,
+      "requests": 29,
+      "robots_fetches": 1,
+      "retries": 0,
+      "risk_control_hits": 1,
+      "mock_server_requests": 30,
+      "mock_risk_hits": 1,
+      "wbi_failures": 0,
+      "response_bytes": 24924,
+      "comments_new": 135,
+      "comments_total": 135,
+      "requests_per_second": 59.86,
+      "comments_per_second": 278.67,
+      "client_overhead_ms_per_request": 16.705,
+      "latency_ms": {
+        "avg": 14.14,
+        "p50": 14.94,
+        "p95": 28.21,
+        "max": 28.25
+      },
+      "rss_mb_before": 39.74,
+      "rss_mb_after": 40.36
+    },
+    {
+      "wall_seconds": 0.382,
+      "requests": 29,
+      "robots_fetches": 1,
+      "retries": 0,
+      "risk_control_hits": 1,
+      "mock_server_requests": 30,
+      "mock_risk_hits": 1,
+      "wbi_failures": 0,
+      "response_bytes": 24924,
+      "comments_new": 135,
+      "comments_total": 135,
+      "requests_per_second": 75.95,
+      "comments_per_second": 353.56,
+      "client_overhead_ms_per_request": 13.166,
+      "latency_ms": {
+        "avg": 11.68,
+        "p50": 3.62,
+        "p95": 27.44,
+        "max": 29.03
+      },
+      "rss_mb_before": 42.44,
+      "rss_mb_after": 42.41
+    },
+    {
+      "wall_seconds": 0.48,
+      "requests": 29,
+      "robots_fetches": 1,
+      "retries": 0,
+      "risk_control_hits": 1,
+      "mock_server_requests": 30,
+      "mock_risk_hits": 1,
+      "wbi_failures": 0,
+      "response_bytes": 24924,
+      "comments_new": 135,
+      "comments_total": 135,
+      "requests_per_second": 60.45,
+      "comments_per_second": 281.42,
+      "client_overhead_ms_per_request": 16.542,
+      "latency_ms": {
+        "avg": 14.48,
+        "p50": 14.11,
+        "p95": 28.48,
+        "max": 28.95
+      },
+      "rss_mb_before": 43.49,
+      "rss_mb_after": 43.6
+    }
+  ],
+  "aggregate": {
+    "runs": 3,
+    "wall_seconds": {
+      "min": 0.382,
+      "median": 0.48,
+      "max": 0.484
+    },
+    "comments_per_second": {
+      "min": 278.67,
+      "median": 281.42,
+      "max": 353.56
+    },
+    "requests_per_second": {
+      "min": 59.86,
+      "median": 60.45,
+      "max": 75.95
+    },
+    "client_overhead_ms_per_request": {
+      "min": 13.166,
+      "median": 16.542,
+      "max": 16.705
+    }
+  },
+  "environment": {
+    "time_utc": "2026-10-17T05:14:22+00:00",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.9",
+    "cpu_count": 18
+  }
+}

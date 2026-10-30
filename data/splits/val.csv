@@ -1,0 +1,5 @@
+﻿text,label,tokens,comment_id,input_file,input_row,source,split,text_hash,text_raw,video_id
+这个教程逻辑混乱不能理解,negative,这个 教程 逻辑 混乱 不能 理解,demo024,bilibili_demo.csv,25,人工编写演示样本,val,91f169231c6357dc48c73940d92757d9b274adfd9b934fc992458c4368573108,这个教程逻辑混乱不能理解,demo_video06
+这个教程认真用心看完很满意,positive,这个 教程 认真 用心看 完 很 满意,demo021,bilibili_demo.csv,22,人工编写演示样本,val,2a6bd7c8e7fa7b9b229ec59848fc25f3d21270bc5a6476548a5e04242157b9ec,这个教程认真用心看完很满意,demo_video06
+这个教程广告太多影响观看,negative,这个 教程 广告 太 多 影响 观看,demo023,bilibili_demo.csv,24,人工编写演示样本,val,bb87badbd7e3d7d49cdac411ac9e0995b221d0a9f67ee0a88ccee640c3770000,这个教程广告太多影响观看,demo_video06
+这个教程思路清楚期待更新,positive,这个 教程 思路清楚 期待 更新,demo022,bilibili_demo.csv,23,人工编写演示样本,val,e396e70106fa3379a137bbee2c9c90b227338d60f448ac72859102cc27e13407,这个教程思路清楚期待更新,demo_video06

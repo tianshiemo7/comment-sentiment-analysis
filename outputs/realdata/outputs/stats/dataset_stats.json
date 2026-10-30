@@ -1,0 +1,110 @@
+{
+  "total": 18613,
+  "vocab_size": 9308,
+  "min_freq": 3,
+  "max_len": 200,
+  "length": {
+    "count": 18613,
+    "mean": 30.089561059474562,
+    "median": 14,
+    "p90": 71.0,
+    "max": 1236
+  },
+  "labels": {
+    "negative": 9305,
+    "positive": 9308
+  },
+  "truncated_ratio": 0.014667168108311396,
+  "token_count": 560057,
+  "oov_count": 34462,
+  "oov_ratio": 0.06153302253163517,
+  "pipeline_version": "1.0.0",
+  "input_rows": 18644,
+  "excluded_rows": 31,
+  "exclusion_reasons": {
+    "conflicting_text_labels": 13,
+    "duplicate_text": 18
+  },
+  "seed": 42,
+  "target_ratios": [
+    0.7,
+    0.1,
+    0.2
+  ],
+  "group_key": null,
+  "split_method": "stratified",
+  "course_requirements_met": true,
+  "course_check_issues": [],
+  "demo_mode": false,
+  "warnings": [
+    "未提供 video_id，采用按标签分层划分；不能据此声称跨视频独立评估"
+  ],
+  "splits": {
+    "train": {
+      "total": 13029,
+      "vocab_size": 9308,
+      "min_freq": 3,
+      "max_len": 200,
+      "length": {
+        "count": 13029,
+        "mean": 30.253588149512627,
+        "median": 14,
+        "p90": 71.0,
+        "max": 1236
+      },
+      "labels": {
+        "negative": 6514,
+        "positive": 6515
+      },
+      "truncated_ratio": 0.014966612940363803,
+      "token_count": 394174,
+      "oov_count": 22192,
+      "oov_ratio": 0.05630000964041261,
+      "groups": null
+    },
+    "val": {
+      "total": 1861,
+      "vocab_size": 9308,
+      "min_freq": 3,
+      "max_len": 200,
+      "length": {
+        "count": 1861,
+        "mean": 29.14508328855454,
+        "median": 14,
+        "p90": 70.0,
+        "max": 570
+      },
+      "labels": {
+        "negative": 930,
+        "positive": 931
+      },
+      "truncated_ratio": 0.010209564750134336,
+      "token_count": 54239,
+      "oov_count": 4108,
+      "oov_ratio": 0.07573885949224728,
+      "groups": null
+    },
+    "test": {
+      "total": 3723,
+      "vocab_size": 9308,
+      "min_freq": 3,
+      "max_len": 200,
+      "length": {
+        "count": 3723,
+        "mean": 29.98764437281762,
+        "median": 14,
+        "p90": 70.80000000000018,
+        "max": 884
+      },
+      "labels": {
+        "negative": 1861,
+        "positive": 1862
+      },
+      "truncated_ratio": 0.0158474348643567,
+      "token_count": 111644,
+      "oov_count": 8162,
+      "oov_ratio": 0.07310737701981297,
+      "groups": null
+    }
+  }
+}

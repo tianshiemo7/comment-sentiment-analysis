@@ -1,0 +1,54 @@
+{
+  "mode": "live",
+  "source": "https://www.bilibili.com/video/BV1GJ411x7h7",
+  "config": {
+    "bvid": "BV1GJ411x7h7",
+    "max_pages": 2,
+    "include_replies": false,
+    "max_sub_pages": 1,
+    "max_items": 60,
+    "delay_seconds": 2.5,
+    "timeout_seconds": 15.0
+  },
+  "result": {
+    "wall_seconds": 9.306,
+    "requests": 4,
+    "robots_fetches": 2,
+    "retries": 0,
+    "risk_control_hits": 0,
+    "response_bytes": 215791,
+    "comments_new": 39,
+    "comments_total": 39,
+    "comments_per_second": 4.19,
+    "latency_ms": {
+      "avg": 159.65,
+      "p50": 140.92,
+      "p95": 325.3,
+      "max": 325.3
+    },
+    "limiter_interval": 2.5,
+    "limiter_total_wait": 7.6,
+    "video_title": "【官方 MV】Never Gonna Give You Up - Rick Astley",
+    "comment_total_on_site": 237747,
+    "error": null,
+    "rss_mb_before": 29.59,
+    "rss_mb_after": 42.06
+  },
+  "normalize": {
+    "iterations": 20000,
+    "elapsed_seconds": 0.2411,
+    "ops_per_second": 82937.0
+  },
+  "csv_write": {
+    "rows": 20000,
+    "elapsed_seconds": 0.0886,
+    "rows_per_second": 225815.0
+  },
+  "sample_records": 39,
+  "environment": {
+    "time_utc": "2026-10-17T05:14:32+00:00",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.9",
+    "cpu_count": 18
+  }
+}

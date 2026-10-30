@@ -1,0 +1,29 @@
+{
+  "total": 38,
+  "vocab_size": null,
+  "min_freq": null,
+  "max_len": 200,
+  "length": {
+    "count": 38,
+    "mean": 5.815789473684211,
+    "median": 4.0,
+    "p90": 10.300000000000004,
+    "max": 25
+  },
+  "labels": {},
+  "truncated_ratio": 0.0,
+  "token_count": 221,
+  "oov_count": null,
+  "oov_ratio": null,
+  "mode": "clean",
+  "has_sentiment_labels": false,
+  "input_rows": 39,
+  "excluded_rows": 1,
+  "pipeline_version": "1.0.0",
+  "exclusion_reasons": {
+    "duplicate_text": 1
+  },
+  "next_step": "sentiment_prediction",
+  "vocab_fitted": false,
+  "video_count": 1
+}

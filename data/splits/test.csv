@@ -1,0 +1,5 @@
+﻿text,label,tokens,comment_id,input_file,input_row,source,split,text_hash,text_raw,video_id
+这个教程配图实用值得三连,positive,这个 教程 配图 实用 值得 三连,demo009,bilibili_demo.csv,10,人工编写演示样本,test,2959720d3cd7ac6b3a29c6a970fce553704c79ade2774fa189512bd122cdf988,这个教程配图实用值得三连,demo_video03
+这个教程标题夸张内容太水,negative,这个 教程 标题 夸张 内容 太 水,demo012,bilibili_demo.csv,13,人工编写演示样本,test,a36cf5dd0c12700adfb1f156c1ee87b1c80f5a8604bc5e689968f545aac03342,这个教程标题夸张内容太水,demo_video03
+这个教程只讲废话没有帮助,negative,这个 教程 只 讲 废话 没有 帮助,demo011,bilibili_demo.csv,12,人工编写演示样本,test,c8f0880a463a54034b46b27e6777e0d50761afc247c0aa4dd289a93c143c9b4d,这个教程只讲废话没有帮助,demo_video03
+这个教程内容充实支持up主,positive,这个 教程 内容 充实 支持 up主,demo010,bilibili_demo.csv,11,人工编写演示样本,test,300079c9b0637eb0d7783669426b39118a9e320b9745b665a913a226fae97fd2,这个教程内容充实支持up主,demo_video03

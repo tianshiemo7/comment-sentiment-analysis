@@ -1,0 +1,25 @@
+﻿text,label,tokens,comment_id,input_file,input_row,source,split,text_hash,text_raw,video_id
+这个教程讲解清晰看完就学会了,positive,这个 教程 讲解 清晰 看 完 就 学会,demo001,bilibili_demo.csv,2,人工编写演示样本,train,45f05bc4459a86608ec32ec59bf247a5215d5a4c61a06fbc7cd47497651bda35,这个教程讲解清晰看完就学会了,demo_video01
+这个教程步骤完整示范很认真,positive,这个 教程 步骤 完整 示范 很 认真,demo002,bilibili_demo.csv,3,人工编写演示样本,train,120a9b31e420699e17f3ec0d7c500aeebed66857b21b33034ac3e062f0a3f4f0,这个教程步骤完整示范很认真,demo_video01
+这个教程没有讲清关键步骤,negative,这个 教程 没有 讲清 关键步骤,demo003,bilibili_demo.csv,4,人工编写演示样本,train,8259ef1749f4b4472149af39fd493e705f0f35176d3acbad5257bf7cfdecf311,这个教程没有讲清关键步骤,demo_video01
+这个教程跳过细节让人失望,negative,这个 教程 跳过 细节 让 人 失望,demo004,bilibili_demo.csv,5,人工编写演示样本,train,d42d29212220c6fbebacf2720b2879c7a5316156487b0227b0ea3aaae3650434,这个教程跳过细节让人失望,demo_video01
+这个教程画面清晰剪辑流畅,positive,这个 教程 画面 清晰 剪辑 流畅,demo005,bilibili_demo.csv,6,人工编写演示样本,train,a76277a1a5783b1a7ee7ac1817c1579fb1aad0c60f733bf648b695c09db034fa,这个教程画面清晰剪辑流畅,demo_video02
+这个教程字幕准确看着舒服,positive,这个 教程 字幕 准确 看着 舒服,demo006,bilibili_demo.csv,7,人工编写演示样本,train,025386c7792e946780bf952e245726e7fc88cf6062b9e225d3fdf4dbf4a4748c,这个教程字幕准确看着舒服,demo_video02
+这个教程画面模糊字幕也有错误,negative,这个 教程 画面 模糊 字幕 有 错误,demo007,bilibili_demo.csv,8,人工编写演示样本,train,31ae4a5fc10352df051fdf7a18b7be0394333b6ea040ad43b0b69dfdb96ed340,这个教程画面模糊字幕也有错误,demo_video02
+这个教程音量太小体验很差,negative,这个 教程 音量 太小 体验 很差,demo008,bilibili_demo.csv,9,人工编写演示样本,train,1408e9fce028ea2be42d58585ce2572c7b6b9b1b7de8cb633d01b4b8ec316cbf,这个教程音量太小体验很差,demo_video02
+这个教程配图实用值得三连,positive,这个 教程 配图 实用 值得 三连,demo009,bilibili_demo.csv,10,人工编写演示样本,test,2959720d3cd7ac6b3a29c6a970fce553704c79ade2774fa189512bd122cdf988,这个教程配图实用值得三连,demo_video03
+这个教程内容充实支持up主,positive,这个 教程 内容 充实 支持 up主,demo010,bilibili_demo.csv,11,人工编写演示样本,test,300079c9b0637eb0d7783669426b39118a9e320b9745b665a913a226fae97fd2,这个教程内容充实支持up主,demo_video03
+这个教程只讲废话没有帮助,negative,这个 教程 只 讲 废话 没有 帮助,demo011,bilibili_demo.csv,12,人工编写演示样本,test,c8f0880a463a54034b46b27e6777e0d50761afc247c0aa4dd289a93c143c9b4d,这个教程只讲废话没有帮助,demo_video03
+这个教程标题夸张内容太水,negative,这个 教程 标题 夸张 内容 太 水,demo012,bilibili_demo.csv,13,人工编写演示样本,test,a36cf5dd0c12700adfb1f156c1ee87b1c80f5a8604bc5e689968f545aac03342,这个教程标题夸张内容太水,demo_video03
+这个教程示例丰富非常实用,positive,这个 教程 示例 丰富 非常 实用,demo013,bilibili_demo.csv,14,人工编写演示样本,train,63190e89b1542b7b27b4e0af48da6150b74147c91bd70e72eeb695819659ac90,这个教程示例丰富非常实用,demo_video04
+这个教程节奏合适讲得很好,positive,这个 教程 节奏 合适 讲得 很 好,demo014,bilibili_demo.csv,15,人工编写演示样本,train,8a03d73c534bdde1ab76c9c0050c1eb24b2c849718cac334547a0cb8db44a4ba,这个教程节奏合适讲得很好,demo_video04
+这个教程节奏太快根本跟不上,negative,这个 教程 节奏 太快 根本 跟不上,demo015,bilibili_demo.csv,16,人工编写演示样本,train,7a545ccb3c645f2cb1f7ea63fe068f40f2d8bbeefa8f0dac945c0651816cf7e2,这个教程节奏太快根本跟不上,demo_video04
+这个教程代码错误一直没有修正,negative,这个 教程 代码 错误 一直 没有 修正,demo016,bilibili_demo.csv,17,人工编写演示样本,train,6f52a45f29a94b437f3c432636ac78745b8a119c3804d350bf90ca446d39dfd1,这个教程代码错误一直没有修正,demo_video04
+这个教程解决问题真的有用 表情点赞,positive,这个 教程 解决问题 真的 有用 表情点赞,demo017,bilibili_demo.csv,18,人工编写演示样本,train,49008d4b7b93ba99526d2c6d94fa86be3696120217cefbe90d071689a9e7bd2a,这个教程解决问题真的有用[点赞],demo_video05
+这个教程讲得通俗收藏了,positive,这个 教程 讲得 通俗 收藏,demo018,bilibili_demo.csv,19,人工编写演示样本,train,cb034a77bbb7e972ad70f062f2c49173f6559cf94c163290d0a0c0c8acafc1c5,这个教程讲得通俗收藏了,demo_video05
+这个教程内容过时不推荐,negative,这个 教程 内容 过时 不 推荐,demo019,bilibili_demo.csv,20,人工编写演示样本,train,e20ff991da9e512a4660650e50e0cc2acad15c467092813b443dd018399273ec,这个教程内容过时不推荐,demo_video05
+这个教程没有依据解释很敷衍,negative,这个 教程 没有 依据 解释 很 敷衍,demo020,bilibili_demo.csv,21,人工编写演示样本,train,6f6dcfb9316a4175689856264317a3ac53e6e58af7f648e5dac9b9c4cd70b357,这个教程没有依据解释很敷衍,demo_video05
+这个教程认真用心看完很满意,positive,这个 教程 认真 用心看 完 很 满意,demo021,bilibili_demo.csv,22,人工编写演示样本,val,2a6bd7c8e7fa7b9b229ec59848fc25f3d21270bc5a6476548a5e04242157b9ec,这个教程认真用心看完很满意,demo_video06
+这个教程思路清楚期待更新,positive,这个 教程 思路清楚 期待 更新,demo022,bilibili_demo.csv,23,人工编写演示样本,val,e396e70106fa3379a137bbee2c9c90b227338d60f448ac72859102cc27e13407,这个教程思路清楚期待更新,demo_video06
+这个教程广告太多影响观看,negative,这个 教程 广告 太 多 影响 观看,demo023,bilibili_demo.csv,24,人工编写演示样本,val,bb87badbd7e3d7d49cdac411ac9e0995b221d0a9f67ee0a88ccee640c3770000,这个教程广告太多影响观看,demo_video06
+这个教程逻辑混乱不能理解,negative,这个 教程 逻辑 混乱 不能 理解,demo024,bilibili_demo.csv,25,人工编写演示样本,val,91f169231c6357dc48c73940d92757d9b274adfd9b934fc992458c4368573108,这个教程逻辑混乱不能理解,demo_video06

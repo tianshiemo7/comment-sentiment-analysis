@@ -1,0 +1,113 @@
+{
+  "total": 24,
+  "vocab_size": 6,
+  "min_freq": 3,
+  "max_len": 200,
+  "length": {
+    "count": 24,
+    "mean": 6.375,
+    "median": 6.0,
+    "p90": 7.0,
+    "max": 8
+  },
+  "labels": {
+    "negative": 12,
+    "positive": 12
+  },
+  "truncated_ratio": 0.0,
+  "token_count": 153,
+  "oov_count": 97,
+  "oov_ratio": 0.6339869281045751,
+  "pipeline_version": "1.0.0",
+  "input_rows": 27,
+  "excluded_rows": 3,
+  "exclusion_reasons": {
+    "duplicate_text": 1,
+    "empty_after_cleaning": 1,
+    "neutral": 1
+  },
+  "seed": 42,
+  "target_ratios": [
+    0.7,
+    0.1,
+    0.2
+  ],
+  "group_key": "video_id",
+  "split_method": "grouped_stratified",
+  "course_requirements_met": false,
+  "course_check_issues": [
+    "训练集 16 条，少于 8000 条",
+    "测试集 4 条，少于 2000 条",
+    "val 条数比例偏离目标超过 5 个百分点"
+  ],
+  "demo_mode": true,
+  "warnings": [],
+  "splits": {
+    "train": {
+      "total": 16,
+      "vocab_size": 6,
+      "min_freq": 3,
+      "max_len": 200,
+      "length": {
+        "count": 16,
+        "mean": 6.375,
+        "median": 6.0,
+        "p90": 7.0,
+        "max": 8
+      },
+      "labels": {
+        "negative": 8,
+        "positive": 8
+      },
+      "truncated_ratio": 0.0,
+      "token_count": 102,
+      "oov_count": 64,
+      "oov_ratio": 0.6274509803921569,
+      "groups": 4
+    },
+    "val": {
+      "total": 4,
+      "vocab_size": 6,
+      "min_freq": 3,
+      "max_len": 200,
+      "length": {
+        "count": 4,
+        "mean": 6.25,
+        "median": 6.5,
+        "p90": 7.0,
+        "max": 7
+      },
+      "labels": {
+        "negative": 2,
+        "positive": 2
+      },
+      "truncated_ratio": 0.0,
+      "token_count": 25,
+      "oov_count": 16,
+      "oov_ratio": 0.64,
+      "groups": 1
+    },
+    "test": {
+      "total": 4,
+      "vocab_size": 6,
+      "min_freq": 3,
+      "max_len": 200,
+      "length": {
+        "count": 4,
+        "mean": 6.5,
+        "median": 6.5,
+        "p90": 7.0,
+        "max": 7
+      },
+      "labels": {
+        "negative": 2,
+        "positive": 2
+      },
+      "truncated_ratio": 0.0,
+      "token_count": 26,
+      "oov_count": 17,
+      "oov_ratio": 0.6538461538461539,
+      "groups": 1
+    }
+  }
+}

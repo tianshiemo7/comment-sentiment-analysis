@@ -1,0 +1,25 @@
+{
+  "model_name": "textcnn",
+  "model_type": "textcnn",
+  "epoch": 1,
+  "metrics": {
+    "val_loss": 0.7755347490310669,
+    "val_acc": 0.5
+  },
+  "hyperparams": {
+    "vocab_size": 6,
+    "embed_dim": 8,
+    "num_filters": 2,
+    "filter_sizes": [
+      2
+    ],
+    "num_classes": 2,
+    "dropout": 0.5,
+    "padding_idx": 0,
+    "freeze_embeddings": false
+  },
+  "labels": [
+    "negative",
+    "positive"
+  ]
+}

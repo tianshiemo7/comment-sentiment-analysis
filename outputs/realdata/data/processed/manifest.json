@@ -1,0 +1,43 @@
+{
+  "input_sha256": "cd71f1efa923fd9524137da7aa97941b21ac73db765ca55cbf7c8521ae8eda3f",
+  "preprocessor_sha256": "8c35d90031b434158323188cab5eed21c1def29f76fa2414d7a270db39947659",
+  "seed": 42,
+  "ratios": [
+    0.7,
+    0.1,
+    0.2
+  ],
+  "group_key": null,
+  "min_freq": 3,
+  "max_vocab_size": 30000,
+  "pipeline_version": "1.0.0",
+  "text_column": null,
+  "sheet_name": null,
+  "split_sha256": "a325114df2e5c56fccfcdf3449befdcc4668dc9495430acdb43fad577a90f8cf",
+  "dataset_version": "6740e89ff5121749",
+  "input_file": "comments_labeled_balanced.csv",
+  "label_map": {
+    "negative": 0,
+    "positive": 1
+  },
+  "vocab_fit_split": "train",
+  "python_dependency_versions": {
+    "numpy": "2.3.5",
+    "jieba": "0.42.1"
+  },
+  "files": {
+    "data/processed/cleaned.csv": "332b30b6f9c5c9aa9184f3a720f1f0288deb5d80900864d11d48ec877cb5af8d",
+    "data/processed/excluded.csv": "5d0818e05f9d05045abb0c66e85a7d24f8a310bdc1e6be229b63ec2aa3102d77",
+    "data/processed/vocab.json": "b23fdb2c238ae3749231d01de963fcd452ae2d78b491595231d4643053b3b29a",
+    "data/processed/preprocessor.json": "3fb61c67213f2b0bf399e5bd866623b5398497a6dc82ab0d9a948874ae65b891",
+    "data/processed/label_map.json": "c4538909e59c20bfd97f99a4b09a5303143c36ea67dfb513566b25a41a839375",
+    "data/processed/split_manifest.csv": "5f0236bb7f0fcf74ac7390c9fe25f3ed67546805923203c26518506d11fd3552",
+    "data/splits/train.csv": "566582671a9aa02adeb4424fed71a2a8bb8c08171f56407a6ddd34bcc66dca67",
+    "data/splits/train.npz": "29971fb94635810d6c6ae769f26620fedc88108d7494f3f3c879b78ebd7f0c4a",
+    "data/splits/val.csv": "3438784973feeb8b08e86cc9bbb848a4f3ed429926e6a434dc15e21190badb31",
+    "data/splits/val.npz": "f14bbb0afac44e801be3f769a21285e6ccb4b282fc86b17a68120ce7d9ca1ee6",
+    "data/splits/test.csv": "0020ef873fa60165332436b6fd11b59ae9c8771b00069669bce86420200e0fe6",
+    "data/splits/test.npz": "29c78b4f142e1270353abb6ed39730a409a8c288b0102dc9ade34e3b2344b864",
+    "outputs/stats/dataset_stats.json": "84bf04142f78710c451bf9193c15a1084aa70a36a1b714b5e2972687f34692b0"
+  }
+}
