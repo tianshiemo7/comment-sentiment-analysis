@@ -1,5 +1,47 @@
 # API 契约（B 站视频评论分析）
 
+## 实验可视化扩展（2026-10-30）
+
+新增只读接口，不改变原有预测、视频、数据项目契约。
+
+- `GET /api/visualizations?model=textcnn`：默认模型 textcnn；另支持 bilstm_attention。
+  不支持的模型返回 400。即使没有生成图表也返回 200，并逐项标记 available=false。
+- `GET /api/visualizations/figures/{figure_id}`：返回指定 PNG（inline）；
+  加 `?download=true` 返回附件。未知 ID、缺失文件、目录或符号链接返回 404。
+  只允许固定实验图表，不接受文件路径，不挂载整个 outputs 目录。
+
+```json
+{
+  "model": "textcnn",
+  "model_label": "TextCNN",
+  "dataset_version": "753bc2014c69bdc1",
+  "best_epoch": 2,
+  "metrics": {"accuracy": 0.8960, "precision": 0.9060, "recall": 0.8700, "f1": 0.8876},
+  "figures": [
+    {
+      "id": "textcnn-loss",
+      "title": "损失曲线",
+      "category": "training",
+      "scope": "model",
+      "description": "训练集与验证集的损失随轮次变化。",
+      "available": true,
+      "image_url": "/api/visualizations/figures/textcnn-loss?v=版本标识",
+      "download_url": "/api/visualizations/figures/textcnn-loss?download=true&v=版本标识",
+      "updated_at": "2026-10-30T06:52:00+00:00"
+    }
+  ]
+}
+```
+
+示例 figures 仅列一项；实际固定返回所选模型的 loss / accuracy / confusion，以及训练语料共享的
+wordcloud-positive / wordcloud-negative；BiLSTM-Attention 额外包含可选的 bilstm_attention-attention。
+category 为 training / evaluation / wordcloud / attention，scope 为 model / shared。
+没有图片时 image_url、download_url、updated_at 为 null；元信息缺失时 dataset_version、best_epoch
+为 null，metrics 中缺失/无效的指标为 null，不生成模拟值。metrics 来自对应模型已有评估文件，
+dataset_version 来自该模型的配套资源 manifest。image_url 的 v 来自文件修改时间与大小，刷新后更新。
+图表清单不缓存；图片响应要求重新验证缓存，以便训练重跑后刷新页面读取新产物。
+当前公开实验为酒店/外卖语料，指标和语料词云不代表 B 站评论领域的评估结果。
+
 > 本文件是**前后端唯一契约来源**。字段名一旦锁定，任何一侧都不得单方面改名。
 > 改动流程：先改本文件 → 双方确认 → 再改代码。
 

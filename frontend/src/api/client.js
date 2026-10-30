@@ -96,13 +96,20 @@ export function getModels() {
   return request('/api/models')
 }
 
+/** 读取所选模型的真实实验图表与评估信息。 */
+export function getVisualizations(model = 'textcnn') {
+  return request(`/api/visualizations?model=${encodeURIComponent(model)}`)
+}
+
 /** 契约速查表（供界面/文档渲染，字段与 README 保持一致） */
 export const API_CONTRACT = [
   { method: 'GET', path: '/health', request: '—', response: '{"status":"ok","service":str,"version":str}' },
   { method: 'POST', path: '/api/predict', request: '{"text":str}', response: '{"text","label","confidence","probs":{"positive","negative"}}' },
   { method: 'POST', path: '/api/predict/batch', request: 'multipart 文件（.csv/.xlsx）', response: '{"total","results":[{"index","text","label","confidence"}],"export_url":str}' },
   { method: 'GET', path: '/api/models', request: '—', response: '{"models":[{"name","type","metrics":{...},"ready"}]}' },
+  { method: 'GET', path: '/api/visualizations', request: '?model=textcnn|bilstm_attention', response: '{"model","model_label","dataset_version","best_epoch","metrics","figures"}' },
+  { method: 'GET', path: '/api/visualizations/figures/{figure_id}', request: '?download=true（可选）', response: 'image/png（固定实验图表）' },
   { method: 'GET', path: '/api/predict/batch/download/{file_id}', request: '—', response: 'text/csv 附件（批量结果导出）' },
 ]
 
-export default { getHealth, predict, predictBatch, getModels, API_CONTRACT }
+export default { getHealth, predict, predictBatch, getModels, getVisualizations, API_CONTRACT }

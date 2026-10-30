@@ -7,8 +7,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from .keywords import SPECIAL_TOKENS, is_display_keyword
+
 FIGURES_DIR = Path("outputs") / "figures"
-SPECIAL_TOKENS = {"<pad>", "<unk>"}
 
 #: 常见中文字体候选（Windows / Linux / macOS），按顺序探测
 FONT_CANDIDATES = (
@@ -63,7 +64,7 @@ def word_frequencies(tokenized_texts: Iterable[Sequence[str]], top_n: int = 200)
     counter: Counter = Counter()
     for text in tokenized_texts:
         tokens = text.split() if isinstance(text, str) else list(text)
-        counter.update(token for token in tokens if token and token not in SPECIAL_TOKENS)
+        counter.update(token for token in tokens if is_display_keyword(token))
     if top_n is not None and top_n >= 0:
         return dict(counter.most_common(top_n))
     return dict(counter)
@@ -84,7 +85,8 @@ def plot_wordcloud(
         out_path: 输出路径，如 ``outputs/figures/wordcloud_positive.png``。
         font_path: 中文字体文件路径；``None`` 时自动探测（见 :func:`detect_cjk_font`）。
     """
-    frequencies = {str(word): int(count) for word, count in frequencies.items() if word and int(count) > 0}
+    frequencies = {str(word): int(count) for word, count in frequencies.items()
+                   if is_display_keyword(str(word)) and int(count) > 0}
     if not frequencies:
         raise ValueError("没有可绘制词云的有效词频数据")
     WordCloud = _require_wordcloud()

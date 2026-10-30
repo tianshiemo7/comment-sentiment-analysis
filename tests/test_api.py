@@ -226,6 +226,8 @@ def test_business_routes_exposed():
         ("POST", "/api/predict/batch"),
         ("GET", "/api/predict/batch/download/{file_id}"),
         ("GET", "/api/models"),
+        ("GET", "/api/visualizations"),
+        ("GET", "/api/visualizations/figures/{figure_id}"),
         # B 站视频评论分析（契约 docs/API契约.md 第二节）
         ("POST", "/api/videos"),
         ("GET", "/api/videos"),

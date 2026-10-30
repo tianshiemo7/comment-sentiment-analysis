@@ -532,7 +532,9 @@ def _tokenize_real_text(text: str) -> list[str]:
 def _strip_keyword_noise(text: str) -> str:
     """去掉 URL、@用户、[B站表情]——词云应展示内容词，而不是链接和表情名。"""
 
-    cleaned = _REAL_URL_RE.sub(" ", str(text))
+    from ..visualization.keywords import strip_processing_markers
+
+    cleaned = _REAL_URL_RE.sub(" ", strip_processing_markers(str(text)))
     cleaned = _REAL_MENTION_RE.sub(" ", cleaned)
     cleaned = _REAL_EMOTICON_RE.sub(" ", cleaned)
     return cleaned
@@ -558,7 +560,11 @@ def _is_cjk_run(piece: str) -> bool:
 
 def _is_keyword_token(token: Any) -> bool:
     """关键词过滤：长度 ≥ 2、含字母/数字、非纯数字、不在停用词表。"""
+    from ..visualization.keywords import is_display_keyword
+
     word = str(token).strip().lower()
+    if not is_display_keyword(word):
+        return False
     if len(word) < 2:
         return False
     if not any(char.isalnum() for char in word):

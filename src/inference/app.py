@@ -71,7 +71,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
@@ -133,6 +133,7 @@ from ..videos.settings import (
 )
 from . import batch as batch_io
 from . import service
+from . import visualizations
 from .schemas import (
     BatchItem,
     BatchPredictResponse,
@@ -141,6 +142,7 @@ from .schemas import (
     ModelsResponse,
     PredictRequest,
     PredictResponse,
+    VisualizationsResponse,
 )
 
 #: 服务标识与版本（``/health`` 返回，改动需同步 docs 与前端展示）
@@ -309,6 +311,27 @@ def list_models() -> ModelsResponse:
     未训练时各项为 ``0.0`` 且 ``ready`` 为 ``False``。
     """
     return ModelsResponse(models=[ModelInfo(**item) for item in service.available_models()])
+
+
+@app.get("/api/visualizations", response_model=VisualizationsResponse, summary="实验图表清单", tags=["实验"])
+def get_visualizations(response: Response, model: str = "textcnn") -> VisualizationsResponse:
+    try:
+        result = visualizations.get_visualizations(model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "no-store"
+    return VisualizationsResponse(**result)
+
+
+@app.get("/api/visualizations/figures/{figure_id}", summary="查看或下载实验图片", tags=["实验"])
+def get_visualization_figure(figure_id: str, download: bool = False) -> FileResponse:
+    try:
+        path = visualizations.resolve_figure_path(figure_id)
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="图表不存在或尚未生成") from exc
+    return FileResponse(path, media_type="image/png", filename=path.name,
+                        content_disposition_type="attachment" if download else "inline",
+                        headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"})
 
 
 # --------------------------------------------------------------------------- #

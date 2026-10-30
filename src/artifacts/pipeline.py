@@ -40,6 +40,7 @@ from typing import Any, Callable
 
 from ..inference import service as inference_service
 from ..preprocessing.pipeline import prepare_comments
+from ..visualization.keywords import is_display_keyword
 from . import preview
 from .config import ArtifactsConfig
 from .errors import PipelineAborted, PipelineFailure
@@ -454,7 +455,8 @@ def _build_keywords(
         if bucket is None:
             continue  # neutral 不进词云（契约只给 positive / negative 两组）
         for token in str(row.get("tokens") or "").split():
-            bucket[token] += 1
+            if is_display_keyword(token):
+                bucket[token] += 1
     result: dict[str, list[dict[str, Any]]] = {}
     for label, counter in buckets.items():
         top = counter.most_common(KEYWORD_LIMIT)

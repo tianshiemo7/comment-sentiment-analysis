@@ -111,7 +111,7 @@ frontend/
         ├── HomeView.vue              # 旧骨架首页（已被 BilibiliView 取代，文件保留但不再挂载）
         ├── SinglePredictView.vue     # 单条预测（含「保存到左栏」开关，默认开启）
         ├── BatchPredictView.vue     # 批量预测（保留）
-        ├── VisualizationView.vue     # 可视化四个占位卡片（保留）
+        ├── VisualizationView.vue     # 实验可视化：真实曲线、混淆矩阵、词云；切换模型与原图下载
         └── ModelCompareView.vue      # 模型对比表格（保留）
 ```
 
@@ -224,7 +224,7 @@ frontend/
 | ↳ 单独评论详情 | **只渲染**原文（大字号）+ 极性徽章 + 置信度 + 概率条 + 时间 + method 标识，**不渲染任何图表** | 数据来自 `GET /api/artifacts` 的 `groups.solo` | 前端已完成 |
 | 单条预测 | 文本域 + 开始预测 + 清空 + **「保存到左栏」开关（默认开启）**；结果区展示极性、置信度、正负概率条 | POST `/api/predict`、POST `/api/solo-comments`（开关开启时） | 已封装，默认接真实后端（`method` 原样透传） |
 | 批量预测 | 文件选择（前端校验扩展名）+ 提交；结果表格 + 导出按钮（直接使用 `export_url` 下载） | POST `/api/predict/batch`、GET `/api/predict/batch/download/{file_id}` | 已可用（需后端运行） |
-| 实验可视化 | 四个占位卡片 + 产物文件对照表 | 无（契约中没有图表接口） | 待后端产出 PNG，需决策接入方式 |
+| 实验可视化 | 模型切换、真实曲线/混淆矩阵/共享语料词云、原图预览与下载、缺失/错误/加载状态 | `GET /api/visualizations?model=`、`GET /api/visualizations/figures/{figure_id}` | 已接入真实图片；Attention 图为可选产物 |
 | 模型对比 | 指标表格（模型名/类型/Accuracy/P/R/F1/状态）+ 刷新 | GET `/api/models` | 已封装，待后端 |
 
 > 旧骨架首页 `views/HomeView.vue` 已被 `BilibiliView.vue` 取代，文件保留但不再挂载，可后续删除。
@@ -250,7 +250,7 @@ frontend/
       详情区已回退使用列表项的 `phases`，需与后端确认是否保留。
 - [ ] 后端就绪后联调既有接口（4 个调用 + 1 个批量下载路由），核对真实字段与类型（尤其 `label` 取值范围、概率字段是否归一化）。
 - [x] 批量上传字段名已锁定为 `file`（与前端 `predictBatch` 默认值一致）。
-- [ ] 可视化页接图表：确认是「FastAPI 静态挂载 `outputs/figures/`」还是「新增图表清单接口」。
+- [x] 可视化页通过只读图表清单接口展示真实产物，图片接口仅允许固定图表 ID，不暴露整个 outputs 目录。
 - [ ] 单条预测：补充阳性/阴性概率条的 0~1 裁剪与异常值兜底（后端返回异常时页面不崩）。
 - [ ] 批量预测：大文件（> 数万行）的分页显示或虚拟滚动，避免一次性渲染表格卡顿。
 - [ ] 模型对比：接入 ECharts 指标条形图与混淆矩阵热力图（按课程安排自行接入）。
