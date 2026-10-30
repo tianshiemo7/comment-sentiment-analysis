@@ -5,12 +5,35 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from .service import METHOD_RULE_PLACEHOLDER
 
 #: 标签取值（顺序与 `src/models/base.py` 的 logits 顺序一致）
 LABEL_PATTERN = "^(positive|negative)$"
+
+
+class VisualizationFigure(BaseModel):
+    id: str
+    title: str
+    category: Literal["training", "evaluation", "wordcloud", "attention"]
+    scope: Literal["model", "shared"]
+    description: str
+    available: bool
+    image_url: str | None = None
+    download_url: str | None = None
+    updated_at: str | None = None
+
+
+class VisualizationsResponse(BaseModel):
+    model: Literal["textcnn", "bilstm_attention"]
+    model_label: str
+    dataset_version: str | None = None
+    best_epoch: int | None = None
+    metrics: dict[str, float | None]
+    figures: list[VisualizationFigure]
 
 
 class HealthResponse(BaseModel):

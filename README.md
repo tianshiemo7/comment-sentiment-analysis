@@ -29,8 +29,9 @@
 | B 站视频任务 `src/videos/` | ✅ 任务状态机 + 分步流水线（待清洗 / 待分析）+ 真实爬取（opt-in）+ 真实模型情感推理 |
 | 数据项目与单独评论 `src/artifacts/` | ✅ 上传爬虫 CSV → clean 管线 → 三张表 + 逐条情感（真实模型）；单独评论集中管理 |
 | 前端 `frontend/` | ✅ Vue 3 + Vite + ECharts：B 站分析主界面 / 单条预测 / 批量预测 / 实验可视化 / 模型对比；默认直连真实后端 |
+| 实验可视化 | ✅ 按模型读取真实训练曲线、混淆矩阵及共享语料词云，支持原图查看、下载和刷新；未生成的 Attention 图明确提示 |
 | 真实权重与指标（2026-10-30 CPU 复核） | ✅ TextCNN 测试 Acc **89.60%** / F1 88.76%，BiLSTM-Attention **90.08%** / F1 89.20%（酒店/外卖公开语料，**非 B 站领域指标**） |
-| 测试与验收 | ✅ `pytest` **578 passed**；端到端冒烟后端 **9/9** + 前端 **6/6 PASS**；GitHub CI 通过 |
+| 测试与验收 | ✅ 本机 `pytest` **590 passed / 2 skipped**；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS** |
 
 ## 二、技术栈
 
@@ -177,6 +178,7 @@ python scripts/e2e_smoke.py --frontend   # 追加前端代理 + 浏览器渲染�
 | 分组 | 接口 |
 | --- | --- |
 | 系统 | `GET /health`、`GET /api/models` |
+| 实验图表 | `GET /api/visualizations?model=textcnn`、`GET /api/visualizations/figures/{figure_id}`（`?download=true` 下载 PNG） |
 | 单条 / 批量预测 | `POST /api/predict`、`POST /api/predict/batch`、`GET /api/predict/batch/download/{file_id}` |
 | 视频任务 | `POST /api/videos`、`GET /api/videos`、`GET /api/videos/{bvid}/detail`、`POST /api/videos/{bvid}/continue`、`POST /api/videos/{bvid}/retry`、`DELETE /api/videos/{bvid}` |
 | 设置与账号 | `GET/PUT /api/settings`、`POST /api/crawler/session/check`、`POST /api/account/login/start`、`GET /api/account/login/status`、`POST /api/account/login/cancel` |
@@ -237,10 +239,12 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 ## 八、测试与质量
 
 ```bash
-python -m pytest tests/ -q    # 578 passed（含真实模型推理 31 项 + 视频真实模型 9 项）
+python -m pytest tests/ -q    # 本轮 Windows/CUDA：590 passed / 2 skipped；含新增图表接口 14 项
 ```
 
 - 无 torch 环境会自动跳过模型/训练相关用例，其余服务与数据处理测试照常运行；
+- 实验可视化已通过真实浏览器验证：模型切换、五张 PNG 加载、下载、请求/图片错误恢复、缺失状态和 390px 布局。
+  接口与截图见 [`docs/实验可视化接入与验证-2026-10-30.md`](docs/实验可视化接入与验证-2026-10-30.md)；
 - 端到端：`scripts/e2e_smoke.py --frontend` → 后端 9/9、前端 6/6 PASS（真实 uvicorn + 真实权重 +
   Vite 代理与无头浏览器渲染）；
 - 全新 clone 自 GitHub 后可直接加载真实权重、跑通测试与端到端脚本；

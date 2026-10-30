@@ -95,6 +95,55 @@ def test_word_frequencies_counts_and_truncates():
     assert "<pad>" not in frequencies
 
 
+def test_word_frequencies_remove_markers_before_ranking_and_keep_negation():
+    tokens = ["标点分隔"] * 100 + ["标点感叹", "标点疑问", "表情笑哭", "表情未知", "<unk>", "<PAD>"]
+    tokens += ["讲解", "讲解", "没有", "不", "标点", "表情", "表情丰富"]
+    assert word_frequencies([tokens], top_n=2) == {"讲解": 2, "没有": 1}
+    complete = word_frequencies([tokens], top_n=None)
+    assert set(complete) == {"讲解", "没有", "不", "标点", "表情", "表情丰富"}
+
+
+def test_wordcloud_direct_frequencies_cannot_bypass_marker_filter(tmp_path, monkeypatch):
+    pytest.importorskip("wordcloud")
+    from wordcloud import WordCloud
+    from src.visualization.wordclouds import plot_wordcloud
+
+    captured = []
+    original = WordCloud.generate_from_frequencies
+    def capture(self, frequencies, *args, **kwargs):
+        captured.append(dict(frequencies))
+        return original(self, frequencies, *args, **kwargs)
+    monkeypatch.setattr(WordCloud, "generate_from_frequencies", capture)
+    plot_wordcloud({"标点分隔": 1000, "表情笑哭": 100, "清晰": 3, "没有": 2}, tmp_path / "cloud.png")
+    assert captured[0] == {"清晰": 3, "没有": 2}
+    assert all(set(frequencies) == {"清晰", "没有"} for frequencies in captured)
+
+
+def test_project_keyword_ranking_ignores_processing_markers():
+    from src.artifacts.pipeline import _build_keywords
+    rows = [{"tokens": "标点分隔 标点分隔 标点感叹 表情狗头 清晰 清晰 没有"},
+            {"tokens": "标点疑问 表情未知 糟糕"}]
+    predictions = [{"label": "positive"}, {"label": "negative"}]
+    result = _build_keywords(rows, predictions)
+    assert result['positive'][0] == {"word": "清晰", "count": 2, "weight": 1.0}
+    assert {item["word"] for item in result["positive"]} == {"清晰", "没有"}
+    assert result["negative"] == [{"word": "糟糕", "count": 1, "weight": 1.0}]
+
+
+@pytest.mark.parametrize("use_fallback", [False, True])
+def test_video_keywords_do_not_split_markers_into_fake_content(monkeypatch, use_fallback):
+    from importlib import import_module
+    from src.videos.placeholder import _keywords_from_texts
+
+    def unavailable(*args, **kwargs):
+        raise ImportError("simulate missing jieba")
+    if use_fallback:
+        monkeypatch.setattr(import_module('src.preprocessing.tokenize'), "tokenize", unavailable)
+    words = {item["word"] for item in _keywords_from_texts(["讲解清晰 标点分隔 表情笑哭 标点疑问"]) }
+    assert "讲解" in words and "清晰" in words
+    assert not {"标点", "分隔", "疑问", "表情", "笑哭"} & words
+
+
 def test_wordclouds_by_label(tmp_path):
     pytest.importorskip("wordcloud")
     from src.visualization.wordclouds import plot_wordclouds_by_label

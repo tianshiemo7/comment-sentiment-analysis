@@ -134,14 +134,34 @@
     },
     {
       "path": "outputs/figures/wordcloud_positive.png",
-      "bytes": 597672,
-      "sha256": "3ac0061ce97597e8ef32c677edf84ecb34d0dcb2cc924d0a92ce34f9c8070500"
+      "bytes": 560853,
+      "sha256": "768a40231d17a16b2772358237c430d9aedf55660ba5bbba838fef0045f418d6"
     },
     {
       "path": "outputs/figures/wordcloud_negative.png",
-      "bytes": 607610,
-      "sha256": "3161496e0d98bf7e1e42133116946503c8c74d64b348b1c50a371a55a93eb155"
+      "bytes": 548350,
+      "sha256": "3fa02bcdb9bef7cb4835030dc2985200b45a82039af0b4f1c257b76f20e7ef0d"
     }
   ],
-  "reload_verification": "outputs/stats/checkpoint_smoke.json"
+  "reload_verification": "outputs/stats/checkpoint_smoke.json",
+  "visualization_updates": [
+    {
+      "at": "2026-10-30T08:25:13.381707+00:00",
+      "reason": "Remove preprocessing punctuation and emoji marker tokens from display statistics only",
+      "input": "data/splits/train.csv",
+      "model_weights_changed": false,
+      "artifacts": [
+        {
+          "path": "outputs/figures/wordcloud_positive.png",
+          "previous_sha256": "3ac0061ce97597e8ef32c677edf84ecb34d0dcb2cc924d0a92ce34f9c8070500",
+          "sha256": "768a40231d17a16b2772358237c430d9aedf55660ba5bbba838fef0045f418d6"
+        },
+        {
+          "path": "outputs/figures/wordcloud_negative.png",
+          "previous_sha256": "3161496e0d98bf7e1e42133116946503c8c74d64b348b1c50a371a55a93eb155",
+          "sha256": "3fa02bcdb9bef7cb4835030dc2985200b45a82039af0b4f1c257b76f20e7ef0d"
+        }
+      ]
+    }
+  ]
 }
