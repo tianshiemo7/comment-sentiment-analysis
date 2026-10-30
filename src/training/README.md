@@ -8,7 +8,8 @@
 1. 提供统一的训练 / 验证循环，TextCNN 与 BiLSTM-Attention 共用；
 2. 早停（`EarlyStopping`）、保存最优检查点 `models/checkpoints/<model>/best.pt`；
 3. 训练日志写入 `outputs/logs/train_<model>_<时间戳>.json`（每 epoch 的
-   `train_loss / val_loss / val_acc / lr`），供 `src/visualization` 画曲线；
+   `train_loss / train_acc / val_loss / val_acc / lr`），供 `src/visualization` 画曲线；
+   train_acc 为训练模式下各批次更新前预测的累计准确率，与验证时关闭 dropout 的 val_acc 口径不同；
 4. 固定随机种子（`SEED=42`），并记录完整超参，保证实验可复现。
 
 ## 输入 / 输出
@@ -44,6 +45,10 @@ bash scripts/train.sh                       # 两模型顺序训练
 MODELS=textcnn bash scripts/train.sh        # 只训练一个
 python -m src.training.cli --model textcnn --epochs 20
 ```
+
+2026-10-30 已在 Windows Anaconda 的 `deeplearning` 环境使用 CUDA 完成 Word2Vec 与两种深度模型训练。
+PowerShell 可直接调用 `E:\Anaconda\envs\deeplearning\python.exe`，无需依赖当前终端 PATH。
+正式超参、测试集指标、检查点、资源快照和验证记录见 [模型训练与评估](../../docs/模型训练与评估-2026-10-30.md)。
 
 ## 关联
 
