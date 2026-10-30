@@ -11,6 +11,8 @@ from .dataset import load_records
 from .pipeline import detect_processing_mode, prepare_comments, prepare_dataset
 from .processor import TextPreprocessor
 from .tokenize import DEFAULT_MAX_LEN, DEFAULT_STOPWORDS_PATH, DEFAULT_USERDICT_PATH
+from .split import DEFAULT_SEED
+from .vocab import DEFAULT_MIN_FREQ
 
 
 def main(argv=None) -> int:
@@ -23,9 +25,9 @@ def main(argv=None) -> int:
     parser.add_argument("--sheet-name")
     parser.add_argument("--lang", choices=["zh", "en"], default="zh")
     parser.add_argument("--max-len", type=int, default=DEFAULT_MAX_LEN)
-    parser.add_argument("--min-freq", type=int, default=3)
+    parser.add_argument("--min-freq", type=int, default=DEFAULT_MIN_FREQ)
     parser.add_argument("--max-vocab-size", type=int, default=30000, help="普通词数量上限，不含 PAD/UNK")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--ratios", type=float, nargs=3, default=(.7, .1, .2))
     parser.add_argument("--group-by", default="auto", help="auto 自动使用 video_id；none 明确采用非分组划分")
     parser.add_argument("--stopwords", default=str(DEFAULT_STOPWORDS_PATH))

@@ -502,8 +502,8 @@ def test_real_crawl_staged_cleans_dedupes_and_analyzes(staged_client, monkeypatc
     _wait_status(client, BVID, {"cleaned"})
     clean_artifact = service.store.read_stage(BVID, "clean")
     texts = [record["text"] for record in clean_artifact["records"]]
-    # clean_text 会把「！」规范化成「标点感叹」，去掉 URL 与多余标点
-    assert texts == ["这个视频讲得太好了 标点感叹", "广告太长 画质差 直接劝退"]
+    # clean_text 保留感叹与分隔词元，删除 URL。
+    assert texts == ["这个视频讲得太好了 标点感叹", "广告太长 标点分隔 画质差 标点分隔 直接劝退"]
     assert all("http" not in text for text in texts)
     assert clean_artifact["stats"] == {
         "raw_total": 4,

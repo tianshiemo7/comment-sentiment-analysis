@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,7 +14,7 @@ from typing import Iterable
 
 from .tokenize import PAD_TOKEN, UNK_TOKEN
 
-DEFAULT_MIN_FREQ = 3
+DEFAULT_MIN_FREQ = int(os.getenv("MIN_FREQ", "3"))
 DEFAULT_VOCAB_PATH = Path("data") / "processed" / "vocab.json"
 
 

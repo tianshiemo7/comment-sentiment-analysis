@@ -6,6 +6,11 @@
 服务基址：`http://localhost:8000`，前端开发服务器 `http://localhost:3000` 通过 Vite 代理
 转发 `/api`、`/health` 到后端。所有路径前端的写法都是**同源相对路径**（如 `/api/videos`）。
 
+情感类别口径：监督训练固定为正负二分类（`negative=0、positive=1、num_classes=2`）。
+下文响应示例及筛选条件中的 `neutral` 保留给当前规则推理未命中正负词时的占位结果，
+不是已训练模型的第三类，也不是低置信度预测的默认归类。训练入口排除 neutral/uncertain/irrelevant，
+不把规则占位结果回灌为人工标签。真实二分类模型上线后只输出 positive/negative；低置信度需另行定义复核状态。
+
 ---
 
 ## 一、状态语义

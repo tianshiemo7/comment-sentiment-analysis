@@ -9,10 +9,10 @@ from dataclasses import replace
 from pathlib import Path
 
 from .dataset import Record, load_records, save_records
-from .processor import LABEL_MAP, PIPELINE_VERSION, TextPreprocessor, save_encoded_split
+from .processor import LABEL_MAP, PIPELINE_VERSION, TextPreprocessor, save_encoded_split, sentiment_task
 from .split import DEFAULT_RATIOS, DEFAULT_SEED, resolve_group_key, split_dataset, validate_split_integrity
 from .stats import dataset_stats
-from .vocab import build_vocab
+from .vocab import DEFAULT_MIN_FREQ, build_vocab
 
 
 def _hash_file(path: Path) -> str:
@@ -34,7 +34,9 @@ def _prepare_records(records, processor, input_hash, *, require_labels=True):
         meta["comment_id"] = str(meta.get("comment_id") or meta.get("id") or f"import-{input_hash[:12]}-{meta['input_row']}")
         meta["text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
         prepared = Record(text, record.label, " ".join(tokens), meta)
-        if meta.get("invalid_text_type"):
+        if meta.get("malformed_column_count"):
+            reject(prepared, "malformed_column_count")
+        elif meta.get("invalid_text_type"):
             reject(prepared, "invalid_text_type")
         elif not text:
             reject(prepared, "empty_after_cleaning")
@@ -159,7 +161,7 @@ def prepare_dataset(
     input_path: str | Path, *, output_root: str | Path = ".", processor: TextPreprocessor | None = None,
     text_column: str | None = None, sheet_name: str | None = None,
     seed: int = DEFAULT_SEED, ratios: tuple = DEFAULT_RATIOS, group_key: str | None = "auto",
-    min_freq: int = 3, max_vocab_size: int | None = 30000,
+    min_freq: int = DEFAULT_MIN_FREQ, max_vocab_size: int | None = 30000,
     allow_small_dataset: bool = False, overwrite: bool = False,
 ) -> dict:
     input_path, root = Path(input_path).resolve(), Path(output_root).resolve()
@@ -174,8 +176,9 @@ def prepare_dataset(
     effective_group = resolve_group_key(accepted, group_key)
     splits = split_dataset(accepted, ratios, seed=seed, group_key=group_key)
     validate_split_integrity(splits, group_key=effective_group)
-    if not splits["train"]:
-        raise ValueError("训练集为空，请增加样本或分组数量")
+    empty_splits = [name for (name, items), ratio in zip(splits.items(), ratios) if (name == "train" or ratio > 0) and not items]
+    if empty_splits:
+        raise ValueError(f"划分集合为空：{', '.join(empty_splits)}，请增加样本或分组数量；演示模式也不能发布空的有效集合")
     checks = _course_checks(splits, ratios, 8000, 2000)
     if checks and not allow_small_dataset:
         raise ValueError("数据验收未通过：" + "；".join(checks) + "。仅调试可显式使用 --allow-small-dataset")
@@ -195,6 +198,7 @@ def prepare_dataset(
     stats = dataset_stats([record.tokens.split() for record in accepted],
                           [record.label for record in accepted], vocab, max_len=processor.max_len, out_path=None)
     stats.update({
+        "task": sentiment_task(),
         "pipeline_version": PIPELINE_VERSION, "input_rows": len(records), "excluded_rows": len(excluded),
         "exclusion_reasons": dict(sorted(Counter(record.meta["exclude_reason"] for record in excluded).items())),
         "seed": seed, "target_ratios": list(ratios), "group_key": effective_group,
@@ -208,6 +212,14 @@ def prepare_dataset(
             for name, items in splits.items()
         },
     })
+    # Keep corpus-wide lengths/labels, but never blend held-out OOV into train OOV.
+    stats["overall_oov_ratio"] = stats["oov_ratio"]
+    stats["overall_oov_count"] = stats["oov_count"]
+    stats["overall_token_count"] = stats["token_count"]
+    stats.update({key: stats["splits"]["train"][key] for key in ("oov_ratio", "oov_count", "token_count")})
+    stats["oov_scope"] = "train"
+    for name in splits:
+        stats[f"{name}_oov_ratio"] = stats["splits"][name]["oov_ratio"]
     processed = root / "data" / "processed"
     split_dir = root / "data" / "splits"
     stats_dir = root / "outputs" / "stats"
@@ -237,7 +249,11 @@ def prepare_dataset(
     save_records(manifests, processed / "split_manifest.csv")
     stats_dir.mkdir(parents=True, exist_ok=True)
     (stats_dir / "dataset_stats.json").write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+    quality = {"course_requirements_met": not checks, "demo_mode": allow_small_dataset,
+               "course_check_issues": checks, "input_rows": len(records), "accepted_rows": len(accepted),
+               "excluded_rows": len(excluded), "split_counts": {name: len(items) for name, items in splits.items()}}
     config = {"input_sha256": input_hash, "preprocessor_sha256": _hash_payload(processor.to_dict()),
+              "task": sentiment_task(), **quality,
               "seed": seed, "ratios": list(ratios), "group_key": effective_group,
               "min_freq": min_freq, "max_vocab_size": max_vocab_size, "pipeline_version": PIPELINE_VERSION,
               "text_column": text_column, "sheet_name": sheet_name,

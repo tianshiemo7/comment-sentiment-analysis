@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -52,6 +55,33 @@ def test_emoji_and_unknown_emoji_survive_as_tokens():
     assert deduplicate([" 赞 ", "赞", "", None, "差"]) == ["赞", "差"]
 
 
+@pytest.mark.parametrize("text,expected", [
+    ("isn't good", "is not good"), ("don't like it", "do not like it"),
+    ("can't recommend", "can not recommend"), ("won’t work", "will not work"),
+    ("couldn’t agree", "could not agree"), ("cannot play", "can not play"),
+    ("ISN'T bad", "is not bad"),
+])
+def test_english_contractions_preserve_negation(text, expected):
+    assert clean_text(text) == expected
+    assert tokenize(text, lang="en", stopwords={"not"}) == expected.split()
+    assert "not" in TextPreprocessor.from_resources(lang="en").transform(text)[1]
+
+
+def test_html_decodes_once_and_unclosed_tags_preserve_opinion():
+    assert "不好看" in remove_html("<script>这个视频不好看")
+    assert "不喜欢" in remove_html("<style>不喜欢这个片段")
+    assert "不好看" in remove_html("&lt;script&gt;这个视频不好看")
+    assert "隐藏" not in remove_html("<SCRIPT>隐藏</SCRIPT>很好")
+    assert "隐藏" not in remove_html("<style>隐藏</style>很好")
+    assert remove_html("A&amp;lt;B") == "A&lt;B"
+    assert clean_text("ISN'T good", lower=False) == "IS NOT good"
+
+
+def test_separator_and_unmapped_symbols_are_retained_as_tokens():
+    assert clean_text("⭐ ⭕ ©", emoji_map={}).split() == ["表情未知"] * 3
+    assert "标点分隔" in tokenize(clean_text("不喜欢，但是结局很好；值得看"))
+
+
 def test_tokenizer_protects_negation_and_keeps_single_character_sentiment(tmp_path):
     path = tmp_path / "stopwords.txt"
     path.write_text("# 注释\n的\n没有\n但是\n很\n", encoding="utf-8")
@@ -98,6 +128,25 @@ def test_csv_metadata_and_labels_roundtrip(tmp_path):
     loaded = load_records(save_records(records, tmp_path / "saved.csv"), keep_empty=True)
     assert loaded[0].text == records[0].text
     assert loaded[0].meta == {key: str(value) if value is not None else "" for key, value in records[0].meta.items()}
+
+
+def test_csv_utf16_and_ambiguous_encoding(tmp_path):
+    source = tmp_path / "encoded.csv"
+    source.write_text("text,label\n不好看,negative\n", encoding="utf-16")
+    assert load_records(source)[0].text == "不好看"
+    source.write_bytes("text,label\n不好看,negative\n".encode("utf-16-le"))
+    with pytest.raises(ValueError, match="UTF-16"):
+        load_records(source)
+
+
+def test_malformed_csv_rows_are_audited_without_losing_good_rows(tmp_path, english_processor):
+    source = tmp_path / "bad_row.csv"
+    source.write_text("text,label\nuseful tutorial,positive\npoor tutorial,negative,extra\n", encoding="utf-8")
+    result = prepare_comments(source, output_root=tmp_path / "result", processor=english_processor)
+    assert result["stats"]["total"] == 1
+    assert result["stats"]["exclusion_reasons"] == {"malformed_column_count": 1}
+    excluded = load_records(tmp_path / "result/data/processed/comments_excluded.csv")[0]
+    assert excluded.meta["input_row"] == "3" and "extra" in excluded.meta["extra_columns"]
 
 
 def test_text_column_selection_never_guesses_id(tmp_path):
@@ -184,7 +233,8 @@ def test_pipeline_outputs_model_inputs_and_shared_inference(tmp_path, english_pr
     assert result["manifest"]["vocab_fit_split"] == "train"
     processor = TextPreprocessor.load(root / "data/processed/preprocessor.json")
     vocab = Vocab.load(root / "data/processed/vocab.json")
-    bundled_processor, bundled_vocab, _ = load_preprocessing_bundle(root / "data/processed")
+    with pytest.warns(UserWarning, match="演示"):
+        bundled_processor, bundled_vocab, _ = load_preprocessing_bundle(root / "data/processed")
     assert bundled_processor.encode("new tutorial", bundled_vocab) == processor.encode("new tutorial", vocab)
     test_records = load_records(root / "data/splits/test.csv")
     arrays = load_encoded_split(root / "data/splits/test.npz")
@@ -203,6 +253,16 @@ def test_pipeline_outputs_model_inputs_and_shared_inference(tmp_path, english_pr
         prepare_dataset(source, output_root=root, processor=processor, allow_small_dataset=True)
     second = prepare_dataset(source, output_root=tmp_path / "again", processor=processor, allow_small_dataset=True)
     assert second["manifest"]["dataset_version"] == result["manifest"]["dataset_version"]
+    manifest, stats = result["manifest"], result["stats"]
+    assert manifest["demo_mode"] and not manifest["course_requirements_met"]
+    assert manifest["course_check_issues"] == stats["course_check_issues"]
+    assert manifest["input_rows"] == manifest["accepted_rows"] == 100
+    assert manifest["excluded_rows"] == 0
+    assert manifest["split_counts"] == {"train": 70, "val": 10, "test": 20}
+    assert manifest["task"]["num_classes"] == 2 and manifest["task"]["label_map"] == {"negative": 0, "positive": 1}
+    assert stats["oov_scope"] == "train"
+    assert stats["oov_ratio"] == stats["splits"]["train"]["oov_ratio"]
+    assert stats["test_oov_ratio"] == stats["splits"]["test"]["oov_ratio"]
     (root / "data/processed/vocab.json").write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="校验失败"):
         load_preprocessing_bundle(root / "data/processed")
@@ -236,6 +296,18 @@ def test_formal_12000_row_dataset_satisfies_course_sizes(tmp_path, english_proce
     result = prepare_dataset(source, output_root=output, processor=english_processor)
     assert result["stats"]["course_requirements_met"]
     assert {name: stats["total"] for name, stats in result["stats"]["splits"].items()} == {"train": 8400, "val": 1200, "test": 2400}
+    assert result["manifest"]["course_requirements_met"] and not result["manifest"]["demo_mode"]
+    demo = prepare_dataset(source, output_root=tmp_path / "demo", processor=english_processor, allow_small_dataset=True)
+    assert demo["manifest"]["course_requirements_met"] and demo["manifest"]["demo_mode"]
+    assert demo["manifest"]["dataset_version"] != result["manifest"]["dataset_version"]
+
+
+def test_demo_cannot_publish_empty_validation_or_test_split(tmp_path, english_processor):
+    source = write_csv(tmp_path / "too_small.csv", fixture_rows(2, group_size=1))
+    output = tmp_path / "unpublished"
+    with pytest.raises(ValueError, match="为空"):
+        prepare_dataset(source, output_root=output, processor=english_processor, allow_small_dataset=True)
+    assert not output.exists()
 
 
 def test_cli_failure_is_nonzero_and_demo_command_runs(tmp_path, capsys):
@@ -246,6 +318,19 @@ def test_cli_failure_is_nonzero_and_demo_command_runs(tmp_path, capsys):
     assert main(["--input", str(source), "--output-root", str(tmp_path / "demo"), "--allow-small-dataset"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["accepted"] == 24 and report["excluded"] == 3
+
+
+@pytest.mark.parametrize("overrides,seed,min_freq", [([], 17, 4), (["--seed", "99", "--min-freq", "5"], 99, 5)])
+def test_cli_environment_defaults_and_explicit_overrides(tmp_path, overrides, seed, min_freq):
+    source = write_csv(tmp_path / "source.csv", fixture_rows())
+    output = tmp_path / "result"
+    env = dict(os.environ, SEED="17", MIN_FREQ="4", PYTHONIOENCODING="utf-8")
+    command = [sys.executable, "-m", "src.preprocessing", "--input", str(source), "--mode", "train",
+               "--output-root", str(output), "--allow-small-dataset", "--lang", "en", *overrides]
+    run = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    manifest = json.loads((output / "data/processed/manifest.json").read_text(encoding="utf-8"))
+    assert manifest["seed"] == seed and manifest["min_freq"] == min_freq
 
 
 def test_unlabelled_crawler_csv_outputs_pending_comments_not_training_data(tmp_path):

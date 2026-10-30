@@ -49,7 +49,8 @@ def detect_text_column(columns: list[str]) -> str:
 def _read_rows(path: Path, sheet_name: str | None) -> list[list[Any]]:
     if path.suffix.lower() in CSV_SUFFIXES:
         content = path.read_bytes()
-        for encoding in ("utf-8-sig", "gb18030"):
+        encodings = ("utf-16",) if content.startswith((b"\xff\xfe", b"\xfe\xff")) else ("utf-8-sig", "gb18030")
+        for encoding in encodings:
             try:
                 text = content.decode(encoding)
                 break
@@ -57,6 +58,8 @@ def _read_rows(path: Path, sheet_name: str | None) -> list[list[Any]]:
                 continue
         else:
             raise ValueError("文件编码无法识别，请转换为 UTF-8")
+        if "\x00" in text:
+            raise ValueError("文件含 NUL 字符，可能是无 BOM 的 UTF-16，请转换为 UTF-8 或带 BOM 的 UTF-16")
         delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
         return list(csv.reader(io.StringIO(text), delimiter=delimiter))
     if path.suffix.lower() not in EXCEL_SUFFIXES:
@@ -103,7 +106,8 @@ def load_records(
     label_key, tokens_key = lookup.get("label"), lookup.get("tokens")
     records, skipped = [], 0
     for row_number, row in enumerate(rows[1:], 2):
-        if len(row) > len(header) and any(value not in (None, "") for value in row[len(header):]):
+        malformed = len(row) > len(header) and any(value not in (None, "") for value in row[len(header):])
+        if malformed and not keep_empty:
             raise ValueError(f"第 {row_number} 行列数超过表头，请检查 CSV 引号或分隔符")
         values = dict(zip(header, row + [None] * max(0, len(header) - len(row))))
         raw_text = values[selected]
@@ -130,6 +134,9 @@ def load_records(
                 meta[key] = str(meta[key]).strip()
         meta.setdefault("input_row", row_number)
         meta.setdefault("input_file", path.name)
+        if malformed:
+            meta["malformed_column_count"] = len(row)
+            meta["extra_columns"] = repr(row[len(header):])
         if raw_text is not None and not isinstance(raw_text, str):
             meta["invalid_text_type"] = type(raw_text).__name__
         tokens = values.get(tokens_key) if tokens_key else None

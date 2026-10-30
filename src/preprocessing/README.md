@@ -27,6 +27,14 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 python -m src.preprocessing --input data/raw/comments_labeled.csv --mode train
 ```
 
+从固定版本公开语料完整复现（下载校验、合并保留原始标签、冲突审计及训练划分）：
+
+```bash
+python -m scripts.prepare_training_data
+```
+
+来源和实际制备结果见 `outputs/stats/training_data_preparation.json`；详细口径见 `data/README.md`。
+
 人工编写的 B 站语境演示数据：
 
 ```bash
@@ -39,13 +47,18 @@ python -m src.preprocessing --input data/sample/bilibili_demo.csv --allow-small-
 bash scripts/split_data.sh --input data/raw/comments_labeled.csv
 ```
 
-Windows 可直接使用 Python 命令。输出文件存在时默认拒绝覆盖，重跑可指定新 --output-root 或显式 --overwrite。--allow-small-dataset 只供调试，统计会明确记录未满足课程检查，不能据此宣称真实训练语料已达标。
+Windows 可直接使用 Python 命令。输出文件存在时默认拒绝覆盖，重跑可指定新 --output-root 或显式 --overwrite。
+--allow-small-dataset 只供调试，始终记录 demo_mode=true，并独立记录课程检查是否通过；
+即使规模达标也保留演示标记。训练集和目标比例大于零的验证/测试集为空时，演示模式仍拒绝发布。
 
 ## 输入字段与校验
 
 必需评论文本列为 text、text_raw、comment、content、评论、评论内容或内容之一；多列文件无法识别时要求显式 --text-column，不自动把 id 当评论。
 clean 模式不需要 label，提问和没有明确态度的评论也会保留，等待下一步分析。
 train 模式需要 label，支持 positive/negative，也归一化 1/0 和正面/负面；neutral、uncertain、irrelevant 单独排除，缺失或未知标签不自动预测补齐。
+任务固定为正负二分类（negative=0、positive=1、num_classes=2），写入资源快照和 manifest.task。
+界面/API 中的 neutral 仅为现有规则未命中时的占位状态，不是第三个训练类别，也不代表模型低置信度；
+未来模型低置信度结果应另行标记待复核，不能直接当成 neutral 训练样本。
 
 推荐同时提供 comment_id、video_id、source_ref、collected_at。其它列保留。编号应按文本保存，Excel 已经损失的长整数精度无法恢复。input_row 记录原输入行号，text_raw 保留原评论，text 为清洗结果。
 
@@ -53,10 +66,12 @@ train 模式需要 label，支持 positive/negative，也归一化 1/0 和正面
 原字段不会被删除。level、root_rpid、parent_rpid、video_title、likes 等字段原样保留，默认不筛掉二级回复。
 
 空白、非文本单元格、清洗后为空、无有效词元、缺失/未知标签、中性/不确定/无关以及重复/冲突样本都有独立排除原因。相同清洗文本出现相反标签时，冲突记录全部排除等待人工复核，不自动投票。重复评论 ID 指向不同文本或标签时同样排除。只做完全重复去重，不声称已完成近重复语义聚类。
+CSV 支持 UTF-8、GB18030 和带 BOM 的 UTF-16；含 NUL 的疑似无 BOM UTF-16 拒绝读取并提示转换。
+清洗入口将多出非空列的坏行写入排除清单（malformed_column_count），保留行号及多余字段，不阻断其它有效评论。
 
 ## 训练数据处理顺序与防泄漏
 
-1. HTML/脚本、URL、全半角、控制字符和空白清理；表情归一化，问号/叹号转为词元。
+1. HTML/脚本、URL、全半角、控制字符和空白清理；完整 script/style 块删除，未闭合标签保留后续正文，HTML 实体仅解码一次。英文 isn't/don't/can't 等先展开为 not；表情归一化，问号/叹号与逗号/分号/顿号分别转为词元。
 2. 使用隔离的 jieba 分词器及项目领域词典；英文小写分词。停用词过滤显式保留否定、转折及程度词，单字“赞”“差”仍有效。
 3. 审计标注、去重和冲突处理，再划分数据。
 4. 自动检测 video_id：完整存在时按视频整体分组并尽量平衡标签；没有视频字段时按标签分层。只有部分记录提供分组字段会报错，避免默默混合两种口径。--group-by video_id 可强制要求视频字段，--group-by none 显式关闭分组。
@@ -76,7 +91,7 @@ train 模式需要 label，支持 positive/negative，也归一化 1/0 和正面
 | data/processed/preprocessor.json | 预处理版本、有效停用词、领域词典、表情映射和 max_len |
 | data/processed/label_map.json | negative=0、positive=1 |
 | data/processed/split_manifest.csv | 评论编号、视频、清洗文本哈希及 split |
-| data/processed/manifest.json | 输入/产物哈希、数据版本、种子、依赖版本与划分配置 |
+| data/processed/manifest.json | 输入/产物哈希、数据版本、种子、依赖版本、划分配置、二分类任务及达标判决 |
 | data/splits/train.csv、val.csv、test.csv | 按集合保存的 text、label、tokens 及溯源信息 |
 | data/splits/train.npz、val.npz、test.npz | 可直接读取的模型输入数组 |
 | outputs/stats/dataset_stats.json | 总体与分集标签、长度、截断率、OOV、排除原因和课程检查 |
@@ -109,11 +124,20 @@ sample = processor.encode("这个教程没有讲清楚关键步骤[doge]", vocab
 
 load_preprocessing_bundle 校验词表、配置和标签映射哈希。后续发布模型时，应将这套资源一起保存，并使用同一版本处理新评论；不能在预测时重新拟合词表。Word2Vec 应读取 train.csv 的 tokens 列进行训练，不把验证/测试语料作为无监督训练补充。
 
+manifest 明确包含 course_requirements_met、demo_mode、course_check_issues、input_rows、accepted_rows、
+excluded_rows、split_counts；质量判决与演示模式也参与 dataset_version 的计算。
+load_preprocessing_bundle 加载演示资源时发出 UserWarning。算法版本为 1.1.0，旧 1.0.0 资源需要重新制备并重新训练配套模型。
+
+dataset_stats 顶层 oov_ratio/oov_count/token_count 的范围为 train（oov_scope=train），
+总体标签及长度仍统计全部有效样本；全部词元的对应指标使用 overall_*。
+另有明确的 train_oov_ratio、val_oov_ratio、test_oov_ratio，splits 中保存各集合完整统计。
+
 resources/ 内为人工维护的起始资源，不是实验统计结果。正式实验前可以修改；每次运行都会把有效资源固化到 preprocessor.json。预处理算法语义发生改变时应同步提升 PIPELINE_VERSION。
 
 ## 常用参数
 
 --input、--mode auto|clean|train、--output-root、--text-column、--sheet-name、--lang zh|en、--max-len、--min-freq、--max-vocab-size、--seed、--ratios、--group-by、--stopwords、--userdict、--emoji-map、--allow-small-dataset、--overwrite。参数详情见 python -m src.preprocessing --help。
+SEED、MIN_FREQ、MAX_LEN 环境变量提供默认值，命令行显式参数优先。
 
 ## 验证
 
