@@ -1,7 +1,12 @@
 # data/splits/ — 训练 / 验证 / 测试划分
 
-本目录存放按 **训练 : 验证 : 测试 ≈ 7 : 1 : 2** 划分后的数据，由 `src/preprocessing` 的 train 模式生成，
-默认不入库（见根目录忽略规则）。
+本目录存放按 **训练 : 验证 : 测试 ≈ 7 : 1 : 2** 划分后的数据，由 `src/preprocessing` 的 train 模式生成。
+这些文件被 `.gitignore` 排除，2026-10-30 随提交 `1eb77a7` 以「一次性快照」方式强制入库
+（概述见 [`../README.md`](../README.md)）。
+
+> ⚠️ **当前目录是小样本冒烟划分**：由 `data/sample/bilibili_demo.csv`（27 行演示数据，24 条有效）划分，
+> **train 16 / val 4 / test 4**，只用于验证训练链路。真实规模的划分（18,613 条清洗结果 →
+> **train 13,029 / val 1,861 / test 3,723**，CSV + NPZ 齐全）保存在 `outputs/realdata/data/splits/`。
 
 ## 产物
 

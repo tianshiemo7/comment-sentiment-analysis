@@ -1,15 +1,22 @@
 # 原始评论数据登记
 
-> ⚠️ **原始 CSV 默认不入库**：`data/raw/*.csv` 被根目录忽略规则排除（原始数据不入版本控制）。
-> 目前有两类例外，均通过 `.gitignore` 白名单显式入库：
-> ① **课程验收用的小体量待训练语料** `BV1tseyzCEoF_comments.csv`（470 条，约 118 KB，见第 5 节）；
-> ② **跨分区大规模采集数据集** `sentiment_crawl/`（216 视频 / 10,800 条，约 4.8 MB，见第 6 节）。
-> clone 仓库后本目录只有本 README、`来源说明.md`、`sources.json` 与上述语料；其它 CSV 需要
-> 先自行取得，否则第 3 节的命令会报 `FileNotFoundError`。取得方式见第 4 节。
+> 📦 **2026-10-30 数据快照**：本目录的原始 CSV 原本被 `.gitignore` 排除，为便于课程验收与换机备份，
+> 已随提交 `1eb77a7`（数据与产物快照）及同一批文档提交以「一次性快照」方式强制入库；`.gitignore` 规则
+> 保持不变，快照之外的新增大文件仍默认不入库。当前已入库：
+>
+> - **公开语料**：`datasets/ChnSentiCorp_htl_all.csv`（7,766 条）、`datasets/waimai_10k.csv`（11,987 条），
+>   及统一成 `text,label` 的 `chnsenticorp_unified.csv`（7,765 条）、`waimai_10k_unified.csv`（11,980 条）；
+> - **合并均衡训练语料**：`comments_labeled_balanced.csv`（**18,644 条**，正负各 9,322）；
+> - **爬虫产出**：`BV1GJ411x7h7_comments.csv`（59 条）、`BV1tseyzCEoF_comments.csv`（470 条）、
+>   `BV1UB4y1W7Xu_comments.csv`（154 条）、`sentiment_crawl/`（216 视频 / 10,800 条）；
+> - **登记文件**：`来源说明.md`、`sources.json`。
+>
+> 全部规模与字段见 [`../README.md`](../README.md) 的「已入库的数据快照」一节。
 
 ## 1. 组内提供的视频评论（BV1UB4y1W7Xu）
 
-文件：BV1UB4y1W7Xu_comments.csv。
+文件：BV1UB4y1W7Xu_comments.csv（**已随 2026-10-30 快照入库**，154 条 / 30 KB；与下方 SHA256 一致，
+可用 `sha256sum data/raw/BV1UB4y1W7Xu_comments.csv` 校验）。
 
 本文件由用户提供，并从用户指定的本地文件复制到本目录；本步骤没有重新采集，也没有修改原始CSV。
 SHA256：075d7a9c69e533a44e4294c66dbc78727242ca357974850f67d1acc9e6593697。
@@ -28,20 +35,25 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 清洗后保留97条一级评论和52条二级回复；默认保留回复层级，未把无标签评论当作监督训练集。
 
 下游读取data/processed/comments_cleaned.csv，使用已训练模型的预处理器处理text_raw再进行情感预测。
-该CSV及处理产物被.gitignore忽略，不随源码自动提交。
+该原始 CSV 已随 2026-10-30 快照入库（`data/processed/comments_cleaned.csv` 则是 `BV1GJ411x7h7` 那批
+采集样本的 `clean` 产物，见 `data/processed/README.md`）。
 
 ## 2. 公开数据集与标注产物
 
-- `data/raw/datasets/`：`bash scripts/get_data.sh --dataset <name>` 下载的公开语料（体积大，不入库）；
+- `data/raw/datasets/`：`bash scripts/get_data.sh --dataset <name>` 下载的公开语料
+  （快照已入库：`ChnSentiCorp_htl_all.csv` 7,766 条、`waimai_10k.csv` 11,987 条）；
   下载后自动登记 `来源说明.md` / `sources.json`，可用 `--list-datasets` 查看注册表；
-- `data/raw/*_unified.csv`：`python -m src.crawler.datasets --import-csv` 统一出的 `text,label`；
+- `data/raw/*_unified.csv`：`python -m src.crawler.datasets --import-csv` 统一出的 `text,label`
+  （快照已入库：`chnsenticorp_unified.csv` 7,765 条、`waimai_10k_unified.csv` 11,980 条；比原始件少的
+  几行是空文本/格式不合法被丢弃的记录）；
 - `data/raw/comments_labeled_balanced.csv`：`--merge-balance` 合并均衡后的训练语料
-  （实测外卖 11,987 + ChnSentiCorp 7,766 → 均衡 18,644 条，正负各 9,322）；
+  （实测外卖 11,987 + ChnSentiCorp 7,766 → 均衡 18,644 条，正负各 9,322；**快照已入库**）；
 - `data/labeling/`：`python -m src.crawler.labeling export` 导出的标注候选与 manifest；
   人工标注后用 `labeling merge` 合并校验，产出可进训练管线的已标注 CSV。
 
-> 这些 CSV 体积较大（约 7 MB）被 `.gitignore` 排除，不入库；命令与来源登记见
-> `data/raw/来源说明.md`，可联网复现。
+> 这些 CSV 原被 `.gitignore` 排除，已随 2026-10-30 快照强制入库（约 7 MB）；命令与来源登记见
+> `data/raw/来源说明.md`，也可联网复现。真实规模的清洗/划分产物（18,613 条 → 13,029 / 1,861 / 3,723）
+> 在 `outputs/realdata/`，不在本目录。
 
 ## 3. 爬虫实测样本与来源登记
 
@@ -51,8 +63,9 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 - 视频：`BV1GJ411x7h7`（2 页一级评论，39 条，匿名可见子集）；
 - 采集方式：`python -m src.crawler bilibili --bvid BV1GJ411x7h7 --max-pages 2`；
 - 限速 / robots / 重试 / 耗时等合规与效率信息写在表格「备注」列；
-- 对应 CSV（`BV1GJ411x7h7_comments.csv`）属于原始数据，**不入库**，可用同一命令复现
-  （评论会随时间变化，条数可能不同）。
+- 对应 CSV（`BV1GJ411x7h7_comments.csv`）**已随 2026-10-30 快照入库**，当前 **59 条**一级评论：
+  首次采集 39 条（`collected_at_utc=2026-10-17T04:42:49Z`，即来源登记表里记录的那一批）
+  + 当天补采 20 条（`05:43:59Z`）；可用同一命令复现（评论会随时间变化，条数可能不同）。
 
 ## 4. 如何取得数据
 
@@ -95,5 +108,7 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 - 采集：3 进程分片、单进程限速 3.0s/请求，风控 0 次，耗时约 13 分钟；来源登记见 `来源说明.md` / `sources.json`；
 - 复现：`python scripts/build_crawl_catalog.py` → `python scripts/crawl_shards.py` → `python scripts/build_final_dataset.py`；
 - 用途：训练/测试语料候选；**尚无情感标签、未清洗**，需人工标注后才能用于监督训练。
-  分片断点（`shard*/`）、分片合并 CSV 与排行榜原始快照体积大且可复现，已排除在版本库外。
+  原来被排除在版本库外的分片目录（`shard{1,2,3}/`，各 72 个视频的分片 CSV 与断点 JSON）、
+  分片合并 CSV、`catalog.json`、`ranking_snapshot.json`、`all_comments_raw.csv`，2026-10-30 已随快照
+  一并入库（便于复现与审计；重新采集会覆盖这些文件）。
 

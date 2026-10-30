@@ -27,7 +27,7 @@
 | --- | --- |
 | B 站评论爬虫 `src/crawler/` | ✅ 已实现：WBI 签名 / 风控退避 / 文本标准化 / robots / 来源登记 / 断点续爬 / **大规模批量采集（清单/零请求续采/不限页数/流式合并）** / 公开数据集下载 / 标注抽样与合并 / 效率基准 · 本机实测见 [十二、爬虫模块改进与实测效率](#十二爬虫模块改进与实测效率) |
 | 数据处理管线 `src/preprocessing/` | ✅ 已实现（清洗 / 分词 / 划分 / 词表 / 编码 / 统计） |
-| 真实数据规模（课程硬指标） | ✅ 公开语料 + 类别均衡后 **18,644 条**，`course_requirements_met=true`（train 13,029 / test 3,723，正负各 ~9.3k）；数据文件不入库，命令见第四节与第十二节 |
+| 真实数据规模（课程硬指标） | ✅ 公开语料 + 类别均衡后 **18,644 条**，`course_requirements_met=true`（train 13,029 / test 3,723，正负各 ~9.3k）；数据与产物已随 2026-10-30 快照入库（见[第十五节](#十五数据与产物快照2026-10-30)），命令见第四节与第十二节 |
 | 前后端页面与接口 `frontend/` + `src/inference/` + `src/videos/` + `src/artifacts/` | ✅ 已实现 |
 | 数据项目（右上传爬虫数据 → clean 管线 → 三张表 + 逐条评论情感） | ✅ 已实现（`src/artifacts/`）· ⚠️ 情感为规则占位 |
 | 单独评论（单条预测结果存入左栏②段，无图表） | ✅ 已实现 |
@@ -90,11 +90,14 @@ comment-sentiment-analysis/
 └── requirements.txt          Python 依赖（含可选 playwright：仅人工登录窗口需要）
 ```
 
+> 2026-10-30 起，`data/`、`models/`、`outputs/` 里原本被 `.gitignore` 排除的数据与训练产物已按
+> 「一次性快照」入库（清单、规模与口径见[第十五节](#十五数据与产物快照2026-10-30)）。
+
 ## 二、需求对照表
 
 | 课程要求 | 对应位置 | 状态 |
 | --- | --- | --- |
-| 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | ✅ 已达标：公开语料合并均衡 **18,644 条**（train 13,029 / test 3,723，正负各 ~9.3k）；数据文件不入库，复现命令见第四节 |
+| 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | ✅ 已达标：公开语料合并均衡 **18,644 条**（train 13,029 / test 3,723，正负各 ~9.3k）；数据与产物已入库快照（[第十五节](#十五数据与产物快照2026-10-30)），复现命令见第四节 |
 | 数据来源：公开数据集或爬虫（遵守 robots，注明来源与采集时间） | `src/crawler/` | ✅ 爬虫已实现 WBI 签名 / 限速 / robots 校验 / 来源登记（`data/raw/来源说明.md`），实测见第十二节 |
 | 划分 7 : 1 : 2 | `src/preprocessing/split.py` | 已实现 分层或按视频分组 |
 | 中文 jieba 分词、英文分词小写化；去停用词/URL/HTML/特殊符号 | `src/preprocessing/` | 已实现 保护否定词与表情信息 |
@@ -254,7 +257,7 @@ python -m src.crawler.datasets --merge-balance \
     --output data/raw/comments_labeled_balanced.csv --seed 42
 
 # 跑课程验收的训练预处理（实测 train 13,029 / val 1,861 / test 3,723，
-# course_requirements_met=true；数据文件不入库，按上面命令可复现）
+# course_requirements_met=true；数据与产物已入库快照（见第十五节），按上面命令可复现）
 python -m src.preprocessing --input data/raw/comments_labeled_balanced.csv
 
 # 无标签评论 → 标注候选（按 video_id 分层、固定 seed、输出 manifest）
@@ -481,7 +484,7 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 - **评估与可视化**：Accuracy / Precision / Recall / F1、混淆矩阵、错误分析，
   训练曲线 / 热力图 / 词云自动写入 `outputs/figures/`；
 - **数据**：公开语料合并均衡 **18,644 条**（train 13,029 / val 1,861 / test 3,723，
-  正负均衡，`course_requirements_met=true`），复现命令见第四节，数据文件不入库；
+  正负均衡，`course_requirements_met=true`），复现命令见第四节，数据与产物已入库快照（[第十五节](#十五数据与产物快照2026-10-30)）；
 - **爬虫**：WBI 签名 / 限速 / robots / 来源登记 / 断点续采 / 大规模清单 / 真实登录态，
   详见[第十二节](#十二爬虫模块改进与实测效率)；
 - **系统**：前端五页 + FastAPI 接口 + 设置入口 / 人工登录窗口 / 爬虫参数弹窗 / 分步执行，
@@ -640,7 +643,7 @@ python -m src.preprocessing --input data/raw/BV1GJ411x7h7_comments.csv --mode cl
 - **数据获取 / 标注**：`src/crawler/datasets.py`（4 个公开中文语料、流式下载、来源登记）
   与 `src/crawler/labeling.py`（分层抽样 + 合并校验）；`waimai_10k` + `ChnSentiCorp`
   合并均衡得到 **18,644 条（正负各 9,322）**，预处理后 train 13,029 / val 1,861 /
-  test 3,723，`course_requirements_met=true`（数据文件不入库，命令见第四节）；
+  test 3,723，`course_requirements_met=true`（数据与产物已入库快照，见[第十五节](#十五数据与产物快照2026-10-30)；命令见第四节）；
 - **长跑稳健性**：BV 去重、楼中楼分页自适应、`sub_done` 断点、`--max-seconds` 时间预算；
 - **`/api/videos` 真实爬取**：`crawler_adapter.py` + 逐任务采集参数；采集失败落 `failed`
   不卡 `crawling`；真实评论进入 detail（`placeholder=false`，情感仍 `rule_placeholder`）；
@@ -937,3 +940,41 @@ cleaned →（点「开始分析」）→ queued → processing（情感推理�
   即带 `settings` 的任务以任务快照为准，`VIDEO_REAL_CRAWL` / `VIDEO_CRAWL_*` 只影响
   不带 `settings` 的旧请求与 CLI；详见 [`.env.example`](.env.example)。
 - 完整字段、请求/响应示例与错误码见 [`docs/API契约.md`](docs/API契约.md)「二点五、设置与分步流水线」。
+
+## 十五、数据与产物快照（2026-10-30）
+
+> **背景**：为便于课程验收与换机备份，2026-10-30 把本机工作副本中被 `.gitignore` 排除的数据与
+> 训练产物以「一次性快照」方式强制入库（提交 `1eb77a7`，521 个文件 / 约 56 MB，另补入
+> `BV1UB4y1W7Xu_comments.csv`）。`.gitignore` 规则保持不变，快照之外的新增大文件仍默认不入库；
+> 唯一被刻意排除的是 `outputs/settings.json`（含 B 站 Cookie 明文，**绝不入库**）。
+
+### 1. 入库内容与规模
+
+| 位置 | 内容 | 规模 |
+| --- | --- | --- |
+| `data/raw/datasets/` | 公开语料原始下载件：ChnSentiCorp、外卖 10k | 7,766 / 11,987 条 |
+| `data/raw/*_unified.csv` | 统一成 `text,label` 的公开语料 | 7,765 / 11,980 条 |
+| `data/raw/comments_labeled_balanced.csv` | 两份语料合并 + 类别均衡后的训练语料（课程硬指标） | **18,644 条**（正负各 9,322） |
+| `data/raw/BV1UB4y1W7Xu_comments.csv` | 组内提供的视频评论（一级 99 + 二级 55，无标签） | 154 条 |
+| `data/raw/BV1GJ411x7h7_comments.csv` | 爬虫首次实测样本（首次 39 + 补采 20，均一级评论） | 59 条 |
+| `data/raw/BV1tseyzCEoF_comments.csv` | 课程验收待训练语料（一级 266 + 楼中楼 204） | 470 条 |
+| `data/raw/sentiment_crawl/` | 跨分区大规模采集（18 分区 / 216 视频 / 每视频 50 条） | **10,800 条**（train 9,000 / test 1,800） |
+| `data/processed/`、`data/splits/` | 冒烟链路的清洗中间产物与划分（输入 `data/sample/bilibili_demo.csv`） | 24 条；train/val/test = 16/4/4 |
+| `models/checkpoints/`、`models/word2vec/` | 冒烟训练得到的两个检查点与词向量 | 2 个模型 + 词向量（约 21 KB） |
+| `outputs/realdata/` | **真实规模闭环**：18,644 条 → 清洗 18,613 条 → 划分 13,029 / 1,861 / 3,723，词表 9,308 | 约 30 MB |
+| `outputs/figures/`、`logs/`、`stats/`、`predictions/` | 训练曲线 / 混淆矩阵 / 词云、训练日志、指标、错误样本 | 约 2 MB |
+| `outputs/videos/` | 两个视频分析任务的落盘数据（`BV1GJ411x7h7` 三阶段 + 占位演示） | 约 40 KB |
+| `outputs/benchmarks/` | 爬虫效率基准（真实联网 / 离线 mock） | 约 5 KB |
+
+### 2. 口径说明（避免把冒烟结果当实验结论）
+
+- **冒烟产物**：`data/processed/`、`data/splits/`、`models/`、`outputs/figures|logs|stats|predictions`
+  来自 27 行人工演示数据（24 条有效、`max_len=16`、最佳轮次 1 epoch、词表 6 个词），两个模型
+  验证准确率均为 0.5 —— 只证明「清洗 → 划分 → 训练 → 评估 → 出图」链路跑通，**不能写进实验结论**；
+- **真实规模的数据侧结果**：`outputs/realdata/` 是 18,644 条公开语料完整跑通预处理的结果
+  （清洗 18,613 条、正负 9,305 / 9,308、词表 9,308 词、13,029 / 1,861 / 3,723 划分，CSV + NPZ 齐全），
+  用于证明数据规模与 7:1:2 划分达标；该目录**未保存对应的训练权重与图表**；
+- **可复现**：冒烟与真实规模的重跑命令见 [`outputs/README.md`](outputs/README.md) 与
+  [`models/README.md`](models/README.md)；各数据文件的字段、来源与 SHA256 见
+  [`data/README.md`](data/README.md)、[`data/raw/README.md`](data/raw/README.md) 与
+  [`data/raw/来源说明.md`](data/raw/来源说明.md)。

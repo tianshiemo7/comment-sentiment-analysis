@@ -6,11 +6,34 @@
 
 | 目录 | 内容 | 是否入库 |
 | --- | --- | --- |
-| `raw/` | 原始公开数据集压缩包/原始文件、爬虫直接产出 | 否（体积大，仅保留本说明） |
-| `processed/` | 清洗、分词、去停用词后的中间数据 | 否 |
-| `splits/` | 最终用于训练的 `train.csv` / `val.csv` / `test.csv` | 否 |
-| `uploads/` | **界面上传**的数据项目与单独评论（`<项目id>/`、`solo_comments.json`） | 否 |
+| `raw/` | 原始公开数据集、爬虫直接产出 | 是（2026-10-30 一次性快照，见下节） |
+| `processed/` | 清洗、分词、去停用词后的中间数据 | 是（**冒烟样例**产物） |
+| `splits/` | 最终用于训练的 `train.csv` / `val.csv` / `test.csv` | 是（**冒烟样例**产物） |
+| `uploads/` | **界面上传**的数据项目与单独评论（`<项目id>/`、`solo_comments.json`） | 否（运行时数据，随使用产生） |
 | `sample/` | 字段格式样例，供照抄字段名 | 是 |
+
+## 已入库的数据快照（2026-10-30）
+
+为便于课程验收与换机备份，本机工作副本中被 `.gitignore` 排除的数据以**一次性快照**方式强制入库
+（提交 `1eb77a7`，共 521 个文件 / 约 56 MB）。`.gitignore` 规则保持不变，快照之外的新增大文件仍默认不入库；
+唯一被刻意排除的是 `outputs/settings.json`（含 B 站 Cookie 明文）。
+
+| 文件 | 规模 | 说明 |
+| --- | --- | --- |
+| `raw/datasets/ChnSentiCorp_htl_all.csv` | 7,766 条 | 公开语料原始下载件（`label,review`，1 正面 / 0 负面） |
+| `raw/datasets/waimai_10k.csv` | 11,987 条 | 外卖评论公开语料原始下载件（1 正面 / 0 负面） |
+| `raw/chnsenticorp_unified.csv` | 7,765 条 | 统一为 `text,label`（positive 5,322 / negative 2,443） |
+| `raw/waimai_10k_unified.csv` | 11,980 条 | 统一为 `text,label`（positive 4,000 / negative 7,980） |
+| `raw/comments_labeled_balanced.csv` | **18,644 条** | 两份公开语料合并 + 类别均衡（正负各 9,322），课程硬指标训练语料 |
+| `raw/BV1GJ411x7h7_comments.csv` | 59 条 | 爬虫首次实测样本（一级评论，首次 39 + 补采 20，无标签） |
+| `raw/BV1tseyzCEoF_comments.csv` | 470 条 | 课程验收待训练语料（一级 266 + 楼中楼 204，无标签） |
+| `raw/BV1UB4y1W7Xu_comments.csv` | 154 条 | 组内提供的视频评论（一级 99 + 二级 55，无标签；SHA256 `075d7a9c…3697`） |
+| `raw/sentiment_crawl/` | **10,800 条** | 跨分区大规模采集：18 分区 / 216 视频，train 9,000 / test 1,800 |
+| `processed/`、`splits/` | 24 条 | 冒烟链路产物（`sample/bilibili_demo.csv`，train/val/test = 16/4/4） |
+
+真实规模的清洗与划分结果另外保存在 `outputs/realdata/`（18,644 → 清洗 18,613 → 13,029 / 1,861 / 3,723，
+词表 9,308），详见 [`../outputs/README.md`](../outputs/README.md)。原始文件登记与 SHA256 见
+`raw/来源说明.md`、`raw/sources.json` 与 [`raw/README.md`](raw/README.md)。
 
 ## 界面「上传爬取数据」产生的数据项目
 
@@ -79,4 +102,6 @@ data/sample/bilibili_demo.csv 是27条人工编写演示记录，24条有效，�
 模型可读的 NPZ（词编号、补齐掩码、有效长度及0/1标签）。只使用训练集拟合词表，验证与测试中的新词进入UNK。
 完整契约见 [预处理模块说明](../src/preprocessing/README.md)。
 
-> 大型原始数据和处理产物不入库。采集入口仍待实现；处理入口可接收已经取得的无标签评论，或已标注训练文件。
+> 大型原始数据和处理产物原定不入库，2026-10-30 已按「一次性快照」入库一份（见上文「已入库的数据快照」，
+> 提交 `1eb77a7`）；`.gitignore` 规则未改，后续新增大文件仍默认不入库。
+> 处理入口可接收已经取得的无标签评论，或已标注训练文件。

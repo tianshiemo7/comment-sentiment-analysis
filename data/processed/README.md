@@ -1,6 +1,16 @@
 # data/processed/ — 预处理中间产物
 
-本目录存放预处理管线的**中间产物**，由 `src/preprocessing` 生成，默认不入库（见根目录忽略规则）。
+本目录存放预处理管线的**中间产物**，由 `src/preprocessing` 生成。这些文件被 `.gitignore` 排除，
+2026-10-30 随提交 `1eb77a7` 以「一次性快照」方式强制入库（概述见 [`../README.md`](../README.md)）。
+
+> ⚠️ **当前目录是小样本冒烟产物**：输入 `data/sample/bilibili_demo.csv`（27 行人工编写的演示数据，
+> 24 条有效，正负各 12），`vocab.json` 只有 **6 个词**，仅用于验证「清洗 → 词表 → 划分 → 编码」链路，
+> 不能代表真实语料规模。真实规模（18,644 条公开语料）的对应产物按下面的命令重跑后生成，
+> 本机已跑过一次的结果保存在 `outputs/realdata/data/processed/`（清洗后 18,613 条、词表 9,308 词）。
+>
+> 其中 `comments_cleaned.csv` / `comments_excluded.csv` 等 `clean` 模式产物来自
+> `data/raw/BV1GJ411x7h7_comments.csv` 的采集样本（39 条 → 保留 38 条，排除 1 条重复文本），
+> 属于**无标签待预测数据**，不能当训练集。
 
 ## 产物清单
 

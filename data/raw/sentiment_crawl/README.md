@@ -28,6 +28,11 @@
 | `bvids.txt`、`catalog.json`、`ranking_snapshot.json` | 可复现的 BV 清单与排行榜原始快照 |
 | `shard{1,2,3}/`、`shard{n}_merged.csv` | 分片断点与分片合并结果（支持中断续爬） |
 
+> 📦 **2026-10-30 快照**：上表全部文件（含 `shard{1,2,3}/` 各 72 个视频的分片 CSV 与断点 JSON、
+> `catalog.json`、`ranking_snapshot.json`、`shard{n}_merged.csv`）原本被 `.gitignore` 排除，
+> 现随提交 `1eb77a7` 一并入库，可直接复现与审计。规模以 `dataset_stats.json` 为准：
+> **10,800 条评论 / 216 个视频 / 18 个分区各 600 条**，`rpid` 全局唯一、无空文本，train 9,000 / test 1,800。
+
 ## 3. 总表字段
 
 `bvid, aid, video_title, rpid, level, root_rpid, parent_rpid, text, likes, reply_count, ctime_utc, collected_at_utc, category, rid, split`
