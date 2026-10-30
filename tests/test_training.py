@@ -17,6 +17,7 @@ from src.training.trainer import (  # noqa: E402
     evaluate,
     set_seed,
     train_model,
+    train_one_epoch,
 )
 
 
@@ -126,10 +127,37 @@ def test_train_model_writes_checkpoint_and_log(tmp_path):
     assert payload["model"] == "textcnn"
     assert len(payload["history"]) == len(result["history"])
     for row in payload["history"]:
-        assert {"epoch", "train_loss", "val_loss", "val_acc", "lr"} <= set(row)
+        assert {"epoch", "train_loss", "train_acc", "val_loss", "val_acc", "lr"} <= set(row)
+        assert 0 <= row["train_acc"] <= 1
 
     metrics = evaluate(model, val_loader, __import__("torch").nn.CrossEntropyLoss(), config)
     assert 0.0 <= metrics["accuracy"] <= 1.0
+
+
+def test_training_accuracy_counts_predictions_and_preserves_scalar_loss_api(tmp_path):
+    import torch
+
+    class FixedClassifier(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.logits = torch.nn.Parameter(torch.tensor([[3., -3.], [3., -3.], [3., -3.], [-3., 3.]]))
+
+        def forward(self, ids):
+            return self.logits[ids[:, 0]]
+
+    ids = torch.arange(4).reshape(4, 1)
+    labels = torch.tensor([0, 0, 1, 1])
+    loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(
+        ids, torch.ones_like(ids), torch.ones(4, dtype=torch.long), labels), batch_size=2)
+    model = FixedClassifier()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0)
+    criterion = torch.nn.CrossEntropyLoss()
+    expected_loss = criterion(model(ids), labels).item()
+    config = _config(tmp_path, grad_clip=0)
+    result = train_one_epoch(model, loader, optimizer, criterion, config, return_metrics=True)
+    assert result["accuracy"] == .75
+    assert result["loss"] == pytest.approx(expected_loss)
+    assert train_one_epoch(model, loader, optimizer, criterion, config) == pytest.approx(expected_loss)
 
 
 def test_cli_end_to_end(tmp_path):

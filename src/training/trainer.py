@@ -165,13 +165,19 @@ def _unpack_batch(batch):
     return input_ids, attention_mask, lengths, labels
 
 
-def train_one_epoch(model: Any, loader: Any, optimizer: Any, criterion: Any, config: TrainConfig) -> float:
-    """训练一轮，返回按样本数加权的平均训练损失。"""
+def train_one_epoch(
+    model: Any, loader: Any, optimizer: Any, criterion: Any, config: TrainConfig, *, return_metrics: bool = False,
+) -> float | dict[str, float]:
+    """Train one epoch; optionally return accuracy from the same training forwards.
+
+    The default preserves the existing scalar-loss API. Accuracy is measured in
+    training mode before each optimizer step, without another pass over the data.
+    """
     torch = _require_torch()
     module = _model_module(model)
     module.train()
     device = _device_of(module)
-    total_loss, total = 0.0, 0
+    total_loss, total, correct = 0.0, 0, 0
     for step, batch in enumerate(loader, 1):
         input_ids, attention_mask, _lengths, labels = _unpack_batch(batch)
         input_ids = input_ids.to(device)
@@ -180,6 +186,7 @@ def train_one_epoch(model: Any, loader: Any, optimizer: Any, criterion: Any, con
         optimizer.zero_grad()
         logits = _forward_logits(model, input_ids, attention_mask)
         loss = criterion(logits, labels)
+        correct += int((logits.detach().argmax(dim=1) == labels).sum().item())
         loss.backward()
         if config.grad_clip and config.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(module.parameters(), config.grad_clip)
@@ -190,7 +197,8 @@ def train_one_epoch(model: Any, loader: Any, optimizer: Any, criterion: Any, con
             print(f"[train] step {step} loss={loss.item():.4f}")
     if not total:
         raise ValueError("DataLoader 为空，无法训练")
-    return total_loss / total
+    metrics = {"loss": total_loss / total, "accuracy": correct / total}
+    return metrics if return_metrics else metrics["loss"]
 
 
 def evaluate(model: Any, loader: Any, criterion: Any, config: TrainConfig) -> dict[str, float]:
@@ -276,13 +284,14 @@ def train_model(model: Any, train_loader: Any, val_loader: Any, config: TrainCon
     log_path = log_path_for(config.model_name, config.log_dir)
 
     for epoch in range(1, config.epochs + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, criterion, config)
+        training = train_one_epoch(model, train_loader, optimizer, criterion, config, return_metrics=True)
         validation = evaluate(model, val_loader, criterion, config)
         learning_rate = float(optimizer.param_groups[0]["lr"])
         history.append(
             {
                 "epoch": epoch,
-                "train_loss": round(train_loss, 6),
+                "train_loss": round(training["loss"], 6),
+                "train_acc": round(training["accuracy"], 6),
                 "val_loss": round(validation["loss"], 6),
                 "val_acc": round(validation["accuracy"], 6),
                 "lr": learning_rate,
@@ -290,7 +299,7 @@ def train_model(model: Any, train_loader: Any, val_loader: Any, config: TrainCon
         )
         print(
             f"[train] epoch {epoch}/{config.epochs} "
-            f"train_loss={train_loss:.4f} val_loss={validation['loss']:.4f} "
+            f"train_loss={training['loss']:.4f} train_acc={training['accuracy']:.4f} val_loss={validation['loss']:.4f} "
             f"val_acc={validation['accuracy']:.4f}"
         )
         improved = stopper.step(validation["accuracy"], epoch, module.state_dict())
