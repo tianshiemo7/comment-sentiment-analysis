@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,8 +13,14 @@ from .tokenize import (
     encode_ids, get_tokenizer, load_stopwords, tokenize,
 )
 
-PIPELINE_VERSION = "1.0.0"
+PIPELINE_VERSION = "1.1.0"
 LABEL_MAP = {"negative": 0, "positive": 1}
+
+
+def sentiment_task() -> dict:
+    return {"name": "binary_sentiment", "num_classes": 2, "label_map": dict(LABEL_MAP),
+            "neutral_policy": "excluded_from_supervised_training",
+            "low_confidence_policy": "review_required_not_a_neutral_training_class"}
 
 
 @dataclass
@@ -35,7 +42,7 @@ class TextPreprocessor:
             for key, value in self.emoji_map.items()
         ):
             raise ValueError("表情映射必须包含非空字符串键和值")
-        self.stopwords = set(self.stopwords) - PROTECTED_WORDS
+        self.stopwords = frozenset(word.lower() for word in self.stopwords) - PROTECTED_WORDS
 
     @classmethod
     def from_resources(
@@ -68,7 +75,7 @@ class TextPreprocessor:
                 "length": length, "source_length": len(tokens), "truncated": len(tokens) > self.max_len}
 
     def to_dict(self) -> dict:
-        return {"pipeline_version": PIPELINE_VERSION, "lang": self.lang, "max_len": self.max_len,
+        return {"pipeline_version": PIPELINE_VERSION, "task": sentiment_task(), "lang": self.lang, "max_len": self.max_len,
                 "stopwords": sorted(self.stopwords), "protected_words": sorted(PROTECTED_WORDS),
                 "userdict_text": self.userdict_text, "emoji_map": self.emoji_map}
 
@@ -81,7 +88,9 @@ class TextPreprocessor:
     @classmethod
     def load(cls, path: str | Path):
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        if payload.get("pipeline_version") != PIPELINE_VERSION or payload.get("protected_words") != sorted(PROTECTED_WORDS):
+        if (payload.get("pipeline_version") != PIPELINE_VERSION
+                or payload.get("task") != sentiment_task()
+                or payload.get("protected_words") != sorted(PROTECTED_WORDS)):
             raise ValueError("预处理版本不兼容，请使用与训练相同的代码和资源")
         return cls(payload["lang"], payload["max_len"], set(payload["stopwords"]),
                    payload["userdict_text"], payload["emoji_map"])
@@ -132,4 +141,6 @@ def load_preprocessing_bundle(directory: str | Path):
     labels = json.loads((directory / "label_map.json").read_text(encoding="utf-8"))
     if labels != LABEL_MAP:
         raise ValueError("标签映射与当前情感二分类约定不一致")
+    if manifest.get("demo_mode"):
+        warnings.warn("当前加载的是演示数据资源，不能用于课程正式模型验收", UserWarning, stacklevel=2)
     return TextPreprocessor.load(directory / "preprocessor.json"), Vocab.load(directory / "vocab.json"), labels

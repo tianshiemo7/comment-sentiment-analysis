@@ -27,7 +27,7 @@
 | --- | --- |
 | B 站评论爬虫 `src/crawler/` | ✅ 已实现：WBI 签名 / 风控退避 / 文本标准化 / robots / 来源登记 / 断点续爬 / **大规模批量采集（清单/零请求续采/不限页数/流式合并）** / 公开数据集下载 / 标注抽样与合并 / 效率基准 · 本机实测见 [十二、爬虫模块改进与实测效率](#十二爬虫模块改进与实测效率) |
 | 数据处理管线 `src/preprocessing/` | ✅ 已实现（清洗 / 分词 / 划分 / 词表 / 编码 / 统计） |
-| 真实数据规模（课程硬指标） | ✅ 公开语料 + 类别均衡后 **18,644 条**，`course_requirements_met=true`（train 13,029 / test 3,723，正负各 ~9.3k）；数据文件不入库，命令见第四节与第十二节 |
+| 真实数据规模（课程硬指标） | ✅ 公开标注语料审计后 **19,711 条**，`course_requirements_met=true`（train 13,797 / val 1,971 / test 3,943，正面约 47.2%）；`python -m scripts.prepare_training_data` 可复现，数据文件不入库 |
 | 前后端页面与接口 `frontend/` + `src/inference/` + `src/videos/` + `src/artifacts/` | ✅ 已实现 |
 | 数据项目（右上传爬虫数据 → clean 管线 → 三张表 + 逐条评论情感） | ✅ 已实现（`src/artifacts/`）· ⚠️ 情感为规则占位 |
 | 单独评论（单条预测结果存入左栏②段，无图表） | ✅ 已实现 |
@@ -94,7 +94,7 @@ comment-sentiment-analysis/
 
 | 课程要求 | 对应位置 | 状态 |
 | --- | --- | --- |
-| 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | ✅ 已达标：公开语料合并均衡 **18,644 条**（train 13,029 / test 3,723，正负各 ~9.3k）；数据文件不入库，复现命令见第四节 |
+| 数据集：训练 ≥ 8000、测试 ≥ 2000、正负均衡 | `data/` `data/sample/` | ✅ 公开标注有效 **19,711 条**（train 13,797 / test 3,943，正面约 47.2%）；无 B 站人工标注，复现命令见第四节 |
 | 数据来源：公开数据集或爬虫（遵守 robots，注明来源与采集时间） | `src/crawler/` | ✅ 爬虫已实现 WBI 签名 / 限速 / robots 校验 / 来源登记（`data/raw/来源说明.md`），实测见第十二节 |
 | 划分 7 : 1 : 2 | `src/preprocessing/split.py` | 已实现 分层或按视频分组 |
 | 中文 jieba 分词、英文分词小写化；去停用词/URL/HTML/特殊符号 | `src/preprocessing/` | 已实现 保护否定词与表情信息 |
@@ -241,20 +241,34 @@ python scripts/bench_crawler.py offline --pages 5 --per-page 20 --include-replie
 
 ### 6. 公开数据集、标注与 `/api/videos` 真实爬取
 
+正式训练输入使用固定上游提交及 SHA256，保留冲突记录供统一预处理审计：
+
+```bash
+python -m scripts.prepare_training_data
+```
+
+当前制备结果为 train 13,797 / val 1,971 / test 3,943；未提前下采样，
+各集合正面比例约 47.2%，满足项目的 45%—55% 检查。
+原始来源、采集时间及制备统计保存于 `data/raw/training_corpus/` 和
+`outputs/stats/training_data_preparation.json`。以下为通用下载、格式转换及可选下采样工具用法，
+旧版 2026-10-17 实测数值保留在当日审查文档中，不能与当前数据版本混用。
+
 ```bash
 # 查看/下载公开带标签中文情感语料（下载后自动登记来源；校验失败不会留下半成品）
 bash scripts/get_data.sh --list-datasets
 bash scripts/get_data.sh --dataset chnsenticorp
 python -m src.crawler.datasets --import-csv data/raw/datasets/ChnSentiCorp_htl_all.csv \
     --output data/raw/chnsenticorp_unified.csv
+bash scripts/get_data.sh --dataset waimai_10k
+python -m src.crawler.datasets --import-csv data/raw/datasets/waimai_10k.csv \
+    --output data/raw/waimai_10k_unified.csv
 
-# 多份语料合并 + 类别均衡（按较小类别下采样；实测 18,644 条 / 正负各 9,322）
+# 可选：多份语料合并 + 类别均衡（按较小类别下采样）
 python -m src.crawler.datasets --merge-balance \
     data/raw/waimai_10k_unified.csv data/raw/chnsenticorp_unified.csv \
     --output data/raw/comments_labeled_balanced.csv --seed 42
 
-# 跑课程验收的训练预处理（实测 train 13,029 / val 1,861 / test 3,723，
-# course_requirements_met=true；数据文件不入库，按上面命令可复现）
+# 对自行准备的已标注文件执行预处理，实际规模与达标判决以生成报告为准
 python -m src.preprocessing --input data/raw/comments_labeled_balanced.csv
 
 # 无标签评论 → 标注候选（按 video_id 分层、固定 seed、输出 manifest）
@@ -480,8 +494,9 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
   `python -m src.training.cli --model textcnn` 可训练并保存 `best.pt`；
 - **评估与可视化**：Accuracy / Precision / Recall / F1、混淆矩阵、错误分析，
   训练曲线 / 热力图 / 词云自动写入 `outputs/figures/`；
-- **数据**：公开语料合并均衡 **18,644 条**（train 13,029 / val 1,861 / test 3,723，
-  正负均衡，`course_requirements_met=true`），复现命令见第四节，数据文件不入库；
+- **数据**：固定版本公开标注语料经完整冲突审计后 **19,711 条**（train 13,797 / val 1,971 / test 3,943，
+  正面约 47.2%，`course_requirements_met=true`、`demo_mode=false`）。运行 `python -m scripts.prepare_training_data` 复现，
+  详情见 `data/README.md`；来源为酒店与外卖，不代表 B 站领域评估结果，生成数据文件不入库；
 - **爬虫**：WBI 签名 / 限速 / robots / 来源登记 / 断点续采 / 大规模清单 / 真实登录态，
   详见[第十二节](#十二爬虫模块改进与实测效率)；
 - **系统**：前端五页 + FastAPI 接口 + 设置入口 / 人工登录窗口 / 爬虫参数弹窗 / 分步执行，
@@ -499,7 +514,7 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 
 | 事项 | 说明 | 位置 |
 | --- | --- | --- |
-| **预处理模块 4 项必修** | 英文否定被清洗摧毁、`remove_html` 吞正文、manifest 不记达标判决、标签空间二/三分类口径冲突 | Issue [#3](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/3) |
+| **预处理模块审查修复** | 本分支已修复英文否定、未闭合 HTML 吞正文、manifest 达标判决缺失，统一二分类口径；另补分集 OOV、坏行审计、UTF-16 检查和演示资源告警。尚待合并 | Issue [#3](https://github.com/tianshiemo7/comment-sentiment-analysis/issues/3)，验证见 `docs/数据处理验证-2026-10-30.md` |
 
 ### 明确不在短期范围内
 

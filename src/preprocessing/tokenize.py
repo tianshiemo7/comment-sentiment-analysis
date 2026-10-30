@@ -8,7 +8,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from .clean import RESOURCES_DIR
+from .clean import RESOURCES_DIR, normalize_english_negation
 
 PAD_TOKEN = "<pad>"
 UNK_TOKEN = "<unk>"
@@ -54,6 +54,11 @@ def get_tokenizer(userdict_text: str):
     return instance
 
 
+@lru_cache(maxsize=1)
+def _default_tokenizer():
+    return get_tokenizer(DEFAULT_USERDICT_PATH.read_text(encoding="utf-8-sig"))
+
+
 def tokenize(
     text: str, *, lang: str = "zh", stopwords: set[str] | None = None,
     tokenizer=None,
@@ -64,13 +69,13 @@ def tokenize(
         return []
     if lang == "zh":
         if tokenizer is None:
-            tokenizer = get_tokenizer(DEFAULT_USERDICT_PATH.read_text(encoding="utf-8-sig"))
+            tokenizer = _default_tokenizer()
         pieces = tokenizer.lcut(text)
     else:
-        pieces = re.findall(r"[^\W_]+(?:'[^\W_]+)?", text.lower(), flags=re.UNICODE)
-    stops = {word.lower() for word in stopwords or set()} - PROTECTED_WORDS
+        pieces = re.findall(r"[^\W_]+(?:'[^\W_]+)?", normalize_english_negation(text).lower(), flags=re.UNICODE)
+    stops = stopwords if isinstance(stopwords, frozenset) else {word.lower() for word in stopwords or set()}
     return [word for piece in pieces if (word := piece.strip().lower())
-            and any(char.isalnum() for char in word) and word not in stops]
+            and any(char.isalnum() for char in word) and (word not in stops or word in PROTECTED_WORDS)]
 
 
 def encode_ids(
