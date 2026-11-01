@@ -14,12 +14,13 @@ const props = defineProps({
   analysis: { type: Object, default: null },
 })
 
-const status = computed(() => props.analysis?.status || props.video?.status || 'queued')
+const status = computed(() => props.video?.status || props.analysis?.status || 'queued')
 const progress = computed(() => {
-  const value = Number(props.analysis?.progress ?? props.video?.progress ?? 0)
+  const value = Number(props.video?.progress ?? props.analysis?.progress ?? 0)
   return Math.min(100, Math.max(0, Number.isFinite(value) ? Math.round(value) : 0))
 })
-const phases = computed(() => props.analysis?.phases || props.video?.phases || [])
+const phases = computed(() => props.video?.phases || props.analysis?.phases || [])
+const commentCount = computed(() => Number(props.video?.comment_count) || 0)
 
 /** 契约文案：queued「排队中…」/ crawling「正在爬取评论… N%」/ processing「正在清洗与情感分析… N%」 */
 const headline = computed(() => {
@@ -28,7 +29,7 @@ const headline = computed(() => {
   return '排队中…'
 })
 
-const detailMessage = computed(() => props.analysis?.message || props.video?.message || '')
+const detailMessage = computed(() => props.video?.message || props.analysis?.message || '')
 const label = computed(() => statusMeta(status.value).label)
 
 const RADIUS = 52
@@ -81,7 +82,8 @@ const headlineSpinning = computed(() => status.value === 'crawling' || status.va
         <Icon :name="headlineIcon" :size="19" :spin="headlineSpinning" />
         {{ headline }}
       </h2>
-      <p v-if="detailMessage" class="progress-block__message">{{ detailMessage }}</p>
+      <p v-if="detailMessage" class="progress-block__message" role="status">{{ detailMessage }}</p>
+      <p class="progress-block__message">{{ status === 'crawling' ? '已采集' : '当前评论' }} {{ commentCount }} 条</p>
 
       <ol class="phase-list">
         <li v-for="phase in phases" :key="phase.name" class="phase" :class="`phase--${phase.status}`">

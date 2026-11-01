@@ -33,6 +33,7 @@ from typing import Any
 
 from ..preprocessing.dataset import load_records, save_records
 from ..videos import service as videos_service
+from ..visualization.keywords import clean_keyword_groups
 from . import pipeline, preview
 from .config import ArtifactsConfig
 from .errors import (
@@ -379,7 +380,7 @@ class ArtifactService:
             "method": payload.get("method") or METHOD_RULE_PLACEHOLDER,
             "total": int(payload.get("total") or 0),
             "sentiment": {**fallback["sentiment"], **sentiment},
-            "keywords": payload.get("keywords") if isinstance(payload.get("keywords"), dict) else fallback["keywords"],
+            "keywords": clean_keyword_groups(payload.get("keywords")),
             "length": payload.get("length") if isinstance(payload.get("length"), dict) else fallback["length"],
             "sample": payload.get("sample") if isinstance(payload.get("sample"), list) else [],
         }

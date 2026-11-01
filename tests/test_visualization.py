@@ -103,6 +103,44 @@ def test_word_frequencies_remove_markers_before_ranking_and_keep_negation():
     assert set(complete) == {"讲解", "没有", "不", "标点", "表情", "表情丰富"}
 
 
+def test_word_frequencies_exclude_punctuation_and_symbols():
+    assert word_frequencies([["！", "……", "—", "_", "😂", "\u200b", "不", "好", "C++"]]) == {
+        "不": 1, "好": 1, "C++": 1,
+    }
+
+
+def test_cached_keywords_are_filtered_and_reweighted_without_mutating_source():
+    from copy import deepcopy
+    from src.visualization.keywords import clean_keyword_groups
+
+    payload = {"positive": [
+        {"word": "标点分隔", "count": 100, "weight": 1.0},
+        {"word": "表情狗头", "count": 50, "weight": 0.5},
+        {"word": "！", "count": 20, "weight": 0.2},
+        {"word": "清晰", "count": 3, "weight": 0.03},
+        {"word": "没有", "count": 1, "weight": 0.01},
+    ], "negative": [{"word": "标点疑问", "count": 2, "weight": 1.0}]}
+    before = deepcopy(payload)
+    result = clean_keyword_groups(payload, precision=3)
+    assert result == {"positive": [
+        {"word": "清晰", "count": 3, "weight": 1.0},
+        {"word": "没有", "count": 1, "weight": 0.333},
+    ], "negative": []}
+    assert payload == before
+    assert clean_keyword_groups(result, precision=3) == result
+
+
+@pytest.mark.parametrize("payload", [None, [], {"positive": None}, {
+    "positive": [None, {}, {"word": None, "count": 1},
+                 {"word": "清晰", "count": "3"}, {"word": "清晰", "count": -1},
+                 {"word": "清晰", "count": True}], "negative": "invalid",
+}])
+def test_cached_keywords_with_missing_or_invalid_groups_are_empty(payload):
+    from src.visualization.keywords import clean_keyword_groups
+
+    assert clean_keyword_groups(payload) == {"positive": [], "negative": []}
+
+
 def test_wordcloud_direct_frequencies_cannot_bypass_marker_filter(tmp_path, monkeypatch):
     pytest.importorskip("wordcloud")
     from wordcloud import WordCloud

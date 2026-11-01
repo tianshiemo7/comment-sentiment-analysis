@@ -158,6 +158,7 @@ def build_detail(
     finished_at: datetime | None = None,
     comment_total: int | None = None,
     comments: Sequence[Mapping[str, Any]] | None = None,
+    predictions: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """生成一份结构完整的 detail（字段与 `docs/API契约.md` 第三节一致）。
 
@@ -195,7 +196,10 @@ def build_detail(
 
     real_comments = [comment for comment in (comments or []) if isinstance(comment, Mapping)]
     has_real_data = bool(real_comments)
-    predictions = _predict_real_comments(real_comments) if has_real_data else []
+    if predictions is not None and len(predictions) != len(real_comments):
+        raise ValueError("预测条数与评论条数不一致")
+    predictions = (list(predictions) if predictions is not None
+                   else _predict_real_comments(real_comments) if has_real_data else [])
 
     if has_real_data:
         # ---- 真实评论路径：总数 = 真实条数，sentiment 计数天然自洽 ----
@@ -590,6 +594,8 @@ def _build_real_top_comments(
     predictions: Sequence[Mapping[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
     """每侧取点赞最高的若干条真实评论（contract：每侧 ≤ 10）。"""
+    from .display import original_comment_text
+
     grouped: dict[str, list[dict[str, Any]]] = {"positive": [], "negative": []}
     for comment, prediction in zip(comments, predictions):
         label = prediction.get("label")
@@ -598,7 +604,7 @@ def _build_real_top_comments(
         confidence = _as_float(prediction.get("confidence"), default=0.5)
         grouped[label].append(
             {
-                "text": str(comment.get("text") or ""),
+                "text": original_comment_text(comment),
                 "like": _as_int(comment.get("likes")),
                 "confidence": round(min(max(confidence, 0.0), 1.0), 3),
                 "label": label,

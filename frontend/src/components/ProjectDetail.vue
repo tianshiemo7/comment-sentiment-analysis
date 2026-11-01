@@ -211,7 +211,7 @@ function submitJump() {
       <div class="artifact__bar" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
         <div class="artifact__bar-fill" :style="{ width: `${progress}%` }"></div>
       </div>
-      <p class="hint">处理完成后这里会出现三张表、逐条评论与聚合图表（列表每 3 秒自动刷新）。</p>
+      <p class="hint">处理完成后这里会出现三张表、逐条评论与聚合图表（列表每秒自动刷新）。</p>
     </div>
 
     <div v-else-if="isFailed" class="artifact__failed">

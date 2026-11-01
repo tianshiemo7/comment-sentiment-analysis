@@ -257,7 +257,7 @@ function videoInitial(video) {
 
       <p class="sidebar__foot">
         <Icon class="sidebar__pulse" :class="{ 'is-on': polling }" name="pulse-line" :size="14" />
-        {{ polling ? '每 3 秒自动刷新' : '轮询已停止' }}
+        {{ polling ? '每秒自动更新进度' : '暂无进行中的任务' }}
       </p>
     </div>
   </aside>

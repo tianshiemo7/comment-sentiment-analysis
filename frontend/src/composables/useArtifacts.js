@@ -4,7 +4,7 @@
  * 契约（docs/API契约.md 第四点五节）：三段数据全部来自**一次** `GET /api/artifacts`
  * 的 `groups` 数组（projects / solo / videos），不为每段单独发请求。
  *
- * 轮询沿用 usePolling（3 秒、全部已停时停止、页面隐藏暂停）：
+ * 轮询沿用 usePolling（1 秒、全部已停时停止、页面隐藏暂停）：
  *   - 终态判断与 utils/videoFormat.js 的 isTerminal 保持一致（completed / failed）；
  *   - 数据项目 status 为 queued / processing 时保持轮询，完成后自动停止；
  *   - 视频段（groups.videos）与 `useVideoAnalysis({ videos })` 共用同一个 ref，
@@ -25,7 +25,7 @@ import {
 import { isActive, isTerminal } from '../utils/videoFormat.js'
 import { usePolling } from './usePolling.js'
 
-const POLL_INTERVAL = 3000
+const POLL_INTERVAL = 1000
 
 /** groups[].key → items */
 function itemsOf(groups, key) {

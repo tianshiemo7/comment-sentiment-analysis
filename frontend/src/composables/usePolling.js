@@ -2,7 +2,7 @@
  * src/composables/usePolling.js — 通用轮询器（契约第三节）
  *
  * 行为：
- *  - 固定间隔轮询（B 站页面用 3 秒）；
+ *  - 固定间隔轮询（B 站页面用 1 秒）；
  *  - 满足 shouldContinue() 为 false 时自动停止（如所有任务均为 completed/failed）；
  *  - 页面隐藏（visibilitychange）暂停，回到前台立即拉一次并恢复；
  *  - 组件卸载时清理定时器与监听。
@@ -18,7 +18,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
  * @param {{interval?: number, shouldContinue?: () => boolean}} [options]
  */
 export function usePolling(poll, options = {}) {
-  const interval = options.interval ?? 3000
+  const interval = options.interval ?? 1000
   const shouldContinue = options.shouldContinue
 
   const isPolling = ref(false)

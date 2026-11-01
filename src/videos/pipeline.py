@@ -214,6 +214,7 @@ def run_pipeline(
     # - 真实采集路径：采集阶段拿到记录后再用 len(records) 确定（见下方 opt-in 分支）。
     total_comments: int | None = None if config.real_crawl else _planned_comment_total(bvid)
     real_comments: list[dict[str, Any]] | None = None
+    real_predictions = None
 
     for index, stage in enumerate(STAGES):
         if _stopped(stop_event):
@@ -251,7 +252,11 @@ def run_pipeline(
         # 默认 real_crawl=False 时这一整段都不会执行，输出与之前逐字段一致。
         if index == 0 and config.real_crawl:
             try:
-                real_comments = _collect_real_comments(bvid, config, collector)
+                real_comments = _collect_real_comments(
+                    bvid, config, collector,
+                    on_progress=_crawl_reporter(store, bvid, run_id, on_update,
+                                                config.crawl_config(), stop_event),
+                )
             except Exception as exc:  # noqa: BLE001 - 采集异常必须落 failed，不能卡在 crawling
                 reason = _crawl_failure_reason(exc)
                 _mark_crawl_failed(store, bvid, run_id, on_update, stage, index, reason)
@@ -264,6 +269,17 @@ def run_pipeline(
                 _mark_crawl_failed(store, bvid, run_id, on_update, stage, index, reason)
                 raise PipelineFailure(reason)
             total_comments = len(real_comments)
+            _require(_apply(store, bvid, run_id, on_update, progress=40,
+                            comment_count=total_comments), bvid)
+            continue
+
+        if index == 2 and real_comments:
+            real_predictions = _predict_cleaned_records(
+                real_comments,
+                on_progress=_work_reporter(store, bvid, run_id, on_update, 2,
+                                           "正在分析情感", stop_event),
+            )
+            continue
 
         # ---- 阶段内分步推进（progress 单调不减）----
         # 真实采集已经消耗了真实网络时间，不再额外 sleep「采集评论」的模拟时长，
@@ -278,6 +294,8 @@ def run_pipeline(
             if seconds > 0:
                 _sleep(seconds / steps, stop_event)
             changes: dict[str, Any] = {"progress": stage_progress(stage, step, steps)}
+            if real_comments:
+                changes["progress"] = min(changes["progress"], 99)
             if stage.name == "采集评论":
                 changes["comment_count"] = int(
                     round(int(total_comments or 0) * step / steps)
@@ -291,6 +309,7 @@ def run_pipeline(
         finished_at=datetime.now().astimezone(),
         comment_total=total_comments,
         comments=real_comments,
+        predictions=real_predictions,
     )
     store.write_detail(bvid, detail)
     _require(
@@ -329,13 +348,15 @@ def _collect_real_comments(
     config: PipelineConfig,
     collector: Callable[[str, crawler_adapter.VideoCrawlConfig], list[dict[str, Any]]]
     | None = None,
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[dict[str, Any]]:
     """真实采集（旧路径）：「采集评论」阶段的数据来源（默认适配层，可注入假采集器）。
 
     适配层负责把底层异常统一包装成 :class:`CrawlAdapterError`（原因可读）；
     ``collector`` 仅供测试注入，生产路径传 ``None`` 即走默认适配器。
     """
-    return _collect_comments(bvid, config.crawl_config(), collector)
+    return _collect_comments(bvid, config.crawl_config(), collector, on_progress=on_progress)
 
 
 def _collect_comments(
@@ -343,11 +364,13 @@ def _collect_comments(
     crawl_config: crawler_adapter.VideoCrawlConfig,
     collector: Callable[[str, crawler_adapter.VideoCrawlConfig], list[dict[str, Any]]]
     | None = None,
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[dict[str, Any]]:
     """按给定采集配置取评论（旧路径与分步流水线共用；可注入假采集器）。"""
     if collector is not None:
         return collector(bvid, crawl_config)
-    return crawler_adapter.collect_video_comments(bvid, crawl_config)
+    return crawler_adapter.collect_video_comments(bvid, crawl_config, on_progress=on_progress)
 
 
 def _crawl_failure_reason(exc: BaseException) -> str:
@@ -404,6 +427,44 @@ def _require(ok: bool, bvid: str) -> None:
 
 def _stopped(stop_event: threading.Event | None) -> bool:
     return stop_event is not None and stop_event.is_set()
+
+
+def _crawl_reporter(store, bvid, run_id, on_update, crawl_config, stop_event):
+    """Report real saved page/row counts; the crawl range stays below 40 until return."""
+    def report(pages: int, count: int) -> None:
+        if _stopped(stop_event):
+            return
+        task = store.get_task(bvid)
+        if task is None or task.get("run_id") != run_id:
+            return
+        ratio = pages / crawl_config.max_pages if crawl_config.max_pages else pages / (pages + 1)
+        if crawl_config.max_items:
+            ratio = max(ratio, count / crawl_config.max_items)
+        progress = max(int(task.get("progress") or 0), min(39, int(40 * ratio)))
+        _apply(store, bvid, run_id, on_update, status="crawling", progress=progress,
+               comment_count=count, phases=phases_at(0),
+               message=f"正在爬取评论… 已完成 {pages} 页，已采集 {count} 条")
+    return report
+
+
+def _work_reporter(store, bvid, run_id, on_update, stage_index, label, stop_event):
+    """Publish work counts at most every 250ms or when integer progress changes."""
+    start, end = PHASE_PROGRESS_RANGES[stage_index]
+    previous = -1
+    last_write = 0.0
+
+    def report(done: int, total: int) -> None:
+        nonlocal previous, last_write
+        if _stopped(stop_event):
+            raise PipelineAborted("收到关停信号")
+        progress = min(99, start + int((end - start) * done / total)) if total else start
+        now = time.monotonic()
+        if progress == previous and done != total and now - last_write < 0.25:
+            return
+        _require(_apply(store, bvid, run_id, on_update, status="processing", progress=progress,
+                        phases=phases_at(stage_index), message=f"{label}… {done}/{total} 条"), bvid)
+        previous, last_write = progress, now
+    return report
 
 
 def _sleep(seconds: float, stop_event: threading.Event | None) -> None:
@@ -527,6 +588,8 @@ def _first_video_title(records: list[Mapping[str, Any]]) -> str | None:
 
 def _clean_comment_records(
     records: list[Mapping[str, Any]],
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """清洗阶段：对每条评论执行 ``clean_text``，去掉清洗后为空的，再按文本去重。
 
@@ -541,20 +604,23 @@ def _clean_comment_records(
     seen: set[str] = set()
     dropped_empty = 0
     dropped_duplicate = 0
-    for record in records:
+    if on_progress:
+        on_progress(0, len(records))
+    for index, record in enumerate(records, 1):
         raw_text = str(record.get("text") or "")
         text = clean_text(raw_text)
         if not text:
             dropped_empty += 1
-            continue
-        if text in seen:
+        elif text in seen:
             dropped_duplicate += 1
-            continue
-        seen.add(text)
-        item = dict(record)
-        item["raw_text"] = raw_text
-        item["text"] = text
-        cleaned.append(item)
+        else:
+            seen.add(text)
+            item = dict(record)
+            item["raw_text"] = raw_text
+            item["text"] = text
+            cleaned.append(item)
+        if on_progress:
+            on_progress(index, len(records))
     return cleaned, {
         "raw_total": len(records),
         "kept": len(cleaned),
@@ -632,6 +698,7 @@ def _predict_cleaned_records(
     records: list[Mapping[str, Any]],
     *,
     model: Any = _MODEL_UNSET,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[dict[str, Any]]:
     """分析阶段：逐条情感预测（真实模型优先，规则占位回退）。
 
@@ -645,11 +712,15 @@ def _predict_cleaned_records(
         model: 可注入的预测器；**默认哨兵**表示按 :func:`_active_predictor`
             现场解析（单测 / 分步流水线可显式传入，避免重复加载）。
     """
+    if on_progress:
+        on_progress(0, len(records))
     active_model = _active_predictor() if model is _MODEL_UNSET else model
     predictions: list[dict[str, Any]] = []
-    for record in records:
+    for index, record in enumerate(records, 1):
         text = str(record.get("text") or "")
         predictions.append(_predict_one_text(text, active_model))
+        if on_progress:
+            on_progress(index, len(records))
     return predictions
 
 
@@ -726,8 +797,14 @@ def _staged_crawl_stage(
     title: str | None = None
     if is_real:
         crawl_config = _build_staged_crawl_config(crawl_settings, cookie)
+        _require(_apply(store, bvid, run_id, on_update, status="crawling", progress=0,
+                        comment_count=0, phases=phases_at(0),
+                        message="正在连接视频并获取评论…"), bvid)
         try:
-            records = _collect_comments(bvid, crawl_config, collector)
+            records = _collect_comments(
+                bvid, crawl_config, collector,
+                on_progress=_crawl_reporter(store, bvid, run_id, on_update, crawl_config, stop_event),
+            )
         except Exception as exc:  # noqa: BLE001 - 采集异常必须落 failed，不能卡在 crawling
             reason = video_settings.redact_secrets(_crawl_failure_reason(exc), cookie)
             _mark_staged_failed(store, bvid, run_id, on_update, 0, reason)
@@ -757,6 +834,11 @@ def _staged_crawl_stage(
             "collected_at": now_iso(),
         },
     )
+    if is_real:
+        _require(_apply(store, bvid, run_id, on_update, status="crawling",
+                        progress=CRAWL_PAUSE_PROGRESS, comment_count=total, phases=phases_at(0),
+                        message=f"采集完成，共 {total} 条评论"), bvid)
+        return total, title
     _run_stage_progress(
         store, bvid, run_id, on_update,
         status="crawling",
@@ -793,7 +875,11 @@ def _staged_clean_stage(
         for record in (crawl_artifact.get("records") or [])
         if isinstance(record, Mapping)
     ]
-    cleaned, clean_stats = _clean_comment_records(raw_records)
+    cleaned, clean_stats = _clean_comment_records(
+        raw_records,
+        on_progress=_work_reporter(store, bvid, run_id, on_update, 1, "正在清洗评论", stop_event)
+        if raw_records else None,
+    )
     # 占位模式没有真实评论记录，清洗是空操作：展示层沿用「采集到的计划条数」，
     # 避免「待清洗」→「待分析」期间评论数被清成 0（真实模式为实际保留条数）。
     display_total = len(cleaned) or int(crawl_artifact.get("comment_total") or 0)
@@ -809,6 +895,11 @@ def _staged_clean_stage(
             "cleaned_at": now_iso(),
         },
     )
+    if raw_records:
+        _require(_apply(store, bvid, run_id, on_update, status="processing",
+                        progress=CLEAN_PAUSE_PROGRESS, comment_count=display_total, phases=phases_at(1),
+                        message=f"清洗完成，保留 {len(cleaned)}/{len(raw_records)} 条"), bvid)
+        return display_total
     _run_stage_progress(
         store, bvid, run_id, on_update,
         status="processing",
@@ -847,8 +938,10 @@ def _staged_analyze_stage(
         if isinstance(record, Mapping)
     ]
     # 占位模式（没有真实清洗后评论）不加载模型权重：分析产物为空，也就没有需要标注的来源。
+    report = _work_reporter(store, bvid, run_id, on_update, 2, "正在分析情感", stop_event)
+    report(0, len(cleaned))
     active_model = _active_predictor() if cleaned else None
-    predictions = _predict_cleaned_records(cleaned, model=active_model)
+    predictions = _predict_cleaned_records(cleaned, model=active_model, on_progress=report if cleaned else None)
     total_for_progress = len(cleaned) or int(crawl_artifact.get("comment_total") or 0)
     store.write_stage(
         bvid,
@@ -863,6 +956,14 @@ def _staged_analyze_stage(
             "analyzed_at": now_iso(),
         },
     )
+
+    if cleaned:
+        _require(_apply(store, bvid, run_id, on_update, status="processing", progress=85,
+                        phases=phases_at(3), message="正在汇总统计结果…"), bvid)
+        return placeholder.build_detail(
+            bvid, finished_at=datetime.now().astimezone(), comment_total=len(cleaned),
+            comments=cleaned, predictions=predictions,
+        )
 
     _run_stage_progress(
         store, bvid, run_id, on_update,
@@ -890,14 +991,6 @@ def _staged_analyze_stage(
     )
 
     finished = datetime.now().astimezone()
-    if cleaned:
-        # 真实清洗后评论 → placeholder.build_detail 聚合（placeholder=False 如实标注）
-        return placeholder.build_detail(
-            bvid,
-            finished_at=finished,
-            comment_total=len(cleaned),
-            comments=cleaned,
-        )
     # 占位模式（real_crawl=false）：采集阶段只产生确定性计划条数，分析阶段生成占位 detail
     return placeholder.build_detail(
         bvid,

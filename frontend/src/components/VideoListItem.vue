@@ -66,7 +66,7 @@ const waitingHint = computed(() =>
       <VideoStatusBadge :status="video.status" />
       <span v-if="isCompleted" class="video-item__count">{{ formatNumber(video.comment_count) }} 条评论</span>
       <span v-else-if="isPaused" class="video-item__count">{{ formatNumber(video.comment_count) }} 条已入库</span>
-      <span v-else-if="showProgress" class="video-item__pct">{{ progress }}%</span>
+      <span v-else-if="showProgress" class="video-item__pct">{{ formatNumber(video.comment_count) }} 条 · {{ progress }}%</span>
     </div>
 
     <div v-if="showProgress" class="video-item__progress" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">

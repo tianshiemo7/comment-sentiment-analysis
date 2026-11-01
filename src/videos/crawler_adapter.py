@@ -269,6 +269,8 @@ def collect_video_comments(
     bvid: str,
     config: VideoCrawlConfig | None = None,
     fetcher: Callable[..., list[dict[str, Any]]] | None = None,
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[dict[str, Any]]:
     """采集一个视频的评论并返回**标准化记录列表**。
 
@@ -295,6 +297,9 @@ def collect_video_comments(
         raise CrawlAdapterError(f"非法的 BV 号：{bvid!r}，无法采集评论")
 
     collector = fetcher if fetcher is not None else _default_fetcher()
+    progress_kwargs = {}
+    if on_progress is not None:
+        progress_kwargs["on_page"] = lambda result, page, added, total: on_progress(page, total)
     try:
         raw_records = collector(
             bvid,
@@ -309,6 +314,7 @@ def collect_video_comments(
             cookie=crawl_config.cookie,
             init_buvid=crawl_config.init_buvid,
             require_login=crawl_config.require_login,
+            **progress_kwargs,
         )
     except CrawlAdapterError:
         raise

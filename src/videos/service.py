@@ -32,9 +32,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from ..visualization.keywords import clean_keyword_groups
 from . import pipeline, placeholder
 from . import settings as video_settings
 from .config import PipelineConfig
+from .display import restore_top_comments
 from .errors import (
     MESSAGE_BUSY,
     MESSAGE_INVALID_BVID,
@@ -312,6 +314,22 @@ class VideoService:
                 )
                 self.store.write_detail(bvid, stored)
 
+        # Old detail files stored normalized model input as representative text.
+        # Recover only presentation fields from saved originals, without rerunning
+        # prediction or changing the historical labels, confidences and ranking.
+        source_records = []
+        if completed and stored.get("top_comments"):
+            clean_stage = self.store.read_stage(bvid, "clean") or {}
+            source_records = [
+                record for record in (clean_stage.get("records") or [])
+                if isinstance(record, Mapping)
+                and (record.get("raw_text") or record.get("text_raw"))
+            ]
+            if not source_records:
+                crawl_stage = self.store.read_stage(bvid, "crawl") or {}
+                source_records = crawl_stage.get("records") or []
+        top_comments = restore_top_comments(stored.get("top_comments"), source_records)
+
         stored_video = stored.get("video") or {}
         video_block = {
             "bvid": bvid,
@@ -339,15 +357,9 @@ class VideoService:
             "analysis": analysis_block,
             "sentiment": stored.get("sentiment") if completed else None,
             "trend": list(stored.get("trend") or []) if completed else [],
-            "keywords": (
-                stored.get("keywords") if completed else {"positive": [], "negative": []}
-            )
-            or {"positive": [], "negative": []},
+            "keywords": clean_keyword_groups(stored.get("keywords"), precision=3),
             "model": stored.get("model") or placeholder.build_model_block(),
-            "top_comments": (
-                stored.get("top_comments") if completed else {"positive": [], "negative": []}
-            )
-            or {"positive": [], "negative": []},
+            "top_comments": top_comments,
             "error": task.get("error"),
             # 诚实标注：当前 detail 由占位流水线生成（真实爬虫未接入）
             "placeholder": bool(stored.get("placeholder", True)) if completed else True,

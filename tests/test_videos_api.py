@@ -386,6 +386,71 @@ def test_detail_completed_has_full_contract_fields(fast_client):
 # --------------------------------------------------------------------------- #
 # 4. POST /api/videos/{bvid}/retry
 # --------------------------------------------------------------------------- #
+def test_completed_detail_filters_legacy_keywords_without_reanalysis(running_client):
+    from src.videos.placeholder import build_detail
+
+    client, service = running_client
+    stored = build_detail(BVID)
+    stored["keywords"] = {"positive": [
+        {"word": "标点疑问", "count": 100, "weight": 1.0},
+        {"word": "表情狗头", "count": 50, "weight": 0.5},
+        {"word": "！", "count": 10, "weight": 0.1},
+        {"word": "播放", "count": 3, "weight": 0.03},
+        {"word": "没有", "count": 1, "weight": 0.01},
+    ], "negative": []}
+    service.store.upsert_task({"bvid": BVID, "status": "completed", "progress": 100})
+    path = service.store.write_detail(BVID, stored)
+    before = path.read_bytes()
+
+    for _ in range(2):
+        response = client.get(f"/api/videos/{BVID}/detail")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["keywords"] == {"positive": [
+            {"word": "播放", "count": 3, "weight": 1.0},
+            {"word": "没有", "count": 1, "weight": 0.333},
+        ], "negative": []}
+        assert body["sentiment"] == stored["sentiment"]
+        assert body["model"] == stored["model"]
+        assert body["top_comments"] == stored["top_comments"]
+        assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("source_kind", ["clean", "crawl", "missing"])
+def test_historical_representative_comments_display_original_text(running_client, source_kind):
+    from src.preprocessing.clean import clean_text
+    from src.videos.placeholder import build_detail
+
+    client, service = running_client
+    raw = "最后一波，DK赢了！[doge]"
+    normalized = clean_text(raw)
+    stored = build_detail(BVID)
+    stored["top_comments"] = {"positive": [
+        {"text": normalized, "like": 24, "confidence": 0.617, "label": "positive"},
+    ], "negative": []}
+    service.store.upsert_task({"bvid": BVID, "status": "completed", "progress": 100})
+    path = service.store.write_detail(BVID, stored)
+    source_path = None
+    if source_kind != "missing":
+        record = {"text": normalized, "raw_text": raw} if source_kind == "clean" else {"text": raw}
+        source_path = service.store.write_stage(BVID, source_kind, {"records": [record]})
+    before = path.read_bytes()
+    source_before = source_path.read_bytes() if source_path else None
+
+    response = client.get(f"/api/videos/{BVID}/detail")
+    assert response.status_code == 200
+    body = response.json()
+    expected = raw if source_kind != "missing" else "最后一波 dk赢了"
+    assert body["top_comments"] == {"positive": [
+        {"text": expected, "like": 24, "confidence": 0.617, "label": "positive"},
+    ], "negative": []}
+    assert body["sentiment"] == stored["sentiment"]
+    assert body["model"] == stored["model"]
+    assert path.read_bytes() == before
+    if source_path:
+        assert source_path.read_bytes() == source_before
+
+
 def test_retry_resets_task_to_queued(running_client):
     client, _ = running_client
     client.post("/api/videos", json={"bvid": BVID})

@@ -553,6 +553,35 @@ def test_analysis_contract(artifacts_client):
     assert body["sample"][0]["index"] == 0
 
 
+def test_analysis_filters_legacy_keywords_without_reanalysis(artifacts_client):
+    client, service = artifacts_client
+    project = upload_ok(client)
+    project_id = project["id"]
+    wait_for(client, project_id)
+    stored = service.store.read_artifact_json(project_id, "analysis.json")
+    stored["keywords"] = {"positive": [
+        {"word": "标点分隔", "count": 100, "weight": 1.0},
+        {"word": "表情笑哭", "count": 50, "weight": 0.5},
+        {"word": "……", "count": 10, "weight": 0.1},
+        {"word": "清晰", "count": 3, "weight": 0.03},
+        {"word": "没有", "count": 1, "weight": 0.01},
+    ], "negative": [{"word": "标点感叹", "count": 1, "weight": 1.0}]}
+    path = service.store.write_artifact_json(project_id, "analysis.json", stored)
+    before = path.read_bytes()
+
+    for _ in range(2):
+        response = client.get(f"/api/artifacts/{project_id}/analysis")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["keywords"] == {"positive": [
+            {"word": "清晰", "count": 3, "weight": 1.0},
+            {"word": "没有", "count": 1, "weight": 0.3333},
+        ], "negative": []}
+        for key in ("method", "total", "sentiment", "length", "sample"):
+            assert body[key] == stored[key]
+        assert path.read_bytes() == before
+
+
 def test_analysis_unknown_project_is_404(artifacts_client):
     client, _ = artifacts_client
     assert client.get("/api/artifacts/p_20000101_0000_abcdef/analysis").status_code == 404

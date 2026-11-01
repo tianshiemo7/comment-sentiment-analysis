@@ -1780,6 +1780,7 @@ def fetch_video_comments(
     mode: int = 2,
     max_items: int = 0,
     require_login: bool = False,
+    on_page: Any = None,
     **client_kwargs: Any,
 ) -> list[dict[str, Any]]:
     """无持久化地抓取一个视频的评论，供 ``src/videos`` / ``src/artifacts`` 适配。
@@ -1819,6 +1820,7 @@ def fetch_video_comments(
                 max_items=max_items,
                 out_dir=temp_dir,
                 write_source_note=False,
+                on_page=on_page,
             )
             if result.error:
                 raise CrawlStopped(result.error)

@@ -326,6 +326,7 @@ def test_real_crawl_via_monkeypatched_crawler(tmp_path, monkeypatch):
     detail = pipeline.run_pipeline(store, BVID, config)
 
     assert captured["bvid"] == BVID
+    assert callable(captured["kwargs"].pop("on_page"))
     assert captured["kwargs"] == {
         "max_pages": 2,
         "include_replies": True,

@@ -1011,10 +1011,13 @@ def test_crawl_bilibili_reports_and_fetch_adapter(tmp_path):
     assert report.metrics["requests"] >= 1
 
     client2 = StubBiliClient()
+    progress = []
     rows = fetch_video_comments(
-        "BV1GJ411x7h7", client=client2, max_pages=1, include_replies=False
+        "BV1GJ411x7h7", client=client2, max_pages=1, include_replies=False,
+        on_page=lambda result, page, added, total: progress.append((page, added, total)),
     )
     assert [row["rpid"] for row in rows] == ["1"]
+    assert progress == [(1, 1, 1)]
 
 
 # =========================================================================

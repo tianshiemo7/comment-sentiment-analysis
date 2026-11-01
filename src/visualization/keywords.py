@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 
@@ -23,10 +24,41 @@ def processing_markers() -> frozenset[str]:
 
 
 def is_display_keyword(token: str) -> bool:
-    """Exclude only known processing tokens, preserving content and negation."""
+    """Exclude processing tokens and punctuation, preserving content and negation."""
     return (isinstance(token, str) and bool(token.strip())
+            and any(char.isalnum() for char in token)
             and token.strip().lower() not in SPECIAL_TOKENS
             and token.strip() not in processing_markers())
+
+
+def clean_keyword_groups(payload: object, *, precision: int = 4) -> dict[str, list[dict]]:
+    """Filter persisted keyword lists on read without changing historical results.
+
+    Older tasks can contain model markers even after the generation code is fixed.
+    Normalize weights against the remaining words, keeping their original counts.
+    This operates on copies and never reruns inference or writes to the cache.
+    """
+    groups = payload if isinstance(payload, Mapping) else {}
+    result: dict[str, list[dict]] = {"positive": [], "negative": []}
+    for label in result:
+        entries = groups.get(label)
+        if not isinstance(entries, list):
+            continue
+        kept = []
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            word, count = entry.get("word"), entry.get("count")
+            if (not is_display_keyword(word) or isinstance(count, bool)
+                    or not isinstance(count, int) or count <= 0):
+                continue
+            kept.append({"word": word.strip(), "count": count})
+        peak = max((entry["count"] for entry in kept), default=0)
+        result[label] = [
+            {**entry, "weight": round(entry["count"] / peak, precision)}
+            for entry in kept
+        ]
+    return result
 
 
 @lru_cache(maxsize=1)

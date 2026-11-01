@@ -2,7 +2,7 @@
  * src/composables/useVideoAnalysis.js — B 站分析页的核心状态（列表 + 详情 + 操作）
  *
  * 轮询策略按 docs/API契约.md 第三节与 2026-10-17 分步流水线设计：
- *  - 列表每 3 秒 GET /api/videos；
+ *  - 列表每 1 秒 GET /api/videos；
  *  - 全部任务为「非进行中」时停止：completed / failed 是终态，
  *    crawled（待清洗）/ cleaned（待分析）是**等待操作态**，同样不自动轮询；
  *  - 提交（submit）/ 重试（retry）/ 继续（continueTask）后恢复轮询；
@@ -11,7 +11,7 @@
  *  ⚠️ 列表数据源可注入：B 站分析页左栏改成三段后，三段共用一次 GET /api/artifacts
  *  （useArtifacts），此时通过 `useVideoAnalysis({ videos })` 传入同一个 ref，
  *  本组合函数只保留「详情 + 操作 + 详情补拉」，不再自己轮询 /api/videos。
- *  不传参数时行为与改造前完全一致（列表 3 秒轮询 /api/videos）。
+ *  不传参数时列表每秒轮询 /api/videos。
  *
  *  ⚠️ 详情刷新与列表轮询解耦（修复「完成瞬间详情卡在处理中」）：
  *  列表轮询的判断依据是「还有没有非终态任务」，而任务从非终态跃迁到终态的那一轮，
@@ -36,7 +36,7 @@ import {
 import { isActive, isSettled } from '../utils/videoFormat.js'
 import { usePolling } from './usePolling.js'
 
-const POLL_INTERVAL = 3000
+const POLL_INTERVAL = 1000
 /** 详情补拉：列表轮询已停止但详情仍未到终态时的兜底节奏与上限（约 1 分钟） */
 const DETAIL_CATCHUP_INTERVAL = 1500
 const DETAIL_CATCHUP_MAX_ATTEMPTS = 40
@@ -46,7 +46,7 @@ const DETAIL_CATCHUP_MAX_ATTEMPTS = 40
  *   `videos`：可选。传入外部 ref 时，列表轮询改由持有该 ref 的一方（B 站分析页的
  *   useArtifacts，单一 GET /api/artifacts 请求）负责，本组合函数不再自己请求 /api/videos，
  *   避免两个定时器互相覆盖同一份列表；详情补拉逻辑完全保留。
- *   不传该参数时行为与改造前 100% 一致（列表仍由本组合函数轮询 GET /api/videos）。
+   *   不传该参数时列表由本组合函数轮询 GET /api/videos。
  */
 export function useVideoAnalysis(options = {}) {
   const externalVideos = options.videos || null
@@ -71,7 +71,9 @@ export function useVideoAnalysis(options = {}) {
    * 用 isSettled 而不是 isTerminal：crawled / cleaned 是等待态，
    * 详情落到这两个状态后就不必再追（否则会因「非终态」而无限补拉）。
    */
-  const detailSettled = computed(() => Boolean(detail.value) && isSettled(detail.value?.analysis?.status))
+  const detailSettled = computed(() => Boolean(detail.value)
+    && isSettled(detail.value?.analysis?.status)
+    && (!selectedVideo.value || detail.value.analysis.status === selectedVideo.value.status))
 
   const { isPolling, lastPolledAt, start, stop, refreshNow } = usePolling(pollTick, {
     interval: POLL_INTERVAL,
@@ -104,19 +106,22 @@ export function useVideoAnalysis(options = {}) {
    * @param {string} bvid
    * @param {{silent?: boolean}} [opts] silent=true 时不显示 loading（轮询刷新用）
    */
+  let detailRequestVersion = 0
   async function loadDetail(bvid = selectedBvid.value, opts = {}) {
     if (!bvid) return
+    const version = ++detailRequestVersion
     if (!opts.silent) detailLoading.value = true
     try {
       const data = await getVideoDetail(bvid)
-      if (selectedBvid.value !== bvid) return // 期间已切换选中项，丢弃过期响应
+      if (selectedBvid.value !== bvid || version !== detailRequestVersion) return
       detail.value = data
       detailError.value = ''
     } catch (err) {
-      if (selectedBvid.value === bvid) detailError.value = err.message
+      if (selectedBvid.value !== bvid || version !== detailRequestVersion) return
+      detailError.value = err.message
       if (err?.status === 404) stopDetailCatchUp() // 任务已不存在，不必反复补拉
     } finally {
-      if (!opts.silent) detailLoading.value = false
+      if (selectedBvid.value === bvid && version === detailRequestVersion) detailLoading.value = false
     }
   }
 

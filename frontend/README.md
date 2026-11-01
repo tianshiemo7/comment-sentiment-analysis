@@ -73,7 +73,7 @@ frontend/
     ├── utils/videoFormat.js# ★ 状态文案/色调、BV 校验、时间与数值格式化
     ├── utils/sentimentLabels.js # ★ 情感标签文案/配色（含 neutral）
     ├── composables/
-    │   ├── usePolling.js       # ★ 3 秒轮询器（全部终态停止、页面隐藏暂停、回前台立即刷新）
+    │   ├── usePolling.js       # ★ 1 秒轮询器（全部终态停止、页面隐藏暂停、回前台立即刷新）
     │   ├── useVideoAnalysis.js # ★ 视频列表 + 详情 + 提交/重试/删除（列表 ref 支持外部注入）
     │   ├── useArtifacts.js     # ★ 左栏三段唯一数据源（一次 GET /api/artifacts）+ 上传/删除/清空
     │   └── useArtifactDetail.js# ★ 数据项目详情（三张表分页、逐条评论分页筛选、聚合、path/open）
@@ -133,11 +133,11 @@ frontend/
 | 4 | POST | `/api/videos/{bvid}/retry` | `retryVideo(bvid)` |
 | 5 | DELETE | `/api/videos/{bvid}` | `deleteVideo(bvid)` |
 
-状态语义（左栏 / 详情区文案）与轮询策略（3 秒、全部终态停止、页面隐藏暂停）见契约第一、三节。
+状态语义（左栏 / 详情区文案）与轮询策略（1 秒、全部终态停止、页面隐藏暂停）见契约第一、三节。
 
 ### 轮询约定（已实现）
 
-- 左栏三段的**列表**每 **3 秒** `GET /api/artifacts`（一次请求提供 projects/solo/videos）；`completed` / `failed`
+- 左栏三段的**列表**每 **1 秒** `GET /api/artifacts`（一次请求提供 projects/solo/videos）；`completed` / `failed`
   之外存在任务才继续轮询（终态判断统一用 `utils/videoFormat.js` 的 `isTerminal`）。
 - 视频详情仅在被选中且未完成时随轮询刷新（静默刷新，不闪 loading 骨架）；
   `useVideoAnalysis` 的列表 ref 由 `useArtifacts` 注入，因此不会重复请求 `/api/videos` 列表。

@@ -523,7 +523,9 @@ def test_real_crawl_staged_cleans_dedupes_and_analyzes(staged_client, monkeypatc
         for side in ("positive", "negative")
         for item in completed["top_comments"][side]
     }
-    assert top_texts <= set(texts)
+    # Representative comments show the retained originals, while clean.json and
+    # analyze.json keep normalized text for model input and audit.
+    assert top_texts == {record["raw_text"] for record in clean_artifact["records"]}
 
     analyze_artifact = service.store.read_stage(BVID, "analyze")
     assert len(analyze_artifact["predictions"]) == 2

@@ -14,7 +14,7 @@
  *     只是把 videos 的 ref 交给 useArtifacts（避免两个定时器互相覆盖）；
  *   - 分步流水线：crawled / cleaned 等待态不轮询，详情区点「开始清洗 / 开始分析」
  *     调用 POST /api/videos/{bvid}/continue 后恢复；
- *   - 轮询节奏沿用 usePolling（3 秒、全部已停停止、页面隐藏暂停）。
+ *   - 轮询节奏沿用 usePolling（1 秒、全部已停停止、页面隐藏暂停）。
  */
 import { computed, ref, watch } from 'vue'
 import BvInput from '../components/BvInput.vue'
@@ -110,8 +110,8 @@ const isPolling = computed(() => artifactsPolling.value || videoPolling.value)
  * ③段详情轮询的兜底启动：
  * useVideoAnalysis 挂载时外部 videos ref 还是空数组，它的 usePolling 会因「没有进行中的任务」
  * 立刻停止；等 useArtifacts 的第一次 /api/artifacts 返回后，列表里才出现进行中的视频。
- * 这里在「第一次出现进行中的视频且轮询已停」时把它拉起来，保证详情仍按 3 秒刷新，
- * 并保留「非终态 → 终态」那一次补拉（task-6 记录的缺陷不得复活）。
+ * 这里在「第一次出现进行中的视频且轮询已停」时把它拉起来，保证详情仍按 1 秒刷新，
+ * 并保留「非终态 → 终态」那一次补拉。
  * 注意用 isActive：crawled / cleaned 是等待态，不算进行中，不会误拉轮询。
  */
 watch(
@@ -337,7 +337,7 @@ const counts = computed(() => ({
       <div class="bili__top-right">
         <span class="bili__poll" :class="{ 'is-on': isPolling }">
           <Icon name="pulse-line" :size="14" />
-          {{ isPolling ? '自动刷新中（3s）' : '轮询已停止' }}
+          {{ isPolling ? '进度实时更新（1s）' : '暂无进行中的任务' }}
         </span>
         <button type="button" class="btn btn--primary" @click="openUpload">
           <Icon name="upload-cloud-2-line" :size="15" />

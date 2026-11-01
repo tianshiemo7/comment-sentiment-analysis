@@ -74,7 +74,7 @@ export function submitVideo(bvid, settings = null) {
   })
 }
 
-/** 2) 视频列表（左栏，3 秒轮询） */
+/** 2) 视频列表（左栏，1 秒轮询） */
 export function listVideos() {
   return request('/api/videos')
 }

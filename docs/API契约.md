@@ -281,6 +281,9 @@ GET /api/videos/{bvid}/detail
 - `keywords.*[].weight` 为 0~1 归一化权重，**词云直接用 `count` 或 `weight` 渲染，后端不生成图片**。
 - `model` 为当前生效模型的测试集指标（可复用 `outputs/stats/metrics_<model>.json`）。
 - `top_comments` 每种情感取点赞数最高的若干条（建议 ≤ 10）。
+  `text` 展示爬取的原始评论（清洗阶段保存的 `raw_text` 优先），保留原标点、大小写及表情。
+  归一化后的 `text` 仍用于模型输入。旧任务读取时从 `clean.json` / `crawl.json` 恢复代表性评论原文；
+  原文产物缺失时仅去除完整处理标记，不猜测原标点，不重新预测或改写历史结果。
 - `analysis.status` 为 `failed` 时，`error` 给出失败原因，其余数据字段可为空。
 - 未知 `bvid` 返回 `404` + `{"detail": "..."}`。
 
@@ -587,12 +590,18 @@ cleaned →（continue）→ queued → processing（情感推理→统计分析
 
 ## 三、前端轮询策略（已定）
 
-- 列表每 **3 秒**轮询一次 `GET /api/videos`。
+- 左栏三段列表每 **1 秒**轮询一次 `GET /api/artifacts`；独立视频列表模式每秒请求 `GET /api/videos`。
 - 当所有任务都处于 `completed` / `failed` /**`crawled` / `cleaned`（等待操作）** 时**停止轮询**；
   提交新 BV、点「重试」或点「开始清洗 / 开始分析」（continue）后恢复。
 - 页面切到后台（`document.visibilitychange` 隐藏）时暂停轮询，回到前台立即拉一次。
 - 详情区：选中任务后拉一次详情；若其 `analysis.status` 不是 `completed` / `failed` /
-  `crawled` / `cleaned`，则随列表轮询一起刷新（即详情也用 3 秒节奏），到达终态或等待态后停止。
+  `crawled` / `cleaned`，则随列表轮询一起刷新（即详情也用 1 秒节奏），到达终态或等待态后停止。
+- 列表的状态已更新时，即使详情曾停在 `crawled` / `cleaned`，仍补拉到列表对应的新状态，防止完成后停在旧等待页。
+- 真实采集按每个已采集完成的一级评论页上报页数和累计条数，`message` 如「正在爬取评论… 已完成 2 页，已采集 40 条」。
+  采集区间为 0~40%，按设置的页数/条数上限估算阶段进度；未知总量时以实际页数、条数为准，采集返回后才到 40%。
+- 真实清洗/分析在工作执行中上报「正在清洗评论… 120/500 条」「正在分析情感… 120/450 条」。
+  清洗区间 40~60%，分析区间 60~85%，统计完成且详情写入后才置 `completed` / 100%。
+  统计汇总复用本轮预测，不重复推理；以上信息复用现有 `message` / `progress` / `comment_count` 字段。
 
 ---
 
