@@ -1,13 +1,13 @@
 {
   "model_name": "bilstm_attention",
   "model_type": "bilstm_attention",
-  "epoch": 3,
+  "epoch": 2,
   "metrics": {
-    "val_loss": 0.30924975397259014,
-    "val_acc": 0.8797564687975646
+    "val_loss": 0.19274314815378996,
+    "val_acc": 0.9318109230277867
   },
   "hyperparams": {
-    "vocab_size": 9753,
+    "vocab_size": 20069,
     "embed_dim": 128,
     "hidden_dim": 128,
     "num_layers": 1,

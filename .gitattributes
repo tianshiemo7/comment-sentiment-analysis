@@ -22,3 +22,6 @@
 *.json text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# Preserve exact resource bytes checked by preprocessing/manifest.json.
+/models/checkpoints/*/preprocessing/*.json -text whitespace=cr-at-eol

@@ -3,11 +3,11 @@
   "model_type": "textcnn",
   "epoch": 2,
   "metrics": {
-    "val_loss": 0.30440391507141484,
-    "val_acc": 0.8807711821410451
+    "val_loss": 0.20564370169041066,
+    "val_acc": 0.9263813478122006
   },
   "hyperparams": {
-    "vocab_size": 9753,
+    "vocab_size": 20069,
     "embed_dim": 128,
     "num_filters": 100,
     "filter_sizes": [

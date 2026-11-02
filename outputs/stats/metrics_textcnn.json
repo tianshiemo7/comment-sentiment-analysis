@@ -1,16 +1,16 @@
 {
   "model": "textcnn",
   "metrics": {
-    "accuracy": 0.8960182602079635,
-    "precision": 0.9059876888640179,
-    "recall": 0.8699623858140785,
-    "f1": 0.887609649122807,
-    "macro_precision": 0.8968713954524171,
-    "macro_recall": 0.8946353715813908,
-    "macro_f1": 0.8954329510361558,
-    "loss": 0.263791,
-    "test_size": 3943,
-    "source": "data\\splits\\test.csv"
+    "accuracy": 0.9294953688917279,
+    "precision": 0.9297331438496763,
+    "recall": 0.930761934871957,
+    "f1": 0.9302472549174501,
+    "macro_precision": 0.9294926420265988,
+    "macro_recall": 0.9294822904434002,
+    "macro_f1": 0.9294871757677088,
+    "loss": 0.185825,
+    "test_size": 12524,
+    "source": "outputs\\experiments\\shopping-v1\\data\\splits\\test.csv"
   },
-  "updated_at": "2026-10-30T06:53:08+00:00"
+  "updated_at": "2026-11-02T02:09:54+00:00"
 }

@@ -1,16 +1,16 @@
 {
   "model": "bilstm_attention",
   "metrics": {
-    "accuracy": 0.9008369261983261,
-    "precision": 0.9180887372013652,
-    "recall": 0.8672756582482536,
-    "f1": 0.8919591047250621,
-    "macro_precision": 0.9025226294702478,
-    "macro_recall": 0.8990556965592853,
-    "macro_f1": 0.9001628192948019,
-    "loss": 0.270623,
-    "test_size": 3943,
-    "source": "data\\splits\\test.csv"
+    "accuracy": 0.9366815713829447,
+    "precision": 0.9378066149707233,
+    "recall": 0.9367688902940247,
+    "f1": 0.9372874654013444,
+    "macro_precision": 0.9366712365748056,
+    "macro_recall": 0.9366806697355893,
+    "macro_f1": 0.9366756604600852,
+    "loss": 0.179732,
+    "test_size": 12524,
+    "source": "outputs\\experiments\\shopping-v1\\data\\splits\\test.csv"
   },
-  "updated_at": "2026-10-30T06:57:21+00:00"
+  "updated_at": "2026-11-02T02:14:02+00:00"
 }
