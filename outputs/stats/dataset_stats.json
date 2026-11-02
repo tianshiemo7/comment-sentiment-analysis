@@ -1,23 +1,23 @@
 {
-  "total": 19711,
-  "vocab_size": 9753,
+  "total": 62622,
+  "vocab_size": 20069,
   "min_freq": 3,
   "max_len": 200,
   "length": {
-    "count": 19711,
-    "mean": 34.39074628380092,
-    "median": 16,
-    "p90": 80.0,
-    "max": 1410
+    "count": 62622,
+    "mean": 30.459694675992463,
+    "median": 19.0,
+    "p90": 67.0,
+    "max": 1405
   },
   "labels": {
-    "negative": 10408,
-    "positive": 9303
+    "negative": 30991,
+    "positive": 31631
   },
-  "truncated_ratio": 0.019430774694333113,
-  "token_count": 483303,
-  "oov_count": 22893,
-  "oov_ratio": 0.04736780032402033,
+  "truncated_ratio": 0.009086263613426591,
+  "token_count": 1335494,
+  "oov_count": 43501,
+  "oov_ratio": 0.03257296550939203,
   "task": {
     "name": "binary_sentiment",
     "num_classes": 2,
@@ -29,11 +29,11 @@
     "low_confidence_policy": "review_required_not_a_neutral_training_class"
   },
   "pipeline_version": "1.1.0",
-  "input_rows": 19753,
-  "excluded_rows": 42,
+  "input_rows": 62774,
+  "excluded_rows": 152,
   "exclusion_reasons": {
-    "conflicting_text_labels": 27,
-    "duplicate_text": 14,
+    "conflicting_text_labels": 38,
+    "duplicate_text": 113,
     "empty_after_cleaning": 1
   },
   "seed": 42,
@@ -52,77 +52,77 @@
   ],
   "splits": {
     "train": {
-      "total": 13797,
-      "vocab_size": 9753,
+      "total": 43836,
+      "vocab_size": 20069,
       "min_freq": 3,
       "max_len": 200,
       "length": {
-        "count": 13797,
-        "mean": 35.029571646010005,
-        "median": 16,
-        "p90": 81.0,
-        "max": 1410
+        "count": 43836,
+        "mean": 30.46569030020987,
+        "median": 19.0,
+        "p90": 67.0,
+        "max": 1405
       },
       "labels": {
-        "negative": 7285,
-        "positive": 6512
+        "negative": 21694,
+        "positive": 22142
       },
-      "truncated_ratio": 0.02065666449228093,
-      "token_count": 483303,
-      "oov_count": 22893,
-      "oov_ratio": 0.04736780032402033,
+      "truncated_ratio": 0.008873984852632539,
+      "token_count": 1335494,
+      "oov_count": 43501,
+      "oov_ratio": 0.03257296550939203,
       "groups": null
     },
     "val": {
-      "total": 1971,
-      "vocab_size": 9753,
+      "total": 6262,
+      "vocab_size": 20069,
       "min_freq": 3,
       "max_len": 200,
       "length": {
-        "count": 1971,
-        "mean": 33.84677828513445,
-        "median": 17,
-        "p90": 81.0,
-        "max": 601
+        "count": 6262,
+        "mean": 30.31172149473012,
+        "median": 18.0,
+        "p90": 67.0,
+        "max": 591
       },
       "labels": {
-        "negative": 1041,
-        "positive": 930
+        "negative": 3099,
+        "positive": 3163
       },
-      "truncated_ratio": 0.015728056823947234,
-      "token_count": 66712,
-      "oov_count": 4109,
-      "oov_ratio": 0.06159311668065715,
+      "truncated_ratio": 0.00910252315554136,
+      "token_count": 189812,
+      "oov_count": 7996,
+      "oov_ratio": 0.04212589298885213,
       "groups": null
     },
     "test": {
-      "total": 3943,
-      "vocab_size": 9753,
+      "total": 12524,
+      "vocab_size": 20069,
       "min_freq": 3,
       "max_len": 200,
       "length": {
-        "count": 3943,
-        "mean": 32.42733958914532,
-        "median": 16,
-        "p90": 77.0,
-        "max": 678
+        "count": 12524,
+        "mean": 30.51269562440115,
+        "median": 18.0,
+        "p90": 67.0,
+        "max": 1059
       },
       "labels": {
-        "negative": 2082,
-        "positive": 1861
+        "negative": 6198,
+        "positive": 6326
       },
-      "truncated_ratio": 0.016992137966015723,
-      "token_count": 127861,
-      "oov_count": 8059,
-      "oov_ratio": 0.06302938347111316,
+      "truncated_ratio": 0.009821143404663047,
+      "token_count": 382141,
+      "oov_count": 16406,
+      "oov_ratio": 0.04293179742555758,
       "groups": null
     }
   },
-  "overall_oov_ratio": 0.05172184883371,
-  "overall_oov_count": 35061,
-  "overall_token_count": 677876,
+  "overall_oov_ratio": 0.0355988921317342,
+  "overall_oov_count": 67903,
+  "overall_token_count": 1907447,
   "oov_scope": "train",
-  "train_oov_ratio": 0.04736780032402033,
-  "val_oov_ratio": 0.06159311668065715,
-  "test_oov_ratio": 0.06302938347111316
+  "train_oov_ratio": 0.03257296550939203,
+  "val_oov_ratio": 0.04212589298885213,
+  "test_oov_ratio": 0.04293179742555758
 }

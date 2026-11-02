@@ -1,7 +1,7 @@
 {
   "model_name": "bilstm_attention",
-  "train_path": "data\\splits\\train.csv",
-  "val_path": "data\\splits\\val.csv",
+  "train_path": "outputs\\experiments\\shopping-v1\\data\\splits\\train.csv",
+  "val_path": "outputs\\experiments\\shopping-v1\\data\\splits\\val.csv",
   "max_len": 200,
   "batch_size": 64,
   "epochs": 20,
@@ -10,10 +10,10 @@
   "patience": 3,
   "min_delta": 0.0001,
   "seed": 42,
-  "device": "cpu",
+  "device": "auto",
   "grad_clip": 5.0,
   "log_every": 50,
   "num_workers": 0,
-  "log_dir": "outputs\\logs",
-  "checkpoint_dir": "models\\checkpoints"
+  "log_dir": "outputs\\experiments\\shopping-v1\\outputs\\logs",
+  "checkpoint_dir": "outputs\\experiments\\shopping-v1\\models\\checkpoints"
 }

@@ -17,7 +17,7 @@ openpyxl>=3.1             # pandas 读写 .xlsx 的引擎
 numpy>=1.26               # 数值计算
 
 # ---------- ③ 词向量 ----------
-gensim>=4.3               # Word2Vec / GloVe 训练与加载
+gensim==4.3.3             # Word2Vec；避开 4.4.0 的 BLAS -1 数值错误
 scikit-learn>=1.4         # 划分、评估与基线模型
 
 # ---------- ④ 深度学习 ----------

@@ -107,3 +107,6 @@ desktop.ini
 # ---------- 报告临时文件 ----------
 ~$*
 *.tmp
+
+# 本地实验与模型部署备份
+outputs/experiments/

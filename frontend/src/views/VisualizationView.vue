@@ -72,7 +72,7 @@ onBeforeUnmount(() => { requestVersion += 1 })
         </button>
       </div>
     </div>
-    <p class="experiment-note">当前实验来自酒店与外卖公开标注语料，以下指标与词云不代表 B 站评论的实际评估效果。</p>
+    <p class="experiment-note">当前实验来自电商公开标注语料（online_shopping_10_cats），以下指标与词云不代表 B 站评论的实际评估效果。</p>
 
     <div v-if="state === 'error'" class="experiment-feedback" role="alert">
       <Icon name="error-warning-line" :size="24" />
