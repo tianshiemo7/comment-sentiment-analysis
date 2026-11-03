@@ -1,7 +1,12 @@
 """批量预测的文件解析与结果导出。
 
-支持 ``.csv`` 与 ``.xlsx``；文本列自动识别（``text`` → ``comment`` → ``content``
-→ ``评论`` → 第一列），首行视为表头。
+支持 ``.csv`` 与 ``.xlsx``；文本列自动识别（``text_raw`` → ``text`` → ``comment`` →
+``content`` → ``评论`` → 第一列），首行视为表头。
+
+**为什么 ``text_raw`` 优先**：`src/preprocessing` 的产物同时包含原文 ``text_raw`` 与
+清洗结果 ``text``（见 `src/preprocessing/README.md`），推理侧应把**原文**交给模型配套的
+预处理器（模型自带 `models/checkpoints/<模型>/preprocessing/` 快照），对清洗结果再清洗
+一遍会丢失信息。爬虫 CSV 等只有 ``text`` 列的文件不受影响。
 
 约定：返回的文本列表按下标 0..n-1 与 ``results[].index`` 一一对应，
 空文本行被跳过（因此 index 是「有效行序号」而非 Excel 行号）。
@@ -28,8 +33,9 @@ from typing import Any, Sequence
 CSV_SUFFIXES = (".csv", ".txt", ".tsv")
 EXCEL_SUFFIXES = (".xlsx",)
 
-#: 文本列候选名（按优先级，比较时不区分大小写）
-TEXT_COLUMN_CANDIDATES = ("text", "comment", "content", "评论", "评论内容", "内容")
+#: 文本列候选名（按优先级，比较时不区分大小写）。
+#: ``text_raw`` 必须排在 ``text`` 前面：预处理产物同时含两列，模型输入应是原文。
+TEXT_COLUMN_CANDIDATES = ("text_raw", "text", "comment", "content", "评论", "评论内容", "内容")
 
 #: 单次上传上限 20 MB
 MAX_BYTES = 20 * 1024 * 1024

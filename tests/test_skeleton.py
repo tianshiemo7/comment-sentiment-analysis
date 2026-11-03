@@ -153,9 +153,12 @@ def test_vocab_roundtrip(tmp_path):
     assert len(loaded) == 4
 
 
-def test_batch_detect_text_column_prefers_text():
+def test_batch_detect_text_column_prefers_text_raw_then_text():
     from src.inference.batch import detect_text_column
 
+    # 预处理产物同时含原文 text_raw 与清洗结果 text：模型输入必须是原文
+    assert detect_text_column(["id", "text", "tokens", "text_raw"]) == "text_raw"
+    assert detect_text_column(["text_raw", "text"]) == "text_raw"
     assert detect_text_column(["id", "Text"]) == "Text"
     assert detect_text_column(["id", "comment"]) == "comment"
     assert detect_text_column(["id", "评论"]) == "评论"

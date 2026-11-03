@@ -33,7 +33,7 @@
 | 前端 `frontend/` | ✅ Vue 3 + Vite + ECharts：B 站分析主界面 / 单条预测 / 批量预测 / 实验可视化 / 模型对比；默认直连真实后端 |
 | 实验可视化 | ✅ 按模型读取真实训练曲线、混淆矩阵及共享语料词云，支持原图查看、下载和刷新；未生成的 Attention 图明确提示 |
 | 真实权重与指标（2026-11-02 电商实验） | ✅ TextCNN 测试 Acc **92.95%** / F1 93.02%，BiLSTM-Attention **93.67%** / F1 93.73%（电商公开语料，**非 B 站领域指标**） |
-| 测试与验收 | ✅ 本机 `pytest` **629 passed / 2 warnings**；前端 `npm test` **12 passed**（Node 内置 `node:test`，零新依赖）；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS** |
+| 测试与验收 | ✅ 本机 `pytest` **630 passed / 2 warnings**；前端 `npm test` **12 passed**（Node 内置 `node:test`，零新依赖）；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS** |
 
 ## 二、技术栈
 
@@ -210,7 +210,8 @@ python scripts/e2e_smoke.py --frontend   # 追加前端代理 + 浏览器渲染�
 - `label` 取 `positive` / `negative`；`probs` / `confidence` 为 0~1 小数；
 - `method` 为情感来源：真实模型名（`textcnn` / `bilstm_attention`）或降级时的 `rule_placeholder`；
 - 批量结果落盘 `outputs/predictions/batch_prediction_<时间戳>_<id>.csv`（UTF-8 BOM，Excel 可直接打开）；
-- 上传文件首行为表头，文本列自动识别：`text` → `comment` → `content` → `评论` → 第一列；
+- 上传文件首行为表头，文本列自动识别：`text_raw` → `text` → `comment` → `content` → `评论` → 第一列
+  （预处理产物同时含 `text_raw` 与 `text` 时**优先用原文**，与 `src/preprocessing` 的对接约定一致）；
 - 下载接口只允许读取 `outputs/predictions/` 下的 CSV，并已做目录穿越防护。
 
 ## 六、数据格式约定
@@ -262,7 +263,7 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 ## 八、测试与质量
 
 ```bash
-python -m pytest tests/ -q    # 本轮 Windows/CUDA：622 passed / 2 warnings
+python -m pytest tests/ -q    # 本轮 Windows/CUDA：630 passed / 2 warnings
 cd frontend && npm test       # 前端单元测试：12 passed（Node 内置 node:test）
 ```
 

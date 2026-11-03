@@ -149,6 +149,23 @@ def test_predict_batch_csv_contract():
         assert 0.0 <= item["confidence"] <= 1.0
 
 
+def test_predict_batch_prefers_text_raw_over_cleaned_text():
+    """预处理产物的 text 是清洗结果，模型输入必须优先用原文 text_raw。"""
+    csv_bytes = (
+        "id,text,tokens,text_raw\n"
+        "1,快递 很快 包装 完好,快递 很快 包装 完好,快递很快，包装完好！\n"
+        "2,客服 态度 很差 不 推荐,客服 态度 很差 不 推荐,客服态度很差，不推荐！！\n"
+    ).encode("utf-8-sig")
+    response = _batch_response(csv_bytes, "comments_cleaned.csv", "text/csv")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert [item["text"] for item in body["results"]] == [
+        "快递很快，包装完好！",
+        "客服态度很差，不推荐！！",
+    ]
+
+
 def test_predict_batch_xlsx_contract():
     openpyxl = pytest.importorskip("openpyxl", reason="解析 xlsx 需要 openpyxl")
     workbook = openpyxl.Workbook()
