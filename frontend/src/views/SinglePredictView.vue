@@ -4,14 +4,18 @@ import { predict } from '../api/client.js'
 import { saveSoloComment } from '../api/artifacts.js'
 import Icon from '../components/Icon.vue'
 import { formatPercent, labelClass, labelText, percentWidth } from '../utils/format.js'
+import { backendHintFor } from '../utils/requestError.js'
 
 const text = ref('')
 const loading = ref(false)
-/** 结果只来自后端响应；骨架阶段未接后端时保持为 null，不编造任何预测值。 */
+/** 结果只来自后端响应；尚未发起请求时保持为 null，不编造任何预测值。 */
 const result = ref(null)
 const error = ref('')
 /** 请求状态：idle | loading | ok | error */
 const state = ref('idle')
+
+/** 错误态附加的后端启动提示：仅连接类错误才有（判定逻辑见 utils/requestError.js）。 */
+const backendHint = computed(() => backendHintFor(error.value))
 
 // ---------------------------------------------------------------------------
 // 「保存到左栏」开关（默认开启）：开启时预测成功后把结果存到 /api/solo-comments，
@@ -164,15 +168,16 @@ const resultIcon = computed(() => RESULT_ICONS[String(result.value?.label || '')
 
         <div v-if="state === 'error'" class="hint hint--icon hint--error">
           <Icon name="error-warning-line" :size="14" />
-          <strong>待接入后端</strong>：{{ error }}
+          <span>
+            <strong>预测失败</strong>：{{ error }}
+            <span v-if="backendHint" class="backend-hint">{{ backendHint }}</span>
+          </span>
         </div>
 
-        <div v-else-if="state === 'idle'" class="hint hint--icon hint--warn">
-          <Icon name="alert-line" :size="14" />
+        <div v-else-if="state === 'idle'" class="hint hint--icon">
+          <Icon name="question-line" :size="14" />
           <span>
-            <strong>待接入后端</strong>：尚未发起预测请求。请先启动 FastAPI 服务
-            （<code>python -m uvicorn src.inference.app:app --port 8000</code>），再点击「开始预测」。
-            骨架阶段界面不会展示任何模拟结果。
+            <strong>等待预测</strong>：输入一条评论后点击「开始预测」，此处会显示情感极性与置信度。
           </span>
         </div>
 
@@ -203,7 +208,7 @@ const resultIcon = computed(() => RESULT_ICONS[String(result.value?.label || '')
 
         <div v-else class="hint hint--icon hint--warn">
           <Icon name="alert-line" :size="14" />
-          <span><strong>待接入后端</strong>：后端已响应但未返回可展示字段，请核对接口契约。</span>
+          <span><strong>暂无结果</strong>：后端已响应但未返回可展示字段，请核对接口契约。</span>
         </div>
 
         <p v-if="saveState === 'saving'" class="hint hint--icon">
@@ -260,5 +265,10 @@ const resultIcon = computed(() => RESULT_ICONS[String(result.value?.label || '')
 }
 .result__headline .icon {
   color: var(--text-muted);
+}
+/* 连接类错误附带的启动提示另起一行，避免和错误原因挤成一段 */
+.backend-hint {
+  display: block;
+  margin-top: 4px;
 }
 </style>

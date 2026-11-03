@@ -27,6 +27,7 @@ npm run dev                    # 开发模式 -> http://localhost:3000（默认�
 VITE_USE_MOCK=1 npm run dev    # 演示模式：启用 mock、无需后端（仅 dev 生效；PowerShell 用 $env:VITE_USE_MOCK=1; npm run dev）
 npm run build                  # 生产构建 -> frontend/dist/
 npm run preview                # 预览 dist/ -> http://localhost:3000（始终走 proxy 连真实后端，mock 不生效）
+npm test                       # Node 内置 node:test 单测（纯函数，零新增依赖）
 ```
 
 前端通过 Vite 代理把 `/api`、`/health` 转发到 `http://localhost:8000`，所以默认需要先启动后端：
@@ -37,13 +38,15 @@ python -m uvicorn src.inference.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **默认行为（不设 `VITE_USE_MOCK`）**：不启用 mock，所有 `/api/*` 与 `/health` 都走代理到真实 FastAPI；
-后端未启动时页面显示「待接入后端」/请求失败提示（不展示模拟结果）。
+后端未启动时页面显示「<操作>失败：<原因>」（如「模型加载失败：…」），仅网络失败 / 5xx 等连接类错误
+才附带启动后端命令提示；不展示模拟结果。
 
 演示模式 `VITE_USE_MOCK=1 npm run dev` 下，以下路径由 **mock 插件**接管：
 `/api/videos*`、`/api/artifacts*`、`/api/solo-comments*`、`/api/predict`、`/api/settings*`、
 `/api/crawler/session/check` 与 `/health`，无需后端即可完整演示 B 站主界面（含左栏三段、
 数据项目三张表与聚合图表）、单条预测与「保存到左栏」。
-批量预测、模型对比、批量导出下载在 mock 模式下仍走代理到 FastAPI，未启动后端时显示「待接入后端」提示（不展示模拟结果）。
+批量预测、模型对比、批量导出下载在 mock 模式下仍走代理到 FastAPI，未启动后端时显示对应的
+「批量预测失败 / 模型加载失败：<原因>」并附启动后端命令提示（不展示模拟结果）。
 
 ---
 
@@ -53,8 +56,10 @@ python -m uvicorn src.inference.app:app --host 0.0.0.0 --port 8000 --reload
 frontend/
 ├── index.html              # 入口 HTML（挂载 #app，内联 SVG favicon）
 ├── vite.config.js          # 端口 3000 + /api、/health 代理；mock 仅 VITE_USE_MOCK=1 时接入
-├── package.json            # scripts: dev / build / preview
+├── package.json            # scripts: dev / build / preview / test（test = node --test）
 ├── .gitignore              # 忽略 node_modules、dist
+├── tests/                  # ★ Node 内置 node:test 单测（npm test，零新增依赖）
+│   └── sentimentSeries.test.js #   中性可见性：全 0 隐藏 / 非零展示 / 缺字段不抛错
 ├── mock/                   # ★ 仅演示模式（VITE_USE_MOCK=1）使用的 mock 层，默认不加载
 │   ├── index.js            #   Vite 插件 + connect 中间件（路由分发、multipart/JSON 解析、/__mock/reset）
 │   ├── store.js            #   视频任务内存仓库（提交/列表/详情/重试/删除）
@@ -70,8 +75,10 @@ frontend/
     ├── api/videos.js       # ★ B 站分析接口封装（/api/videos*，契约见 docs/API契约.md）
     ├── api/artifacts.js    # ★ 数据项目/单独评论封装（/api/artifacts*、/api/solo-comments*）
     ├── utils/format.js     # 既有展示层格式化
+    ├── utils/requestError.js # ★ 请求错误展示：连接类失败判定 + 启动后端提示（三页共用）
     ├── utils/videoFormat.js# ★ 状态文案/色调、BV 校验、时间与数值格式化
     ├── utils/sentimentLabels.js # ★ 情感标签文案/配色（含 neutral）
+    ├── utils/sentimentSeries.js # ★ 情感序列可见性（中性仅在 count/ratio 非零时展示，饼图与趋势共用）
     ├── composables/
     │   ├── usePolling.js       # ★ 1 秒轮询器（全部终态停止、页面隐藏暂停、回前台立即刷新）
     │   ├── useVideoAnalysis.js # ★ 视频列表 + 详情 + 提交/重试/删除（列表 ref 支持外部注入）
@@ -99,8 +106,8 @@ frontend/
     │   ├── ModelMetrics.vue     # 模型指标卡片
     │   └── charts/
     │       ├── EChart.vue        # ECharts 基类（init / setOption / resize / onBeforeUnmount dispose）
-    │       ├── SentimentPie.vue  # 情感占比饼图
-    │       ├── TrendLine.vue     # 情感趋势折线图
+    │       ├── SentimentPie.vue  # 情感占比饼图（正面/负面恒展示，中性仅非零时展示）
+    │       ├── TrendLine.vue     # 情感趋势折线图（中性 series 仅非零时加入，图例同步）
     │       ├── WordCloud.vue     # 词云（echarts-wordcloud，字号由 count 控制）
     │       └── KeywordBar.vue    # 关键词排行 Top 15 横向条形图
     ├── assets/main.css     # 既有基础样式（新增 .icon / .icon-btn / .icon--spin / .hint--icon 工具类）
@@ -183,6 +190,22 @@ frontend/
 - **默认联调真实后端**：不设 `VITE_USE_MOCK` 就完全不加载 mock，`/api/*`、`/health` 全部走 proxy 到 :8000；
   如需彻底移除 mock，删除 `vite.config.js` 中的 `mockApiPlugin()` 引用与 `mock/` 目录即可，业务代码无需改动。
 
+### 中性类别的展示策略（二分类模型兼容）
+
+当前上线模型是**二分类**（positive / negative），但契约里的 `detail.sentiment` 与 `trend[]`
+仍保留 `neutral` / `neutral_ratio` 字段（恒为 0，后端契约不改）。前端只做展示层的过滤：
+
+- `positive` / `negative` **始终展示**；字段缺失或非数字时按 0 处理，不抛错。
+- `neutral` **仅在数据非零时展示**——满足 `neutral > 0` 或 `neutral_ratio > 0` 任一条才出现，
+  因此二分类数据不会再有「中性 0.0%」的扇区、图例与比例行，趋势图也不会出现全 0 的中性折线。
+- 三分类数据（或 mock 回退数据，`neutral > 0`）**照常显示中性**，不是一刀切删除。
+- 判定统一由纯函数工具 [`src/utils/sentimentSeries.js`](src/utils/sentimentSeries.js) 提供
+  （`visibleSentimentSeries` / `isNeutralVisible` / `hasVisibleNeutral`），
+  `SentimentPie.vue`（饼图 data / 图例 / 比例行）与 `TrendLine.vue`（series / 图例）共用同一份结果；
+  单测见 `tests/sentimentSeries.test.js`（`npm test`）。
+- 未覆盖：`SentimentBadge.vue`（逐条评论的极性徽章）与 `ProbBars.vue`（按后端 `probs` 键动态渲染）
+  只在后端真的下发 `neutral` 时才展示中性，属数据驱动，无需前端硬编码过滤。
+
 ---
 
 ## 四、接口契约（既有 4 个调用，已锁定，不得改名）
@@ -206,7 +229,9 @@ frontend/
 - 批量上传的 multipart 字段名默认为 `file`（`predictBatch(file, fieldName = 'file')` 可覆盖），
   **后端需按 `file` 读取**；如后端命名不同请同步修改此默认值。
 - 上传时不要手动设置 `Content-Type`，浏览器自动补 multipart boundary。
-- 非 2xx 响应会抛出中文 `Error`（含状态码与后端 `detail`），页面据此显示错误/待接入提示。
+- 非 2xx 响应会抛出中文 `Error`（含状态码与后端 `detail`），页面据此显示「<操作>失败：<原因>」；
+  连接类失败（网络失败 / 5xx）才附带启动后端命令，判定统一由
+  [`src/utils/requestError.js`](src/utils/requestError.js) 提供（单条预测 / 批量预测 / 模型对比三页共用）。
 - 批量接口的 `export_url` 由后端**总是返回非 null** 字符串（结果文件落盘到 `outputs/predictions/`）；
   前端直接把该 URL 绑到 `<a :href download>` 下载，无需再拼路径。下载路由为
   `GET /api/predict/batch/download/{file_id}`（返回 `text/csv` 附件，Excel 可直接打开，带 UTF-8 BOM；
@@ -219,13 +244,13 @@ frontend/
 | 页面 | 交互 | 调用的接口 | 状态 |
 | --- | --- | --- | --- |
 | **B站分析（首页）** | 顶部 BV 输入（即时校验）+ 右上角「上传爬取数据」+ 左栏**三段**（数据项目 / 单独评论 / 视频任务，各段可收起、状态存 localStorage）+ 右侧按选中类型渲染三类详情 | `/api/artifacts`（三段唯一列表源）、`/api/videos*`、`/api/artifacts*`、`/api/solo-comments*` | 前端已完成，默认接真实后端；演示模式（`VITE_USE_MOCK=1`）可完整演示 |
-| ↳ 视频任务详情 | 未完成只显示进度块；完成显示饼图/折线/双词云/关键词排行/评论/模型指标 | `/api/videos/{bvid}/detail`、retry、delete | 原行为保留（已回归验证） |
+| ↳ 视频任务详情 | 未完成只显示进度块；完成显示饼图/折线/双词云/关键词排行/评论/模型指标（中性仅在数据非零时展示） | `/api/videos/{bvid}/detail`、retry、delete | 原行为保留（已回归验证） |
 | ↳ 数据项目详情 | 头部（名称/初始行→结果行/来源文件/method 标识）+ 三张表切换与分页（列名动态）+ 可展开逐条评论（分页 + label 筛选）+ 占比饼图/词云/长度分布 + **页面最底部**三按钮 | `/api/artifacts/{id}/table|comments|analysis|path|open|analyze` | 前端已完成，默认接真实后端（method 按后端返回值动态显示） |
 | ↳ 单独评论详情 | **只渲染**原文（大字号）+ 极性徽章 + 置信度 + 概率条 + 时间 + method 标识，**不渲染任何图表** | 数据来自 `GET /api/artifacts` 的 `groups.solo` | 前端已完成 |
 | 单条预测 | 文本域 + 开始预测 + 清空 + **「保存到左栏」开关（默认开启）**；结果区展示极性、置信度、正负概率条 | POST `/api/predict`、POST `/api/solo-comments`（开关开启时） | 已封装，默认接真实后端（`method` 原样透传） |
 | 批量预测 | 文件选择（前端校验扩展名）+ 提交；结果表格 + 导出按钮（直接使用 `export_url` 下载） | POST `/api/predict/batch`、GET `/api/predict/batch/download/{file_id}` | 已可用（需后端运行） |
 | 实验可视化 | 模型切换、真实曲线/混淆矩阵/共享语料词云、原图预览与下载、缺失/错误/加载状态 | `GET /api/visualizations?model=`、`GET /api/visualizations/figures/{figure_id}` | 已接入真实图片；Attention 图为可选产物 |
-| 模型对比 | 指标表格（模型名/类型/Accuracy/P/R/F1/状态）+ 刷新 | GET `/api/models` | 已封装，待后端 |
+| 模型对比 | 指标表格（模型名/类型/Accuracy/P/R/F1/状态）+ 刷新 | GET `/api/models` | 已接入真实后端（后端不可用时显示失败原因与启动提示） |
 
 > 旧骨架首页 `views/HomeView.vue` 已被 `BilibiliView.vue` 取代，文件保留但不再挂载，可后续删除。
 
@@ -254,7 +279,9 @@ frontend/
 - [ ] 单条预测：补充阳性/阴性概率条的 0~1 裁剪与异常值兜底（后端返回异常时页面不崩）。
 - [ ] 批量预测：大文件（> 数万行）的分页显示或虚拟滚动，避免一次性渲染表格卡顿。
 - [ ] 模型对比：接入 ECharts 指标条形图与混淆矩阵热力图（按课程安排自行接入）。
-- [ ] 错误处理细化：区分「后端未启动」「请求超时」「后端返回校验失败」三类提示。
+- [x] 错误处理细化（2026-11-03）：连接类失败（网络失败 / 5xx）提示启动后端命令，业务错误
+      （HTTP 4xx / 校验失败）只显示失败原因；统一由
+      [`src/utils/requestError.js`](src/utils/requestError.js) 判定，单条预测 / 批量预测 / 模型对比三页共用。
 - [ ] 视觉/无障碍：导航键盘可达性、表格 `<caption>`、移动端断点微调。
 - [ ] 可选：引入 `vue-router` 使视图可分享 URL（当前用动态组件切换）。
 - [ ] 图标新增/替换时：改 `scripts/gen_icons.mjs` 的 `GROUPS` 后重跑
@@ -324,8 +351,9 @@ node scripts/gen_icons.mjs /tmp/package --check  # 只校验：清单内的图�
 其中两条已知**预期**现象，不是回归：
 
 - `GET /api/models`（契约里不在 mock 覆盖范围内）在后端未启动时经 Vite 代理返回 **500**，
-  页面按既有设计显示「待接入后端：请求 /api/models 失败（HTTP 500）」——本次改动未触碰
-  `src/api/`、`mock/`、`vite.config.js`；
+  页面显示「模型加载失败：请求 /api/models 失败（HTTP 500）」并附启动后端命令提示——
+  2026-10-16 验收时该文案为「待接入后端」，2026-11-03 已统一为「<操作>失败：<原因>」；
+  该次改动未触碰 `src/api/`、`mock/`、`vite.config.js`；
 - ②段「单独评论」详情按契约**不渲染任何图表**，`canvas` 计数为 **0**；
   页面上只有标题左侧的界面图标（内联 `<svg class="icon">`，非图表）。
 
@@ -336,6 +364,7 @@ node scripts/gen_icons.mjs /tmp/package --check  # 只校验：清单内的图�
 ```bash
 cd frontend
 npm install
+npm test           # Node 内置 node:test：utils 纯函数单测（如 sentimentSeries 的中性可见性）
 npm run build      # 成功后在 frontend/dist/ 生成 index.html + assets/
 ls -la dist        # 确认 dist/index.html 存在
 ```

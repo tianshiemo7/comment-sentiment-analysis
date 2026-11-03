@@ -32,6 +32,8 @@ pnpm-debug.log*
 .env.*.local
 
 # ---------- 数据集（体积大，不入库，只保留目录结构与说明） ----------
+# 2026-11-03：历史上以「一次性快照」（提交 1eb77a7）强制跟踪的评论数据文件已用 `git rm --cached`
+# 移出版本库——本地工作区文件保留，GitHub 上不再存储评论数据资源；以下规则保证这些路径不会被重新误跟踪。
 # 注意 git 语义：忽略目录内容用 `data/raw/*`（不是 `data/raw/`），否则下面的 ! 反忽略规则全部失效。
 data/raw/*
 data/processed/*
@@ -48,20 +50,21 @@ data/uploads/*
 !data/raw/README.md
 !data/raw/来源说明.md
 !data/raw/sources.json
-# 例外：课程验收用的待训练语料（470 条原始评论，未清洗/未标注，2026-10-17 自采）
-!data/raw/BV1tseyzCEoF_comments.csv
-# 例外：跨分区大规模采集数据集（2026-10-18，216 视频 / 10,800 条，未清洗，含 train/test 划分）
+# 跨分区大规模采集数据集（2026-10-18，216 视频 / 10,800 条）：只保留采集说明 README，
+# 评论 CSV、分片断点、分片合并与排行榜快照全部本地生成、不入库（脚本见 README）。
 !data/raw/sentiment_crawl/
-#    分片断点、分片合并与排行榜快照体积大且可由脚本复现，不入库
-data/raw/sentiment_crawl/shard*/
-data/raw/sentiment_crawl/shard*.log
-data/raw/sentiment_crawl/*_merged.csv
-data/raw/sentiment_crawl/all_comments_raw.csv
-data/raw/sentiment_crawl/catalog.json
-data/raw/sentiment_crawl/ranking_snapshot.json
+data/raw/sentiment_crawl/*
+!data/raw/sentiment_crawl/README.md
 !data/processed/README.md
 !data/splits/README.md
 !data/uploads/README.md
+# 例外：data/processed 下的小体积清单 / 预处理快照保留入库（下游训练与推理直接读取）
+!data/processed/manifest.json
+!data/processed/preprocessor.json
+!data/processed/vocab.json
+!data/processed/label_map.json
+!data/processed/comments_manifest.json
+!data/processed/comments_preprocessor.json
 # 保留格式样例
 !data/sample/
 

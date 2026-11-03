@@ -655,6 +655,8 @@ td.empty-cell {
 
 .prob-row__bar {
   height: 10px;
+  /* 作为 grid item 时允许被 1fr 压缩；高度 + overflow 负责把填充裁剪成圆角轨道 */
+  min-width: 0;
   background: var(--surface-alt);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -662,6 +664,9 @@ td.empty-cell {
 }
 
 .prob-row__fill {
+  /* ⚠ 这里是 <span>，默认 display:inline 时 width 百分比不生效、整条永远不可见；必须 block。
+     3.17% 这类极窄置信度在轨道内仍有约 10px 可见宽度。回归测试见 tests/prob-bars.test.js。 */
+  display: block;
   height: 100%;
   background: var(--primary);
   border-radius: 999px;

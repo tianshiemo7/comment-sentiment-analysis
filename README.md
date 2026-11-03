@@ -33,7 +33,7 @@
 | 前端 `frontend/` | ✅ Vue 3 + Vite + ECharts：B 站分析主界面 / 单条预测 / 批量预测 / 实验可视化 / 模型对比；默认直连真实后端 |
 | 实验可视化 | ✅ 按模型读取真实训练曲线、混淆矩阵及共享语料词云，支持原图查看、下载和刷新；未生成的 Attention 图明确提示 |
 | 真实权重与指标（2026-11-02 电商实验） | ✅ TextCNN 测试 Acc **92.95%** / F1 93.02%，BiLSTM-Attention **93.67%** / F1 93.73%（电商公开语料，**非 B 站领域指标**） |
-| 测试与验收 | ✅ 本机 `pytest` **590 passed / 2 skipped**；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS** |
+| 测试与验收 | ✅ 本机 `pytest` **629 passed / 2 warnings**；前端 `npm test` **12 passed**（Node 内置 `node:test`，零新依赖）；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS** |
 
 ## 二、技术栈
 
@@ -49,12 +49,12 @@
 
 ```
 comment-sentiment-analysis/
-├── data/                     数据集与上传数据
-│   ├── raw/                  原始公开语料、爬虫原始产出、来源登记
-│   ├── processed/            清洗分词后的中间数据（词表 / 预处理快照 / manifest）
-│   ├── splits/               train / val / test（CSV + NPZ）
+├── data/                     数据集与上传数据（评论数据文件不入库，本地保留）
+│   ├── raw/                  原始公开语料、爬虫原始产出、来源登记（数据文件不入库）
+│   ├── processed/            清洗分词后的中间数据（大 CSV 不入库，词表/预处理快照 JSON 入库）
+│   ├── splits/               train / val / test（CSV + NPZ；不入库，可由脚本重建）
 │   ├── uploads/              界面上传的「数据项目」运行期落盘
-│   └── sample/               字段格式样例
+│   └── sample/               字段格式样例（入库）
 ├── resources/                分词与清洗资源（stopwords / userdict / emoji_map）
 ├── src/
 │   ├── crawler/              爬虫（B 站 / 通用 HTML / 公开数据集 / 标注）
@@ -68,7 +68,7 @@ comment-sentiment-analysis/
 │   ├── videos/               B 站视频任务（状态机 / 分步流水线 / 设置 / 人工登录）
 │   └── artifacts/            数据项目与单独评论
 ├── frontend/                 Vue 3 前端（:3000，src/ 业务代码 + mock/ 演示层）
-├── models/                   词向量与检查点（仓库已按快照方式入库真实权重）
+├── models/                   词向量与检查点（真实权重入库，可直接加载）
 ├── outputs/                  图表 / 日志 / 指标 / 错误样例 / 批量导出 / 任务落盘
 ├── docs/                     接口契约、路线图、验收清单、实验记录、运行手册
 ├── scripts/                  一键脚本（取数 / 划分 / 训练 / 启动 / 端到端验收 / 图标生成）
@@ -76,28 +76,37 @@ comment-sentiment-analysis/
 └── requirements.txt          Python 依赖
 ```
 
-> 为便于课程验收与换机备份，`data/`、`models/`、`outputs/` 下的数据与训练产物已按「一次性快照」提交
-> （`.gitignore` 规则未改，之后新增的大文件默认仍不入库）；含 Cookie 的 `outputs/settings.json` **绝不入库**。
+> 入库策略（2026-11-03 起）：评论数据文件（`data/` 下的原始/清洗/划分数据、`outputs/realdata/`、
+> `outputs/videos/` 运行期 JSON）**不再入库**，本地保留并可按下文命令重建；`models/` 权重与
+> `outputs/figures/` 实验图表仍入库，clone 后可直接启动服务与查看可视化。
+> 含 Cookie 的 `outputs/settings.json` **绝不入库**。
+> 历史提交里的旧数据 blob 仍在（彻底瘦身需改写 Git 历史 + force push，见
+> [`docs/收尾修复与验证-2026-11-03.md`](docs/收尾修复与验证-2026-11-03.md)）。
 
 ## 四、快速开始
 
 ### 1. 环境要求
 
 ```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 # 训练与真实模型推理需要 PyTorch（CPU 即可），按 requirements.txt 注释单独安装：
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 ```
+
+虚拟环境不是必需的：需要在项目内建 `.venv` 时执行 `python -m venv .venv` 再激活
+（Windows `.venv\Scripts\activate`，Linux/macOS `source .venv/bin/activate`）；
+不建时 `start-backend.cmd` / `scripts/serve.sh` 会直接使用系统 Python。
 
 ### 2. 启动后端（:8000）
 
 ```bash
 python -m uvicorn src.inference.app:app --host 0.0.0.0 --port 8000 --reload
 # 或： bash scripts/serve.sh
+# Windows 可直接双击根目录 start-backend.cmd
 ```
 
+- Windows 的 `start-backend.cmd` 优先使用 `.venv\Scripts\python.exe`，**未建虚拟环境时自动回退系统 `python`**；
+  缺少 `uvicorn` / `fastapi` 时打印安装指引而不是窗口闪退。
 - 接口文档：<http://localhost:8000/docs>
 - 默认模型 `bilstm_attention`；`ACTIVE_MODEL=textcnn` 可切换，`INFERENCE_DEVICE=auto|cuda` 可用 GPU。
 - 检查点存在时真实推理，加载失败自动降级规则占位（响应 `method` 为 `rule_placeholder`）。
@@ -114,6 +123,8 @@ npm run build      # 生产构建，产物 frontend/dist/
 前端通过 Vite 代理把 `/api`、`/health` 转发到 `http://localhost:8000`，因此两个服务需同时运行。
 **默认不加载 mock**，所有请求走真实后端；无后端只想演示界面时用 `VITE_USE_MOCK=1 npm run dev`
 （仅 dev 生效，`npm run preview` 与生产构建始终走代理）。
+前端单元测试：`cd frontend && npm test`（Node 内置 `node:test`，覆盖概率条 CSS 与中性类别显隐）。
+Windows 可直接双击根目录 `start-frontend.cmd`，缺少 `node_modules` 时会自动 `npm install`。
 
 首次使用可点左上角齿轮「设置」配置账号模式与采集默认值；人工登录窗口需可选依赖 Playwright
 （未安装时用手动粘贴 Cookie 即可）。Cookie 只保存在服务端 `outputs/settings.json`（已 gitignore），
@@ -123,6 +134,11 @@ npm run build      # 生产构建，产物 frontend/dist/
 ### 4. 数据与训练复现（历史酒店/外卖实验）
 
 当前启用的 shopping-v1 请使用 [当前记录](docs/电商模型接入与验收-2026-11-02.md) 中的实验数据与配套词向量路径。以下命令用于重建旧实验。
+
+> 仓库**不再跟踪**原始/派生评论数据（`data/raw/`、`data/processed/*.csv`、`data/splits/*.csv|npz`、
+> `outputs/realdata/`），这些文件仍保留在本地工作区；新机器上按本节命令重新生成。
+> `models/checkpoints/`、`models/word2vec/` 权重与 `outputs/figures/` 图表仍在仓库内，
+> 便于直接启动服务、查看实验图与写报告。详见 [`data/README.md`](data/README.md)。
 
 ```bash
 # ① 固定版本公开语料 → data/processed + data/splits（数据版本 753bc2014c69bdc1）
@@ -238,19 +254,27 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 历史酒店/外卖训练记录仍见 [2026-10-30 实验](docs/模型训练与评估-2026-10-30.md)。
 上述结果不是 B 站领域准确率，两个历史版本因测试集不同不能直接比较提升幅度。
 
+> 数据入仓策略（2026-11-03 收尾调整）：评论数据文件（原始爬取、清洗结果、划分 NPZ/CSV、
+> 真实数据闭环产物）**已从 Git 跟踪中移除**，本地文件不受影响；仓库保留模型权重、
+> 预处理包与实验图表，因此 clone 后无需数据即可启动服务并查看可视化。
+> 重新生成命令与各目录职责见 [`data/README.md`](data/README.md) 与 [`outputs/README.md`](outputs/README.md)。
+
 ## 八、测试与质量
 
 ```bash
-python -m pytest tests/ -q    # 本轮 Windows/CUDA：590 passed / 2 skipped；含新增图表接口 14 项
+python -m pytest tests/ -q    # 本轮 Windows/CUDA：622 passed / 2 warnings
+cd frontend && npm test       # 前端单元测试：12 passed（Node 内置 node:test）
 ```
 
 - 无 torch 环境会自动跳过模型/训练相关用例，其余服务与数据处理测试照常运行；
+- 前端测试覆盖：单条预测页概率条渲染（`.prob-row__fill` 必须是块级，否则宽度失效）与
+  中性类别显隐（二分类数据不渲染恒为 0 的「中性」）；
 - 实验可视化已通过真实浏览器验证：模型切换、五张 PNG 加载、下载、请求/图片错误恢复、缺失状态和 390px 布局。
   接口与截图见 [`docs/实验可视化接入与验证-2026-10-30.md`](docs/实验可视化接入与验证-2026-10-30.md)；
 - 端到端：`scripts/e2e_smoke.py --frontend` → 后端 9/9、前端 6/6 PASS（真实 uvicorn + 真实权重 +
   Vite 代理与无头浏览器渲染）；
-- 全新 clone 自 GitHub 后可直接加载真实权重、跑通测试与端到端脚本；
-- CI：GitHub Actions 执行 Python 全量测试与前端构建（见顶部 badge）。
+- 全新 clone 自 GitHub 后带模型权重即可启动服务、跑通测试与端到端脚本（评论数据需本地重新生成）；
+- CI：GitHub Actions 执行 Python 全量测试、前端单元测试与生产构建（见顶部 badge）。
 
 ## 九、界面
 
@@ -273,6 +297,12 @@ python -m pytest tests/ -q    # 本轮 Windows/CUDA：590 passed / 2 skipped；�
 
 - **领域限制**：当前模型训练语料为电商公开语料，B 站评论的极性结果不能当作该领域准确率；
   B 站人工标注测试集尚未建立。
+- **模型是二分类**：训练与推理只输出 `positive` / `negative`；接口契约保留 `neutral` 字段
+  供规则回退使用（真实模型不产生中性）。前端只在 `neutral > 0` 时渲染中性扇区/趋势线/比例行，
+  二分类数据下不会再出现「中性 0.0%」。
+- **账号 Cookie 受限时自动回退匿名**：真实采集若登录态正常但带 Cookie 的评论接口返回空页
+  （B 站风控/会话限制），适配层会单次回退匿名采集并写 warning；两次都失败才落 `failed`，
+  错误提示会引导「设置页重新登录」或「关闭必须登录改用匿名模式」。
 - **真实爬取是 opt-in**：默认不联网、用确定性占位评论数据（`detail.placeholder=true` 只表示评论数据来源，
   不表示情感来源）；真实采集需 `VIDEO_REAL_CRAWL=1` 或任务设置，失败会落 `failed` 并带原因。
 - **合规**：遵守 robots 与限速（默认 2.5 秒/请求，硬性下限 2 秒），不绕过风控、不并发抓取；
@@ -289,6 +319,7 @@ python -m pytest tests/ -q    # 本轮 Windows/CUDA：590 passed / 2 skipped；�
 | [`docs/API契约.md`](docs/API契约.md) | 前后端唯一接口契约（字段 / 示例 / 错误码 / 设置与分步流水线） |
 | [`docs/开发路线图.md`](docs/开发路线图.md) | 分阶段实现路线与当前状态 |
 | [`docs/验收检查清单.md`](docs/验收检查清单.md) | 课程验收逐项自查 |
+| [`docs/收尾修复与验证-2026-11-03.md`](docs/收尾修复与验证-2026-11-03.md) | 2026-11-03 收尾：前端四类修复、爬虫匿名回退、仓库数据清理与验证证据 |
 | [`docs/模型训练与评估-2026-10-30.md`](docs/模型训练与评估-2026-10-30.md) | 数据版本、训练命令、指标、混淆矩阵、权重哈希、GPU 历史实验 |
 | [`docs/数据处理验证-2026-10-30.md`](docs/数据处理验证-2026-10-30.md) | 预处理修复、公开语料复现、无标签评论交接 |
 | [`docs/大规模采集运行手册.md`](docs/大规模采集运行手册.md) | 爬虫清单采集 / 登录态 / 断点续采 / Web 分步流程 |

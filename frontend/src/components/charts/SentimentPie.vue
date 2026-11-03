@@ -2,11 +2,15 @@
 /**
  * components/charts/SentimentPie.vue — 情感占比饼图
  * 数据来源：契约 detail.sentiment（count 与 *_ratio 均为后端/mock 提供，前端只做展示）。
+ * 展示策略：positive / negative 恒展示；neutral 仅在 count>0 或 ratio>0 时展示
+ * （二分类模型不再出现「中性 0.0%」，三分类数据 neutral 非零时照常显示），
+ * 判定统一由 utils/sentimentSeries.js 提供，饼图 data / 图例 / 比例行共用。
  */
 import { computed } from 'vue'
 import EChart from './EChart.vue'
 import Icon from '../Icon.vue'
 import { formatNumber, formatRatio } from '../../utils/videoFormat.js'
+import { visibleSentimentSeries } from '../../utils/sentimentSeries.js'
 
 const props = defineProps({
   sentiment: { type: Object, default: null },
@@ -14,13 +18,16 @@ const props = defineProps({
 
 const hasData = computed(() => Number(props.sentiment?.total) > 0)
 
+/** 可见类别（positive/negative 恒在，neutral 非零才加入） */
+const visibleSeries = computed(() => visibleSentimentSeries(props.sentiment))
+
 const option = computed(() => {
   const s = props.sentiment || {}
-  const data = [
-    { name: '正面', value: s.positive ?? 0, itemStyle: { color: '#16a34a' } },
-    { name: '负面', value: s.negative ?? 0, itemStyle: { color: '#dc2626' } },
-    { name: '中性', value: s.neutral ?? 0, itemStyle: { color: '#94a3b8' } },
-  ]
+  const data = visibleSeries.value.map((item) => ({
+    name: item.label,
+    value: item.count,
+    itemStyle: { color: item.color },
+  }))
   return {
     tooltip: {
       trigger: 'item',
@@ -55,15 +62,14 @@ const option = computed(() => {
   }
 })
 
-/** 图例下方的比例文字（也方便无图表环境下核对数据） */
-const ratios = computed(() => {
-  const s = props.sentiment || {}
-  return [
-    { key: '正面', value: formatRatio(s.positive_ratio), color: '#16a34a' },
-    { key: '负面', value: formatRatio(s.negative_ratio), color: '#dc2626' },
-    { key: '中性', value: formatRatio(s.neutral_ratio), color: '#94a3b8' },
-  ]
-})
+/** 图例下方的比例文字（也方便无图表环境下核对数据）；与饼图/图例同一份可见类别 */
+const ratios = computed(() =>
+  visibleSeries.value.map((item) => ({
+    key: item.label,
+    value: formatRatio(item.ratio),
+    color: item.color,
+  })),
+)
 </script>
 
 <template>

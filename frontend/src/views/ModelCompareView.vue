@@ -3,11 +3,15 @@ import { computed, onMounted, ref } from 'vue'
 import { getModels } from '../api/client.js'
 import Icon from '../components/Icon.vue'
 import { formatMetric } from '../utils/format.js'
+import { backendHintFor } from '../utils/requestError.js'
 
 /** idle | loading | ok | error */
 const state = ref('idle')
 const models = ref([])
 const error = ref('')
+
+/** 错误态附加的后端启动提示：仅连接类错误才有（判定逻辑见 utils/requestError.js）。 */
+const backendHint = computed(() => backendHintFor(error.value))
 
 const rows = computed(() => (Array.isArray(models.value) ? models.value : []))
 
@@ -57,7 +61,10 @@ onMounted(load)
 
       <div v-if="state === 'error'" class="hint hint--icon hint--error" style="margin-bottom: 12px">
         <Icon name="error-warning-line" :size="14" />
-        <span><strong>待接入后端</strong>：{{ error }}</span>
+        <span>
+          <strong>模型加载失败</strong>：{{ error }}
+          <span v-if="backendHint" class="backend-hint">{{ backendHint }}</span>
+        </span>
       </div>
       <div v-else-if="state === 'loading'" class="hint hint--icon" style="margin-bottom: 12px">
         <Icon name="loader-4-line" :size="14" spin />
@@ -66,7 +73,7 @@ onMounted(load)
       <div v-else-if="state === 'ok' && rows.length === 0" class="hint hint--icon hint--warn" style="margin-bottom: 12px">
         <Icon name="alert-line" :size="14" />
         <span>
-          <strong>待接入后端</strong>：后端返回的 <code>models</code> 为空数组，模型训练完成后此处会自动出现数据。
+          <strong>暂无模型数据</strong>：后端返回的 <code>models</code> 为空数组，模型训练完成后此处会自动出现数据。
         </span>
       </div>
 
@@ -87,8 +94,9 @@ onMounted(load)
             <tr v-if="rows.length === 0">
               <td class="empty-cell" colspan="7">
                 <template v-if="state === 'idle' || state === 'loading'">正在加载…</template>
+                <template v-else-if="state === 'error'">请求失败，详情见上方提示。</template>
                 <template v-else>
-                  暂无数据 —— 待接入后端（<code>GET /api/models</code>）
+                  暂无数据 —— 后端未返回已训练模型（<code>GET /api/models</code>）
                 </template>
               </td>
             </tr>
@@ -139,9 +147,9 @@ onMounted(load)
           <h3>后续接入说明</h3>
         </div>
         <ul class="list-plain">
-          <li>本页当前<strong>不展示任何模拟指标</strong>，未启动后端时显示「待接入后端」。</li>
+          <li>本页只展示后端真实返回的指标，<strong>不展示任何模拟数据</strong>；后端不可用时显示「模型加载失败」及失败原因。</li>
           <li>指标由 Python 端评估模块写入（<code>outputs/stats/</code>）并由 FastAPI 暴露。</li>
-          <li>指标对比条形图按课程安排后续用 ECharts 接入，本骨架不引入图表库。</li>
+          <li>指标对比条形图尚未在本页接入，后续可复用项目已有的 ECharts 依赖。</li>
         </ul>
       </div>
       <div class="card">
@@ -162,3 +170,11 @@ onMounted(load)
     </div>
   </section>
 </template>
+
+<style scoped>
+/* 连接类错误附带的「启动后端」提示另起一行，避免和错误原因挤成一段 */
+.backend-hint {
+  display: block;
+  margin-top: 4px;
+}
+</style>

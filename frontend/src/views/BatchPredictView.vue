@@ -3,17 +3,21 @@ import { computed, ref } from 'vue'
 import { predictBatch } from '../api/client.js'
 import Icon from '../components/Icon.vue'
 import { formatPercent, labelClass, labelText, truncate } from '../utils/format.js'
+import { backendHintFor } from '../utils/requestError.js'
 
 const ALLOWED_EXT = ['.csv', '.xlsx']
 
 const file = ref(null)
 const fileError = ref('')
 const loading = ref(false)
-/** 结果只来自后端响应；未接后端时保持为 null。 */
+/** 结果只来自后端响应；尚未发起请求时保持为 null。 */
 const result = ref(null)
 const error = ref('')
 /** idle | loading | ok | error */
 const state = ref('idle')
+
+/** 错误态附加的后端启动提示：仅连接类错误才有（判定逻辑见 utils/requestError.js）。 */
+const backendHint = computed(() => backendHintFor(error.value))
 
 const fileMeta = computed(() => {
   if (!file.value) return null
@@ -137,7 +141,10 @@ function resetInput(event) {
 
       <div v-if="state === 'error'" class="hint hint--icon hint--error">
         <Icon name="error-warning-line" :size="14" />
-        <span><strong>待接入后端</strong>：{{ error }}</span>
+        <span>
+          <strong>批量预测失败</strong>：{{ error }}
+          <span v-if="backendHint" class="backend-hint">{{ backendHint }}</span>
+        </span>
       </div>
 
       <div v-else-if="state === 'loading'" class="hint hint--icon">
@@ -145,20 +152,20 @@ function resetInput(event) {
         <span>正在上传并请求后端，请稍候…</span>
       </div>
 
-      <div v-else-if="state === 'idle'" class="hint hint--icon hint--warn">
-        <Icon name="alert-line" :size="14" />
+      <div v-else-if="state === 'idle'" class="hint hint--icon">
+        <Icon name="question-line" :size="14" />
         <span>
-          <strong>待接入后端</strong>：尚未发起批量预测请求。启动 FastAPI 服务并上传文件后即可看到真实结果；
-          骨架阶段不展示任何模拟数据。
+          <strong>等待上传</strong>：选择 <code>.csv</code> / <code>.xlsx</code> 文件后点击「开始批量预测」，
+          结果会显示在此处。
         </span>
       </div>
 
       <div v-else-if="state === 'ok' && rows.length === 0" class="hint hint--icon hint--warn">
         <Icon name="alert-line" :size="14" />
-        <span><strong>待接入后端</strong>：后端返回结果为空（<code>results</code> 为空数组）。</span>
+        <span><strong>结果为空</strong>：后端返回的 <code>results</code> 为空数组，请确认上传文件里包含评论文本。</span>
       </div>
 
-      <!-- 结果表格与导出按钮始终渲染（骨架阶段为空态），保证 DOM 结构稳定 -->
+      <!-- 结果表格与导出按钮始终渲染（无数据时为空态），保证 DOM 结构稳定 -->
       <div class="actions" style="margin: 12px 0">
         <a
           v-if="exportUrl"
@@ -175,7 +182,10 @@ function resetInput(event) {
           导出结果文件
         </button>
         <span v-if="!exportUrl" class="card__hint">
-          <strong>待接入后端</strong>：响应未提供 <code>export_url</code>，暂无可下载文件。
+          <template v-if="state === 'ok'">
+            响应未提供 <code>export_url</code>，暂无可下载文件。
+          </template>
+          <template v-else>完成批量预测后可下载结果文件。</template>
         </span>
         <span v-else class="card__hint mono">导出文件：{{ exportUrl }}</span>
       </div>
@@ -194,8 +204,10 @@ function resetInput(event) {
             <tr v-if="rows.length === 0">
               <td class="empty-cell" colspan="4">
                 <template v-if="state === 'loading'">正在加载…</template>
+                <template v-else-if="state === 'error'">请求失败，详情见上方提示。</template>
+                <template v-else-if="state === 'ok'">后端返回的 <code>results</code> 为空。</template>
                 <template v-else>
-                  暂无数据 —— 待接入后端（<code>POST /api/predict/batch</code>）
+                  尚未开始预测：选择文件后点击「开始批量预测」（<code>POST /api/predict/batch</code>）。
                 </template>
               </td>
             </tr>
@@ -216,3 +228,11 @@ function resetInput(event) {
     </div>
   </section>
 </template>
+
+<style scoped>
+/* 连接类错误附带的「启动后端」提示另起一行，避免和错误原因挤成一段 */
+.backend-hint {
+  display: block;
+  margin-top: 4px;
+}
+</style>

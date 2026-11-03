@@ -6,36 +6,53 @@
 
 | 目录 | 内容 | 是否入库 |
 | --- | --- | --- |
-| `raw/` | 原始公开数据集、爬虫直接产出 | 是（2026-10-30 一次性快照，见下节） |
-| `processed/` | 清洗、分词、去停用词后的中间数据 | 是（**真实语料**产物，2026-10-30 回填） |
-| `splits/` | 最终用于训练的 `train.csv` / `val.csv` / `test.csv` | 是（**真实语料**产物，2026-10-30 回填） |
+| `raw/` | 原始公开数据集、爬虫直接产出 | 否（评论数据本地生成；仅 `README.md` / `来源说明.md` / `sources.json` / `sentiment_crawl/README.md` 入库） |
+| `processed/` | 清洗、分词、去停用词后的中间数据 | 否（大 CSV 不入库；小体积 manifest / 词表 / 预处理快照仍入库） |
+| `splits/` | 最终用于训练的 `train.csv` / `val.csv` / `test.csv` | 否（`*.csv`、`*.npz` 均不入库） |
 | `uploads/` | **界面上传**的数据项目与单独评论（`<项目id>/`、`solo_comments.json`） | 否（运行时数据，随使用产生） |
 | `sample/` | 字段格式样例，供照抄字段名 | 是 |
 
-## 已入库的数据快照（2026-10-30）
+## 评论数据文件不入库（2026-11-03 起）
 
-为便于课程验收与换机备份，本机工作副本中被 `.gitignore` 排除的数据以**一次性快照**方式强制入库
-（提交 `1eb77a7`，共 521 个文件 / 约 56 MB）。`.gitignore` 规则保持不变，快照之外的新增大文件仍默认不入库；
-唯一被刻意排除的是 `outputs/settings.json`（含 B 站 Cookie 明文）。本轮交付又把 `processed/`、`splits/`
-回填为**真实训练语料**产物（原冒烟产物已被替换）。
+评论数据资源体积大、且可由公开语料与脚本重建，因此**不再存入 Git 仓库（GitHub 仓库页面不再包含这些文件）**。
+2026-10-30 曾以「一次性快照」强制入库（提交 `1eb77a7`，约 136 MB）；2026-11-03 以 `git rm --cached`
+把其中 490 个评论数据文件移出版本库——**只删 Git 索引、不删本地文件**，工作区数据完整保留；同时收紧
+`.gitignore`，保证这些路径之后不会再被误跟踪。
 
-| 文件 | 规模 | 说明 |
-| --- | --- | --- |
-| `raw/datasets/ChnSentiCorp_htl_all.csv` | 7,766 条 | 公开语料原始下载件（`label,review`，1 正面 / 0 负面） |
-| `raw/datasets/waimai_10k.csv` | 11,987 条 | 外卖评论公开语料原始下载件（1 正面 / 0 负面） |
-| `raw/chnsenticorp_unified.csv` | 7,765 条 | 统一为 `text,label`（positive 5,322 / negative 2,443） |
-| `raw/waimai_10k_unified.csv` | 11,980 条 | 统一为 `text,label`（positive 4,000 / negative 7,980） |
-| `raw/comments_labeled_balanced.csv` | **18,644 条** | 两份公开语料合并 + 类别均衡（正负各 9,322），课程硬指标训练语料 |
-| `raw/BV1GJ411x7h7_comments.csv` | 59 条 | 爬虫首次实测样本（一级评论，首次 39 + 补采 20，无标签） |
-| `raw/BV1tseyzCEoF_comments.csv` | 470 条 | 课程验收待训练语料（一级 266 + 楼中楼 204，无标签） |
-| `raw/BV1UB4y1W7Xu_comments.csv` | 154 条 | 组内提供的视频评论（一级 99 + 二级 55，无标签；SHA256 `075d7a9c…3697`） |
-| `raw/sentiment_crawl/` | **10,800 条** | 跨分区大规模采集：18 分区 / 216 视频，train 9,000 / test 1,800 |
-| `processed/`、`splits/` | **19,711 条** | 真实公开语料产物：训练集 13,797 / 验证集 1,971 / 测试集 3,943，词表 9,753（含 PAD/UNK），数据版本 `753bc2014c69bdc1`、pipeline 1.1.0；CSV + NPZ 齐全，共约 19 MB + 18 MB |
+| 路径 | 本地体积（约） | 原用途 | 本地重新生成 |
+| --- | --- | --- | --- |
+| `raw/` | 31 MB | 公开语料原始件 / 统一格式 / 合并均衡训练语料 / 爬虫实测 / `sentiment_crawl/` 大规模采集（含分片断点与日志） | 见 [`raw/README.md`](raw/README.md) |
+| `processed/` 大 CSV | 18 MB | `cleaned.csv`、`excluded.csv`、`comments_cleaned.csv`、`comments_excluded.csv`、`split_manifest.csv` | `python -m scripts.prepare_training_data --overwrite`（或 `python -m src.preprocessing ...`，见下文） |
+| `splits/` | 17 MB | 划分后的 `train/val/test`：CSV（人看）+ NPZ（模型读） | 同上（该命令同时产出 `processed/` 与 `splits/`） |
+| `../outputs/realdata/` | 30 MB | 旧数据版本（18,644 条）的历史闭环产物 | 见 [`../outputs/README.md`](../outputs/README.md) |
+| `../outputs/videos/` 运行期 JSON | 约 0.4 MB | 视频分析任务的运行时落盘（`index.json`、`<BV>.json`、`<BV>/`） | 界面「视频分析」/ `POST /api/videos` 运行时生成 |
 
-真实规模的清洗与划分产物即上表 `processed/`、`splits/`（19,711 → 13,797 / 1,971 / 3,943）；
-`outputs/realdata/` 另存的是**旧数据版本**（18,644 条 → 13,029 / 1,861 / 3,723，词表 9,308）的历史闭环结果，
-仅供参考，不能与当前数据版本混用，详见 [`../outputs/README.md`](../outputs/README.md)。原始文件登记与 SHA256 见
-`raw/来源说明.md`、`raw/sources.json` 与 [`raw/README.md`](raw/README.md)。
+仍入库的只有说明与登记文件：本文件、`raw/README.md`、`raw/来源说明.md`、`raw/sources.json`、
+`raw/sentiment_crawl/README.md`、各级 `.gitkeep`、`sample/` 格式样例，以及 `processed/` 下的小体积
+`manifest.json`、`preprocessor.json`、`vocab.json`、`label_map.json`、`comments_manifest.json`、
+`comments_preprocessor.json`（推理 / 训练入口直接读取，需随代码走）。
+
+> Git 历史提交中的旧文件仍留在历史里，本次只保证当前版本库与后续提交不再包含评论数据资源；
+> 如需从 GitHub 历史彻底抹除，需要改写历史并强制推送（另行评估，不属于本次清理）。
+
+## 当前本机数据快照（2026-10-30 历史实验，本地保留）
+
+> 当前**部署模型**用的是 shopping-v1 电商语料（62,622 条，train 43,836 / val 6,262 / test 12,524，
+> 数据版本 `dd18f284bd13662c`，词表 20,069），其训练输入与词向量保存在 `outputs/experiments/shopping-v1/`
+> （本地、不入库），见 [`../docs/电商模型接入与验收-2026-11-02.md`](../docs/电商模型接入与验收-2026-11-02.md)。
+> 本节描述的是根目录 `data/processed`、`data/splits` 里保留的**上一版**实验数据（本地保留，不入库），
+> 两套数据不要混用。
+
+真实训练语料 = 固定版公开语料（ChnSentiCorp 酒店 7,766 条 + 外卖 11,987 条），由
+`python -m scripts.prepare_training_data` 制备：有效 19,711 条（负面 10,408 / 正面 9,303），排除 42 条。
+`data/processed/`、`data/splits/` 为对应产物：train 13,797 / val 1,971 / test 3,943，词表 9,753（含 PAD/UNK），
+数据版本 `753bc2014c69bdc1`、pipeline 1.1.0。`raw/` 下另有公开语料原始件、统一格式 CSV、合并均衡语料
+（18,644 条）与 B 站爬虫实测 CSV；`raw/sentiment_crawl/` 是 216 视频 / 10,800 条的大规模采集。
+逐项体积、规模与重新生成命令见 [`raw/README.md`](raw/README.md)；原始文件登记与 SHA256 见
+`raw/来源说明.md`、`raw/sources.json`。
+
+`../outputs/realdata/` 另存的是**旧数据版本**（18,644 条 → 13,029 / 1,861 / 3,723，词表 9,308）的历史闭环结果，
+仅供参考，不能与当前数据版本混用，详见 [`../outputs/README.md`](../outputs/README.md)。
 
 ## 界面「上传爬取数据」产生的数据项目
 
@@ -81,7 +98,9 @@ data/uploads/<project_id>/
 ## 复现正式标注训练数据
 
 ```bash
-python -m scripts.prepare_training_data
+# 固定公开语料版本 → 下载 + 统一 + 清洗审计 + 分层划分（产物：data/processed、data/splits、
+# data/raw/training_corpus/、outputs/stats/training_data_preparation.json）
+python -m scripts.prepare_training_data            # 已有产物时会拒绝覆盖，需加 --overwrite
 ```
 
 脚本固定 ChineseNlpCorpus 提交版本及两份原始 CSV 的 SHA256，保存所有原始行和来源，
@@ -96,7 +115,7 @@ train / val / test 为 13797 / 1971 / 3943，词表 9753 项（含 PAD/UNK）。
 
 ## 处理后交给情感分析模型
 
-上游爬虫输出不带情感标签时，直接清洗并输出待预测CSV：
+上游爬虫输出不带情感标签时，直接清洗并输出待预测CSV（要求该 CSV 已在本地，例如重新采集得到）：
 
 ```bash
 python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode clean
@@ -114,7 +133,7 @@ python -m src.preprocessing --input data/raw/BV1UB4y1W7Xu_comments.csv --mode cl
 默认有完整 video_id 时采用视频分组，没有时按标签分层并在报告中说明。
 
 ```bash
-python -m src.preprocessing --input data/raw/comments_labeled.csv
+python -m src.preprocessing --input data/raw/comments_labeled.csv --mode train
 ```
 
 data/sample/bilibili_demo.csv 是27条人工编写演示记录，24条有效，另含中性、空白和重复样例；不是从哔哩哔哩抓取的数据。
@@ -124,7 +143,5 @@ data/sample/bilibili_demo.csv 是27条人工编写演示记录，24条有效，�
 模型可读的 NPZ（词编号、补齐掩码、有效长度及0/1标签）。只使用训练集拟合词表，验证与测试中的新词进入UNK。
 完整契约见 [预处理模块说明](../src/preprocessing/README.md)。
 
-> 大型下载文件和处理产物默认不入库，可通过上述命令重建；2026-10-30 已按「一次性快照」入库一份（见上文，
-> 提交 `1eb77a7`），`.gitignore` 规则未改，后续新增大文件仍默认不入库。本轮交付已把 `processed/`、`splits/`
-> 回填为真实语料产物（19,711 条 → 13,797 / 1,971 / 3,943，词表 9,753，数据版本 `753bc2014c69bdc1`）。
-> 处理入口可接收已经取得的无标签评论，或已标注训练文件；B 站采集入口见 `src/crawler/`。
+> 大型下载文件和处理产物不再入库（2026-11-03 起，见上文「评论数据文件不入库」）；需要时按上述任一命令
+> 重新生成即可。处理入口可接收已经取得的无标签评论，或已标注训练文件；B 站采集入口见 `src/crawler/`。

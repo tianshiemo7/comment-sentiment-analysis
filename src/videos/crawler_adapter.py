@@ -28,18 +28,32 @@ require_login`` 由分步流水线逐任务构造并透传，**Cookie 不落日�
 :class:`CrawlAdapterError`（保留原始异常链与可读原因），由流水线把任务写成
 ``failed`` 并带上 ``error``，**绝不会让任务卡在 ``crawling``**。
 
+内容受限时单次匿名回退（2026-11 加固）：账号 Cookie 的**登录态有效**并不代表
+评论接口可用——B 站可能只对该会话返回空页（``replies=[]`` 且 ``is_end=false``，
+继续翻页即 ``CrawlStopped("当前页没有评论，但未收到结束标记（可能被风控）")``）。
+此时若 ``config.cookie`` 非空且首次采集异常带风控/空页特征，
+:func:`collect_video_comments` 会用**同一内容参数**（页数 / 页大小 / 排序 /
+条数上限等）并以 ``cookie=None`` 再采集一次；成功则用 warning 说明「账号 Cookie
+会话被限制，已回退匿名采集」（**绝不输出 Cookie 明文**），两次都失败才抛
+:class:`CrawlAdapterError` 并给出可执行建议（重新登录 / 关闭「必须登录」改用匿名 /
+稍后重试）。无 Cookie、非风控异常的行为与之前完全一致，不会额外发请求。
+
 离线测试：:func:`collect_video_comments` 支持注入 ``fetcher``；测试可同时
 monkeypatch ``src.crawler.fetch_video_comments``，全流程不触网。
 """
 
 from __future__ import annotations
 
+import dataclasses
+import logging
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from .schemas import BVID_RE
+
+logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
 # 环境变量与默认值
@@ -102,6 +116,27 @@ STANDARD_FIELDS: tuple[str, ...] = (
     "reply_count",
     "ctime_utc",
     "collected_at_utc",
+)
+
+#: 风控 / 空页特征：命中即认为「账号 Cookie 会话被内容接口限制」，允许单次匿名回退。
+#: 这些片段来自底层爬虫的可读原因，刻意选得足够具体（避免 BV 号等普通数字误判）：
+#: ``当前页没有评论，但未收到结束标记（可能被风控）`` / ``接口 412 风控`` /
+#: ``接口返回非 JSON 数据（可能被风控/拦截）`` / ``HTTP 412/429`` / 业务码 ``-352`` / ``-509``。
+RISK_CONTROL_MARKERS: tuple[str, ...] = (
+    "当前页没有评论",
+    "未收到结束标记",
+    "风控",
+    "风险控制",
+    "HTTP 412",
+    "HTTP 429",
+    "-352",
+    "-509",
+)
+
+#: 两次采集都失败时的可执行建议（不含 Cookie，可直接展示给前端用户）。
+COOKIE_FALLBACK_ADVICE = (
+    "账号 Cookie 可能已失效或被风控；请到设置页重新登录，"
+    "或关闭「必须登录」改用匿名模式后重试；也可以稍后重试"
 )
 
 
@@ -288,40 +323,40 @@ def collect_video_comments(
         ``likes`` / ``reply_count`` / ``level`` 为 ``int``，``text`` 已 strip。
         没有评论时返回 ``[]``（由调用方决定是否视为失败）。
 
+    ``require_login=True`` 的语义（**内容受限时仍允许匿名回退**）：
+        该开关要求「进入采集前账号会话必须已登录」，由底层爬虫的
+        ``login_status()`` 校验；它**不代表账号会话一定能拿到内容**——B 站可能
+        对已登录会话单独限流（返回空页 ``replies=[]`` 且 ``is_end=false``，继续
+        翻页即被判定风控）。首次采集既然已经通过登录态校验，说明账号凭据本身
+        有效，此时失败属于**内容受限**而非配置错误；若直接失败，用户只会看到
+        「8 秒即 failed」而拿不到任何评论。因此允许用 ``cookie=None`` 单次匿名
+        回退（同时把 ``require_login`` 置 ``False``：匿名会话永远无法通过登录态
+        检查，回退的目的是拿内容而不是强制账号模式）。**最多回退一次**，不会
+        产生无限重试。
+
     Raises:
         CrawlAdapterError: BV 号非法、底层采集抛错或返回了非法结构；
-            错误信息带可读原因（保留 ``__cause__`` 便于排查）。
+            错误信息带可读原因（保留 ``__cause__`` 便于排查）。账号 Cookie 采集
+            与匿名回退都失败时，信息里带 :data:`COOKIE_FALLBACK_ADVICE`。
     """
     crawl_config = config or VideoCrawlConfig()
     if not isinstance(bvid, str) or not BVID_RE.match(bvid):
         raise CrawlAdapterError(f"非法的 BV 号：{bvid!r}，无法采集评论")
 
     collector = fetcher if fetcher is not None else _default_fetcher()
-    progress_kwargs = {}
+    progress_kwargs: dict[str, Any] = {}
     if on_progress is not None:
         progress_kwargs["on_page"] = lambda result, page, added, total: on_progress(page, total)
     try:
-        raw_records = collector(
-            bvid,
-            max_pages=crawl_config.max_pages,
-            include_replies=crawl_config.include_replies,
-            max_sub_pages=crawl_config.max_sub_pages,
-            max_items=crawl_config.max_items,
-            delay=crawl_config.delay_seconds,
-            timeout=crawl_config.timeout,
-            page_size=crawl_config.page_size,
-            mode=crawl_config.crawl_mode,
-            cookie=crawl_config.cookie,
-            init_buvid=crawl_config.init_buvid,
-            require_login=crawl_config.require_login,
-            **progress_kwargs,
+        raw_records = _invoke_collector(collector, bvid, crawl_config, progress_kwargs)
+    except CrawlAdapterError as first_error:
+        # 只有「带 Cookie 且异常是风控 / 空页特征」才允许单次匿名回退；
+        # 无 Cookie、非风控异常一律保持原有失败语义（不额外发请求）。
+        if not crawl_config.cookie or not _is_risk_control_failure(first_error):
+            raise
+        raw_records = _collect_with_anonymous_fallback(
+            collector, bvid, crawl_config, progress_kwargs, first_error
         )
-    except CrawlAdapterError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - 统一转成可读原因，不吞异常细节
-        raise CrawlAdapterError(
-            f"采集视频 {bvid} 的评论失败：{type(exc).__name__}: {exc}"
-        ) from exc
 
     if raw_records is None:
         raise CrawlAdapterError(f"采集视频 {bvid} 的评论失败：爬虫未返回任何结果（None）")
@@ -343,6 +378,99 @@ def collect_video_comments(
         if normalized is not None:
             records.append(normalized)
     return records
+
+
+def _invoke_collector(
+    collector: Callable[..., list[dict[str, Any]]],
+    bvid: str,
+    crawl_config: VideoCrawlConfig,
+    progress_kwargs: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """调用底层采集函数**一次**，并把任何异常包装成可读的 :class:`CrawlAdapterError`。"""
+    try:
+        return collector(
+            bvid,
+            max_pages=crawl_config.max_pages,
+            include_replies=crawl_config.include_replies,
+            max_sub_pages=crawl_config.max_sub_pages,
+            max_items=crawl_config.max_items,
+            delay=crawl_config.delay_seconds,
+            timeout=crawl_config.timeout,
+            page_size=crawl_config.page_size,
+            mode=crawl_config.crawl_mode,
+            cookie=crawl_config.cookie,
+            init_buvid=crawl_config.init_buvid,
+            require_login=crawl_config.require_login,
+            **progress_kwargs,
+        )
+    except CrawlAdapterError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 统一转成可读原因，不吞异常细节
+        raise CrawlAdapterError(
+            f"采集视频 {bvid} 的评论失败：{type(exc).__name__}: {exc}"
+        ) from exc
+
+
+def _collect_with_anonymous_fallback(
+    collector: Callable[..., list[dict[str, Any]]],
+    bvid: str,
+    crawl_config: VideoCrawlConfig,
+    progress_kwargs: dict[str, Any],
+    first_error: CrawlAdapterError,
+) -> list[dict[str, Any]]:
+    """账号 Cookie 会话被内容接口限制时的**单次**匿名回退（日志 / 错误不含 Cookie）。
+
+    - 内容参数（页数 / 页大小 / 排序 / 条数上限 / 楼中楼 / 超时 / 限速）原样透传，
+      只把 ``cookie`` 置 ``None``；同时把 ``require_login`` 置 ``False``——首次采集
+      已确认账号会话登录态有效，匿名会话不可能再通过登录态检查，回退的目的是拿内容。
+    - 回退成功即返回记录；回退也失败则抛带 :data:`COOKIE_FALLBACK_ADVICE` 的
+      :class:`CrawlAdapterError`（以回退异常为 ``__cause__``，两次原因都保留）。
+    """
+    cookie = crawl_config.cookie or ""
+    first_reason = _redact(_exception_chain_text(first_error), cookie)
+    anonymous_config = dataclasses.replace(crawl_config, cookie=None, require_login=False)
+    logger.warning(
+        "采集视频 %s 时账号 Cookie 会话疑似被限制（%s），已回退匿名采集重试"
+        "（本次不使用 Cookie；内容参数不变）",
+        bvid,
+        first_reason,
+    )
+    try:
+        return _invoke_collector(collector, bvid, anonymous_config, progress_kwargs)
+    except CrawlAdapterError as retry_error:
+        second_reason = _redact(_exception_chain_text(retry_error), cookie)
+        raise CrawlAdapterError(
+            f"采集视频 {bvid} 的评论失败：{COOKIE_FALLBACK_ADVICE}。"
+            f"账号 Cookie 采集失败原因：{first_reason}；"
+            f"匿名回退失败原因：{second_reason}"
+        ) from retry_error
+
+
+def _exception_chain_text(exc: BaseException) -> str:
+    """把异常及其 ``__cause__`` / ``__context__`` 链拼成单行文本（用于判定与展示）。"""
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(f"{type(current).__name__}: {current}")
+        current = current.__cause__ or current.__context__
+    return " ← ".join(parts)
+
+
+def _is_risk_control_failure(exc: BaseException) -> bool:
+    """异常链里是否带风控 / 空页特征（只有这类失败才允许单次匿名回退）。"""
+    text = _exception_chain_text(exc)
+    return any(marker in text for marker in RISK_CONTROL_MARKERS)
+
+
+def _redact(text: str, cookie: str) -> str:
+    """日志 / 错误文本兜底：把可能出现的 Cookie 明文替换成脱敏形式。"""
+    if not cookie:
+        return text
+    from .settings import redact_secrets
+
+    return redact_secrets(text, cookie)
 
 
 def _default_fetcher() -> Callable[..., list[dict[str, Any]]]:

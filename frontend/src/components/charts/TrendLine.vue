@@ -2,10 +2,13 @@
 /**
  * components/charts/TrendLine.vue — 情感趋势折线图
  * 横轴直接使用契约 trend[].bucket 字符串（按天或按小时都无需改前端）。
+ * 展示策略：正面/负面恒展示；中性 series（含图例）仅在任一 bucket 的 neutral > 0 时加入，
+ * 判定见 utils/sentimentSeries.js（二分类数据不再出现全 0 的中性折线）。
  */
 import { computed } from 'vue'
 import EChart from './EChart.vue'
 import Icon from '../Icon.vue'
+import { hasVisibleNeutral } from '../../utils/sentimentSeries.js'
 
 const props = defineProps({
   trend: { type: Array, default: () => [] },
@@ -13,9 +16,19 @@ const props = defineProps({
 
 const hasData = computed(() => Array.isArray(props.trend) && props.trend.length > 0)
 
+/** 中性仅在趋势数据里出现非零计数时展示，图例随 series 同步 */
+const showNeutral = computed(() => hasVisibleNeutral(props.trend))
+
 const option = computed(() => {
   const buckets = props.trend.map((item) => item.bucket)
   const pick = (key) => props.trend.map((item) => item[key] ?? 0)
+  const series = [
+    { name: '正面', type: 'line', smooth: true, symbolSize: 5, data: pick('positive'), itemStyle: { color: '#16a34a' }, areaStyle: { opacity: 0.08 } },
+    { name: '负面', type: 'line', smooth: true, symbolSize: 5, data: pick('negative'), itemStyle: { color: '#dc2626' }, areaStyle: { opacity: 0.08 } },
+  ]
+  if (showNeutral.value) {
+    series.push({ name: '中性', type: 'line', smooth: true, symbolSize: 5, data: pick('neutral'), itemStyle: { color: '#94a3b8' } })
+  }
   return {
     tooltip: { trigger: 'axis' },
     legend: { bottom: 0, icon: 'roundRect' },
@@ -27,11 +40,7 @@ const option = computed(() => {
       axisLabel: { fontSize: 11, formatter: (value) => String(value).slice(5) },
     },
     yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef2f7' } } },
-    series: [
-      { name: '正面', type: 'line', smooth: true, symbolSize: 5, data: pick('positive'), itemStyle: { color: '#16a34a' }, areaStyle: { opacity: 0.08 } },
-      { name: '负面', type: 'line', smooth: true, symbolSize: 5, data: pick('negative'), itemStyle: { color: '#dc2626' }, areaStyle: { opacity: 0.08 } },
-      { name: '中性', type: 'line', smooth: true, symbolSize: 5, data: pick('neutral'), itemStyle: { color: '#94a3b8' } },
-    ],
+    series,
   }
 })
 </script>

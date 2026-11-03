@@ -17,7 +17,8 @@
  *                                   "ready":bool}]}
  *
  * 所有请求使用同源相对路径，由 Vite 代理（vite.config.js）转发到 http://localhost:8000。
- * 骨架阶段若后端未启动，函数会抛出带中文说明的 Error，供界面展示「待接入后端」提示。
+ * 后端未启动时函数会抛出带中文说明的 Error（含启动命令），供界面展示「<操作>失败：<原因>」；
+ * 「连接类失败」的统一判定与提示见 utils/requestError.js。
  */
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }

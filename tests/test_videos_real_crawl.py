@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import pytest
@@ -24,6 +25,7 @@ import src.crawler
 from src.inference.app import app
 from src.videos import crawler_adapter, pipeline, placeholder
 from src.videos import service as videos_service
+from src.videos import settings as video_settings
 from src.videos.config import PipelineConfig
 from src.videos.errors import PipelineFailure
 from src.videos.service import VideoService
@@ -580,7 +582,234 @@ def test_adapter_wraps_errors_and_rejects_bad_results():
 
 
 # --------------------------------------------------------------------------- #
-# 6. placeholder.build_detail 真实评论分支的结构 / 契约自洽
+# 6. 账号 Cookie 被内容接口限制（风控 / 空页）：单次匿名回退
+# --------------------------------------------------------------------------- #
+#: 与真实现场一致的底层异常文案（Lead 用真实请求复现：登录态有效但评论接口空页）
+RISK_CONTROL_MESSAGE = "当前页没有评论，但未收到结束标记（可能被风控）"
+RAW_COOKIE = "SESSDATA=secret-sessdata-value; bili_jct=secret-csrf-token; DedeUserID=42"
+SESSDATA_VALUE = "secret-sessdata-value"
+
+#: 匿名回退时必须原样透传的内容参数（cookie / require_login 单独断言）
+_PASSTHROUGH_KEYS = (
+    "max_pages",
+    "include_replies",
+    "max_sub_pages",
+    "max_items",
+    "delay",
+    "timeout",
+    "page_size",
+    "mode",
+    "init_buvid",
+)
+
+
+def test_cookie_restricted_falls_back_to_anonymous_and_warns(caplog):
+    """首次带 Cookie 因风控失败 → 第二次 cookie=None 采集成功，并有 warning。"""
+    records = _fake_records()
+    calls: list[dict] = []
+
+    def fetcher(bvid, **kwargs):
+        calls.append(dict(kwargs))
+        if len(calls) == 1:
+            raise src.crawler.CrawlStopped(RISK_CONTROL_MESSAGE)
+        return records
+
+    config = crawler_adapter.VideoCrawlConfig(
+        cookie=RAW_COOKIE,
+        max_pages=2,
+        page_size=30,
+        sort_mode="hot",
+        require_login=True,
+    )
+    with caplog.at_level(logging.WARNING):
+        result = crawler_adapter.collect_video_comments(BVID, config, fetcher=fetcher)
+
+    assert len(calls) == 2
+    assert calls[0]["cookie"] == RAW_COOKIE
+    assert calls[0]["require_login"] is True
+    # 回退只摘掉 Cookie；require_login 也必须关掉——匿名会话不可能通过登录态检查
+    assert calls[1]["cookie"] is None
+    assert calls[1]["require_login"] is False
+    # 内容参数原样透传（页数 / 页大小 / 排序 / 条数上限 / 限速 / 超时 ……）
+    assert {key: calls[1][key] for key in _PASSTHROUGH_KEYS} == {
+        key: calls[0][key] for key in _PASSTHROUGH_KEYS
+    }
+    assert len(result) == len(records)
+
+    warnings = [item for item in caplog.records if item.levelno == logging.WARNING]
+    assert any("回退匿名采集" in item.getMessage() for item in warnings)
+    # 日志绝不出现 Cookie 明文
+    assert SESSDATA_VALUE not in caplog.text
+    assert "secret-csrf-token" not in caplog.text
+
+
+def test_fallback_failure_returns_actionable_error_and_redacts_cookie(caplog):
+    """两次都失败 → CrawlAdapterError 带可执行建议，且错误 / 日志不含 Cookie。"""
+    cookie_seen: list[object] = []
+
+    def fetcher(bvid, **kwargs):
+        cookie_seen.append(kwargs["cookie"])
+        if kwargs["cookie"]:
+            raise RuntimeError(f"接口 412 风控：请求头包含 {kwargs['cookie']}")
+        raise RuntimeError("匿名接口返回格式异常")
+
+    config = crawler_adapter.VideoCrawlConfig(cookie=RAW_COOKIE, require_login=True)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(crawler_adapter.CrawlAdapterError) as excinfo:
+            crawler_adapter.collect_video_comments(BVID, config, fetcher=fetcher)
+
+    message = str(excinfo.value)
+    assert cookie_seen == [RAW_COOKIE, None]
+    # 可执行建议：重新登录 / 关闭「必须登录」改用匿名 / 稍后重试
+    assert "重新登录" in message
+    assert "匿名" in message
+    assert "稍后重试" in message
+    # 两次原因都保留（首次风控 + 匿名回退失败）
+    assert "风控" in message
+    assert "匿名接口返回格式异常" in message
+    assert isinstance(excinfo.value.__cause__, crawler_adapter.CrawlAdapterError)
+    # Cookie 明文绝不出现在错误 / warning 中
+    assert SESSDATA_VALUE not in message
+    assert SESSDATA_VALUE not in caplog.text
+    assert "secret-csrf-token" not in caplog.text
+
+
+def test_risk_control_adapter_error_also_falls_back():
+    """fetcher 直接抛 CrawlAdapterError（已包装）且带风控特征时同样回退。"""
+    cookies: list[object] = []
+
+    def fetcher(bvid, **kwargs):
+        cookies.append(kwargs["cookie"])
+        if len(cookies) == 1:
+            raise crawler_adapter.CrawlAdapterError("账号接口 412 风控，已停止采集")
+        return _fake_records()
+
+    result = crawler_adapter.collect_video_comments(
+        BVID, crawler_adapter.VideoCrawlConfig(cookie=RAW_COOKIE), fetcher=fetcher
+    )
+    assert cookies == [RAW_COOKIE, None]
+    assert len(result) == len(_fake_records())
+
+
+def test_no_cookie_never_falls_back():
+    """无 Cookie（含空串归一成 None）→ 只调用一次，行为与之前完全一致。"""
+    calls: list[object] = []
+
+    def fetcher(bvid, **kwargs):
+        calls.append(kwargs["cookie"])
+        raise src.crawler.CrawlStopped(RISK_CONTROL_MESSAGE)
+
+    assert crawler_adapter.VideoCrawlConfig(cookie="   ").cookie is None
+    for config in (crawler_adapter.VideoCrawlConfig(), crawler_adapter.VideoCrawlConfig(cookie="  ")):
+        calls.clear()
+        with pytest.raises(crawler_adapter.CrawlAdapterError) as excinfo:
+            crawler_adapter.collect_video_comments(BVID, config, fetcher=fetcher)
+        assert calls == [None]
+        # 单次失败的原始原因仍可读
+        assert "当前页没有评论" in str(excinfo.value)
+
+
+def test_non_risk_control_failure_does_not_fall_back():
+    """带 Cookie 但异常不是风控 / 空页（如解析失败）→ 不回退，原样包装抛出。"""
+    calls: list[object] = []
+
+    def fetcher(bvid, **kwargs):
+        calls.append(kwargs["cookie"])
+        raise RuntimeError("解析失败：CSV 表头不兼容")
+
+    with pytest.raises(crawler_adapter.CrawlAdapterError) as excinfo:
+        crawler_adapter.collect_video_comments(
+            BVID, crawler_adapter.VideoCrawlConfig(cookie=RAW_COOKIE), fetcher=fetcher
+        )
+    assert calls == [RAW_COOKIE]  # 没有第二次请求
+    assert "解析失败：CSV 表头不兼容" in str(excinfo.value)
+
+
+def _seed_staged_task(store: VideoStore, snapshot: dict) -> dict:
+    """往存储里塞一条带设置快照的分步任务（模拟 service.submit 的落盘结果）。"""
+    task = {
+        "bvid": BVID,
+        "title": None,
+        "owner": None,
+        "cover_url": None,
+        "status": "queued",
+        "progress": 0,
+        "message": "排队中…",
+        "phases": pipeline.initial_phases(),
+        "comment_count": 0,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "error": None,
+        "run_id": 1,
+        "seq": 1,
+        "settings_snapshot": snapshot,
+        "resume_stage": "crawl",
+        "stage_state": pipeline.initial_stage_state(),
+    }
+    store.upsert_task(task)
+    return task
+
+
+def test_staged_crawl_fallback_success_reaches_crawled(tmp_path, monkeypatch):
+    """Web 分步路径（账号模式）：Cookie 被限制 → 匿名回退成功 → 任务采集完成。"""
+    video_settings.save_account_cookie(RAW_COOKIE)
+    snapshot = video_settings.snapshot_for_task(
+        video_settings.merge_for_task({"crawl": {"real_crawl": True}})
+    )
+    store = VideoStore(tmp_path / "videos")
+    _seed_staged_task(store, snapshot)
+
+    cookies: list[object] = []
+    records = _fake_records()
+
+    def fake_fetch(bvid, **kwargs):
+        cookies.append(kwargs["cookie"])
+        if len(cookies) == 1:
+            raise src.crawler.CrawlStopped(RISK_CONTROL_MESSAGE)
+        return records
+
+    monkeypatch.setattr(src.crawler, "fetch_video_comments", fake_fetch)
+    result = pipeline.run_pipeline(store, BVID, REAL_INSTANT, task_settings=snapshot)
+
+    assert result is None  # 停在 crawled 等待继续清洗
+    task = store.get_task(BVID)
+    assert task["status"] == "crawled"
+    assert task["error"] is None
+    assert task["comment_count"] == len(records)
+    assert cookies == [RAW_COOKIE, None]
+    index_text = store.index_path.read_text(encoding="utf-8")
+    assert SESSDATA_VALUE not in index_text
+    assert "secret-csrf-token" not in index_text
+
+
+def test_staged_crawl_fallback_failure_shows_actionable_error(tmp_path, monkeypatch):
+    """Web 分步路径：两次都失败 → 任务 failed，error 给用户可执行建议且不泄露 Cookie。"""
+    video_settings.save_account_cookie(RAW_COOKIE)
+    snapshot = video_settings.snapshot_for_task(
+        video_settings.merge_for_task({"crawl": {"real_crawl": True}})
+    )
+    store = VideoStore(tmp_path / "videos")
+    _seed_staged_task(store, snapshot)
+
+    def fake_fetch(bvid, **kwargs):
+        raise RuntimeError(f"接口 412 风控：请求头包含 {kwargs['cookie']}")
+
+    monkeypatch.setattr(src.crawler, "fetch_video_comments", fake_fetch)
+    with pytest.raises(PipelineFailure):
+        pipeline.run_pipeline(store, BVID, REAL_INSTANT, task_settings=snapshot)
+
+    task = store.get_task(BVID)
+    assert task["status"] == "failed"
+    assert "重新登录" in task["error"]
+    assert "匿名" in task["error"]
+    assert SESSDATA_VALUE not in task["error"]
+    detail = store.read_detail(BVID)
+    assert detail is None or SESSDATA_VALUE not in str(detail)
+    assert SESSDATA_VALUE not in store.index_path.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# 7. placeholder.build_detail 真实评论分支的结构 / 契约自洽
 # --------------------------------------------------------------------------- #
 def test_build_detail_with_real_comments_is_contract_complete():
     from datetime import datetime, timedelta, timezone
