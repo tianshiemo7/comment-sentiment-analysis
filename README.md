@@ -14,6 +14,8 @@
 **主流程（B 站视频评论分析）**：输入 BV 号 → 任务排队 → 采集评论 → 清洗 → 情感推理 → 统计分析 → 前端展示情感占比、情感趋势、正负词云、关键词排行、代表性评论与模型指标。评论采集默认占位数据，可按任务设置或 `VIDEO_REAL_CRAWL=1` 真实联网采集（遵守 robots 与限速）。
 
 **辅助功能**：单条评论预测、批量文件预测（`.csv` / `.xlsx` 导入导出）、上传爬虫数据生成「数据项目」、单独评论收集与展示。
+数据项目与视频任务都支持**导出爬虫原始数据 / 清洗后数据 CSV**；分析词云每侧展示 60 词，
+并可切换为 **Python 渲染的图片**（2026-11-04 新增）。
 
 > 情感预测自 **2026-10-30** 起统一使用已训练的真实模型（TextCNN / BiLSTM-Attention），
 > 检查点缺失、torch 未安装或权重损坏时才降级为规则占位预测；接口契约不变。
@@ -29,11 +31,12 @@
 | 词向量 / 模型 / 训练 / 评估 / 可视化 `src/embeddings|models|training|evaluation|visualization/` | ✅ Word2Vec + TextCNN + BiLSTM-Attention；早停 / 检查点 / 指标 / 混淆矩阵 / 错误分析 / 曲线 / 词云 |
 | 推理服务 `src/inference/` | ✅ FastAPI：单条 / 批量预测、模型列表、批量导出下载；四个预测入口统一使用真实模型 |
 | B 站视频任务 `src/videos/` | ✅ 任务状态机 + 分步流水线（待清洗 / 待分析）+ 真实爬取（opt-in）+ 真实模型情感推理 |
-| 数据项目与单独评论 `src/artifacts/` | ✅ 上传爬虫 CSV → clean 管线 → 三张表 + 逐条情感（真实模型）；单独评论集中管理 |
+| 数据项目与单独评论 `src/artifacts/` | ✅ 上传爬虫 CSV → clean 管线 → 三张表 + 逐条情感（真实模型）；单独评论集中管理；三阶段 CSV 浏览器导出 |
+| 导出与词云增强（2026-11-04） | ✅ 数据项目 / 视频任务导出爬虫原始与清洗后 CSV；词云每侧 **60 词**；词云可切换 **Python 渲染 PNG**（按需生成、按任务缓存） |
 | 前端 `frontend/` | ✅ Vue 3 + Vite + ECharts：B 站分析主界面 / 单条预测 / 批量预测 / 实验可视化 / 模型对比；默认直连真实后端 |
 | 实验可视化 | ✅ 按模型读取真实训练曲线、混淆矩阵及共享语料词云，支持原图查看、下载和刷新；未生成的 Attention 图明确提示 |
 | 真实权重与指标（2026-11-02 电商实验） | ✅ TextCNN 测试 Acc **92.95%** / F1 93.02%，BiLSTM-Attention **93.67%** / F1 93.73%（电商公开语料，**非 B 站领域指标**） |
-| 测试与验收 | ✅ 本机 `pytest` **630 passed / 2 warnings**；前端 `npm test` **12 passed**（Node 内置 `node:test`，零新依赖）；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS** |
+| 测试与验收 | ✅ 本机 `pytest` **656 passed / 2 warnings**；前端 `npm test` **19 passed**（Node 内置 `node:test`，零新依赖）；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS**；2026-11-04 导出/词云浏览器验收 **14/14 PASS** |
 
 ## 二、技术栈
 
@@ -123,7 +126,7 @@ npm run build      # 生产构建，产物 frontend/dist/
 前端通过 Vite 代理把 `/api`、`/health` 转发到 `http://localhost:8000`，因此两个服务需同时运行。
 **默认不加载 mock**，所有请求走真实后端；无后端只想演示界面时用 `VITE_USE_MOCK=1 npm run dev`
 （仅 dev 生效，`npm run preview` 与生产构建始终走代理）。
-前端单元测试：`cd frontend && npm test`（Node 内置 `node:test`，覆盖概率条 CSS 与中性类别显隐）。
+前端单元测试：`cd frontend && npm test`（Node 内置 `node:test`，覆盖概率条 CSS、中性类别显隐与导出/词云图 URL 纯函数）。
 Windows 可直接双击根目录 `start-frontend.cmd`，缺少 `node_modules` 时会自动 `npm install`。
 
 首次使用可点左上角齿轮「设置」配置账号模式与采集默认值；人工登录窗口需可选依赖 Playwright
@@ -203,6 +206,7 @@ python scripts/e2e_smoke.py --frontend   # 追加前端代理 + 浏览器渲染�
 | 视频任务 | `POST /api/videos`、`GET /api/videos`、`GET /api/videos/{bvid}/detail`、`POST /api/videos/{bvid}/continue`、`POST /api/videos/{bvid}/retry`、`DELETE /api/videos/{bvid}` |
 | 设置与账号 | `GET/PUT /api/settings`、`POST /api/crawler/session/check`、`POST /api/account/login/start`、`GET /api/account/login/status`、`POST /api/account/login/cancel` |
 | 数据项目 | `POST /api/artifacts/upload`、`GET /api/artifacts`、`GET /api/artifacts/{id}`（`/stages`、`/table`、`/comments`、`/analysis`、`/path`）、`POST /api/artifacts/{id}/open`、`POST /api/artifacts/{id}/analyze`、`DELETE /api/artifacts/{id}` |
+| 导出文件 / Python 词云图 | `GET /api/artifacts/{id}/download?stage=initial\|clean\|excluded`、`GET /api/videos/{bvid}/download?stage=crawl\|clean`、`GET /api/artifacts/{id}/wordcloud-image?tone=`、`GET /api/videos/{bvid}/wordcloud-image?tone=`（均支持 `download=true` 下载） |
 | 单独评论 | `POST/GET /api/solo-comments`、`DELETE /api/solo-comments/{id}`、`DELETE /api/solo-comments?ids=` |
 
 字段、示例、错误码与安全约束以 [`docs/API契约.md`](docs/API契约.md) 为唯一来源。要点：
@@ -213,6 +217,9 @@ python scripts/e2e_smoke.py --frontend   # 追加前端代理 + 浏览器渲染�
 - 上传文件首行为表头，文本列自动识别：`text_raw` → `text` → `comment` → `content` → `评论` → 第一列
   （预处理产物同时含 `text_raw` 与 `text` 时**优先用原文**，与 `src/preprocessing` 的对接约定一致）；
 - 下载接口只允许读取 `outputs/predictions/` 下的 CSV，并已做目录穿越防护。
+- 导出文件与 Python 词云图（2026-11-04）：视频任务 `crawl` / `clean` 阶段导出 CSV 列为
+  爬虫标准列（clean 追加 `raw_text`）；数据项目按 `initial` / `clean` / `excluded` 导出原样 CSV；
+  词云词频每侧最多 60 项，`wordcloud-image` 返回按需渲染的 PNG（正面绿色系 / 负面红色系）。
 
 ## 六、数据格式约定
 
@@ -263,8 +270,8 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 ## 八、测试与质量
 
 ```bash
-python -m pytest tests/ -q    # 本轮 Windows/CUDA：630 passed / 2 warnings
-cd frontend && npm test       # 前端单元测试：12 passed（Node 内置 node:test）
+python -m pytest tests/ -q    # 本轮 Windows/CUDA：656 passed / 2 warnings
+cd frontend && npm test       # 前端单元测试：19 passed（Node 内置 node:test）
 ```
 
 - 无 torch 环境会自动跳过模型/训练相关用例，其余服务与数据处理测试照常运行；
@@ -283,15 +290,24 @@ cd frontend && npm test       # 前端单元测试：12 passed（Node 内置 nod
 视频任务三段）、右侧详情区，以及「系统设置」「爬虫参数」两个弹窗。
 
 - 视频任务详情：完成后展示情感占比饼图、情感趋势、正负词云、关键词排行、代表性评论与模型指标；
-  未完成只展示进度与子步骤，不渲染空图表；
+  未完成只展示进度与子步骤，不渲染空图表；完成态 / 等待态可导出采集与清洗 CSV；
 - 分步流水线：采集完成停在「待清洗」、清洗完成停在「待分析」，点按钮或开启自动连续继续；
 - 数据项目详情：三张表（初始 / 筛选后 / 排除记录）分页查看 + 可展开逐条情感 + 底部操作按钮；
-- 图表与词云由前端渲染，后端只返回词频、分布与趋势数据。
+  底部可浏览器导出三阶段 CSV（原始爬虫数据 / 清洗结果 / 排除记录）；
+- 图表与词云由前端渲染，后端返回词频、分布与趋势数据；词云每侧最多 60 词，
+  可在卡片上切换「前端渲染 / Python 图」，Python 图由 `wordcloud` 库按真实词频生成并缓存。
 
 历史界面截图：[系统设置弹窗](docs/images/2026-10-17-settings/settings-dialog.png) ·
 [爬虫参数弹窗](docs/images/2026-10-17-settings/crawl-params-dialog.png) ·
 [待分析等待态](docs/images/2026-10-17-settings/staged-cleaned.png) ·
 [完成后的详情](docs/images/2026-10-17-settings/completed-detail.png)。
+
+2026-11-04 导出与词云增强截图：
+[视频任务词云（每侧 60 词）](docs/images/2026-11-04-export-wordcloud/video-wordcloud-echarts.png) ·
+[切换 Python 渲染图](docs/images/2026-11-04-export-wordcloud/video-wordcloud-python.png) ·
+[数据项目导出按钮](docs/images/2026-11-04-export-wordcloud/project-export-buttons.png) ·
+[数据项目词云（60 词）](docs/images/2026-11-04-export-wordcloud/project-wordcloud-echarts.png) ·
+[数据项目 Python 词云](docs/images/2026-11-04-export-wordcloud/project-wordcloud-python.png)
 前端页面、组件与 mock 层说明见 [`frontend/README.md`](frontend/README.md)。
 
 ## 十、已知限制与合规
@@ -311,6 +327,9 @@ cd frontend && npm test       # 前端单元测试：12 passed（Node 内置 nod
 - **凭据安全**：B 站 Cookie 只保存在服务端 `outputs/settings.json`（已被 gitignore），接口只回传脱敏字段，
   不随任务提交；人工登录窗口不读取、不记录账号密码。
 - **部署**：当前单进程串行（课程演示足够），多 worker / 外部队列不在范围内。
+- **Python 词云图依赖可选库**：`wordcloud`（requirements.txt 已含）缺失时
+  `wordcloud-image` 返回 503，前端自动回退 ECharts 并提示原因；中文字体缺失时图片可能出现方块，
+  可用 `WORDCLOUD_FONT` 指定字体。
 - 其它历史审查与增强项见 [`docs/验收检查清单.md`](docs/验收检查清单.md)。
 
 ## 十一、文档索引
@@ -321,6 +340,7 @@ cd frontend && npm test       # 前端单元测试：12 passed（Node 内置 nod
 | [`docs/开发路线图.md`](docs/开发路线图.md) | 分阶段实现路线与当前状态 |
 | [`docs/验收检查清单.md`](docs/验收检查清单.md) | 课程验收逐项自查 |
 | [`docs/收尾修复与验证-2026-11-03.md`](docs/收尾修复与验证-2026-11-03.md) | 2026-11-03 收尾：前端四类修复、爬虫匿名回退、仓库数据清理与验证证据 |
+| [`docs/导出与词云增强-2026-11-04.md`](docs/导出与词云增强-2026-11-04.md) | 2026-11-04：导出文件、词云词量 60、Python 词云图与验证证据 |
 | [`docs/模型训练与评估-2026-10-30.md`](docs/模型训练与评估-2026-10-30.md) | 数据版本、训练命令、指标、混淆矩阵、权重哈希、GPU 历史实验 |
 | [`docs/数据处理验证-2026-10-30.md`](docs/数据处理验证-2026-10-30.md) | 预处理修复、公开语料复现、无标签评论交接 |
 | [`docs/大规模采集运行手册.md`](docs/大规模采集运行手册.md) | 爬虫清单采集 / 登录态 / 断点续采 / Web 分步流程 |

@@ -59,7 +59,8 @@ frontend/
 ├── package.json            # scripts: dev / build / preview / test（test = node --test）
 ├── .gitignore              # 忽略 node_modules、dist
 ├── tests/                  # ★ Node 内置 node:test 单测（npm test，零新增依赖）
-│   └── sentimentSeries.test.js #   中性可见性：全 0 隐藏 / 非零展示 / 缺字段不抛错
+│   ├── sentimentSeries.test.js #   中性可见性：全 0 隐藏 / 非零展示 / 缺字段不抛错
+│   └── export-files.test.js    #   导出 URL 拼接 / Python 词云图 URL / keywordsRevision 版本号
 ├── mock/                   # ★ 仅演示模式（VITE_USE_MOCK=1）使用的 mock 层，默认不加载
 │   ├── index.js            #   Vite 插件 + connect 中间件（路由分发、multipart/JSON 解析、/__mock/reset）
 │   ├── store.js            #   视频任务内存仓库（提交/列表/详情/重试/删除）
@@ -74,6 +75,7 @@ frontend/
     ├── api/client.js       # 既有接口封装（predict / batch / models / health）
     ├── api/videos.js       # ★ B 站分析接口封装（/api/videos*，契约见 docs/API契约.md）
     ├── api/artifacts.js    # ★ 数据项目/单独评论封装（/api/artifacts*、/api/solo-comments*）
+    ├── utils/exportFiles.js# ★ 导出 / Python 词云图 URL 构造 + triggerDownload（2026-11-04）
     ├── utils/format.js     # 既有展示层格式化
     ├── utils/requestError.js # ★ 请求错误展示：连接类失败判定 + 启动后端提示（三页共用）
     ├── utils/videoFormat.js# ★ 状态文案/色调、BV 校验、时间与数值格式化
@@ -171,13 +173,34 @@ frontend/
 | 13 | GET | `/api/solo-comments?offset&limit` | `listSoloComments(q)` | 单独评论列表（倒序） |
 | 14 | DELETE | `/api/solo-comments/{id}` | `deleteSoloComment(id)` | 单条删除 |
 | 15 | DELETE | `/api/solo-comments?ids=a,b` | `deleteSoloComments(ids)` | 「清空全部」 |
+| 16 | GET | `/api/artifacts/{id}/download?stage=` | `artifactDownloadUrl(id, stage)` | 「导出」按钮：浏览器下载某阶段 CSV（不新开窗口） |
+| 17 | GET | `/api/videos/{bvid}/download?stage=` | `videoDownloadUrl(bvid, stage)` | 视频任务导出采集 / 清洗 CSV |
+| 18 | GET | `/api/artifacts/{id}/wordcloud-image?tone=` | `artifactWordcloudUrl(id, tone, opts)` | Python 渲染词云图（`<img>` 直接用） |
+| 19 | GET | `/api/videos/{bvid}/wordcloud-image?tone=` | `videoWordcloudUrl(bvid, tone, opts)` | 同上；`opts={version, download}` |
+
+### 导出与 Python 词云图（2026-11-04）
+
+- 工具函数在 [`src/utils/exportFiles.js`](src/utils/exportFiles.js)：URL 构造是纯字符串（供 `<a>` / `<img>` 直接使用），
+  `triggerDownload(url)` 为 async——先 fetch 校验响应（失败抛后端中文 `detail`，页面提示不白屏），
+  成功后用 Blob + 隐藏 `<a download>` 保存，不新开窗口；文件名优先取 `Content-Disposition`。
+- 数据项目详情底部：`导出清洗结果 CSV`（主）+ `导出原始爬虫 CSV` + `导出排除记录 CSV`；
+  项目未完成或该阶段 `rows === 0` 时按钮置灰并给出原因。
+- 视频详情：完成态底部导出采集 / 清洗 CSV；`crawled` 等待态只有采集导出，`cleaned` 等待态两个都有。
+- [`components/charts/WordCloud.vue`](src/components/charts/WordCloud.vue) 新增 `imageUrl` / `imageDownloadUrl`：
+  有值时卡片头出现「前端渲染 | Python 图」切换；Python 图懒加载 `<img>`，失败时展示后端原因并自动回退；
+  字号随词量自适应（>15 词 `[10,30]`，否则 `[13,40]`、`gridSize 5`、高度 320px），适配每侧 60 词。
+  图片 URL 的 `v` 由 `keywordsRevision(words)`（词数-词频和-字数）生成，重新分析后不会命中旧图。
 
 ### mock 层
 
 - 位置 `frontend/mock/`，仅在 `VITE_USE_MOCK=1 npm run dev` 时通过 `vite.config.js` 中的
   `mockApiPlugin()` 接入（插件 `apply: 'serve'`，`npm run preview` 与生产构建均不生效），覆盖
-  `/api/videos*`、`/api/artifacts*`（含 `path`）、`/api/solo-comments*`、`POST /api/predict` 与 `/health`；
+  `/api/videos*`、`/api/artifacts*`（含 `path` / `download` / `wordcloud-image`）、`/api/solo-comments*`、
+  `POST /api/predict` 与 `/health`；
   其它 `/api/*`（batch、models、批量下载）仍走代理到 FastAPI，互不影响。
+- 新增（2026-11-04）mock 兜底：`/download` 返回带 BOM 的假 CSV（数据项目按 mock 三张表、视频固定表头 + 2 行，
+  表头与契约一致）；`/wordcloud-image` 返回 404 JSON「mock 模式不支持 Python 词云图…」，
+  前端按降级路径提示并回退 ECharts，演示不白屏。
 - 预置数据：视频 1 条 `completed` + 1 条长期 `crawling`；数据项目 1 条 `completed`（三张表 312/256/41 + 聚合分析）+ 1 条长期 `processing`；
   单独评论 2 条。
 - 新提交的 BV：约 30 秒走完 `queued(5s) → crawling(10s) → processing(15s) → completed`；提交 `BV1m0ckfai11` 走失败分支。
@@ -364,10 +387,17 @@ node scripts/gen_icons.mjs /tmp/package --check  # 只校验：清单内的图�
 ```bash
 cd frontend
 npm install
-npm test           # Node 内置 node:test：utils 纯函数单测（如 sentimentSeries 的中性可见性）
+npm test           # Node 内置 node:test：utils 纯函数单测（中性可见性 / 导出与词云图 URL / 版本号）
 npm run build      # 成功后在 frontend/dist/ 生成 index.html + assets/
 ls -la dist        # 确认 dist/index.html 存在
 ```
+
+2026-11-04 验收：`npm test` **19 passed**（原 12 + 导出/词云图 7 个 URL 纯函数用例）、
+`npm run build` 成功；真实后端 + Vite 下用 Playwright（Edge headless）验证 **14/14**：
+视频任务每侧 60 词、切换 Python 图（960×600 PNG 正常加载与下载）、视频/数据项目 5 个导出按钮
+下载行数与后端一致、切回前端渲染、控制台无 JS 报错；另验证后端不可达时导出与 Python 图都有
+中文提示并回退，不白屏。截图见
+[`../docs/images/2026-11-04-export-wordcloud/`](../docs/images/2026-11-04-export-wordcloud/)。
 
 B 站主界面默认联调真实后端（先按第一节启动 FastAPI :8000）：
 

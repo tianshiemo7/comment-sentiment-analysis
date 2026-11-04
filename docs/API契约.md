@@ -128,9 +128,14 @@ dataset_version 来自该模型的配套资源 manifest。image_url 的 v 来自
 | 10 | POST | `/api/account/login/start` | 打开人工登录窗口并启动 Cookie 捕获（幂等） |
 | 11 | GET | `/api/account/login/status` | 轮询人工登录窗口状态（前端 2 秒一次） |
 | 12 | POST | `/api/account/login/cancel` | 取消本次登录并关闭窗口 |
+| 13 | GET | `/api/videos/{bvid}/download?stage=crawl\|clean` | 导出采集 / 清洗数据 CSV（浏览器下载） |
+| 14 | GET | `/api/videos/{bvid}/wordcloud-image?tone=positive\|negative` | Python 渲染的正面 / 负面词云 PNG |
+| 15 | GET | `/api/artifacts/{project_id}/download?stage=initial\|clean\|excluded` | 导出数据项目某阶段 CSV |
+| 16 | GET | `/api/artifacts/{project_id}/wordcloud-image?tone=positive\|negative` | Python 渲染的数据项目词云 PNG |
 | — | GET | `/health` | 健康检查（已存在） |
 
 > 第 6~12 项为 2026-10-17 新增，详见本文件「二点五、设置与分步流水线」；第 1 项请求体向后兼容。
+> 第 13~16 项为 2026-11-04 新增，详见本文件「二点六、导出文件与 Python 词云图」。
 
 ### 1. 提交 BV 号
 
@@ -282,7 +287,8 @@ GET /api/videos/{bvid}/detail
   「清洗完成，等待情感分析」等中文提示。
 - `sentiment.*_ratio` 为 0~1 小数，三者之和约等于 1。
 - `trend[].bucket` 默认按天 `YYYY-MM-DD`，也可按小时 `YYYY-MM-DD HH:00`；前端按字符串直接作为横轴。
-- `keywords.*[].weight` 为 0~1 归一化权重，**词云直接用 `count` 或 `weight` 渲染，后端不生成图片**。
+- `keywords.*[].weight` 为 0~1 归一化权重，**每侧最多 60 项**（2026-11-04 起；此前 8 项）。
+  前端默认用 ECharts 渲染，也可切换为后端 Python 渲染的 PNG（见「二点六」2.6.3）。
 - `model` 为当前生效模型的测试集指标（可复用 `outputs/stats/metrics_<model>.json`）。
 - `top_comments` 每种情感取点赞数最高的若干条（建议 ≤ 10）。
   `text` 展示爬取的原始评论（清洗阶段保存的 `raw_text` 优先），保留原标点、大小写及表情。
@@ -563,7 +569,7 @@ cleaned →（continue）→ queued → processing（情感推理→统计分析
 - 中间产物落盘 `outputs/videos/<bvid>/crawl.json`（原始评论或占位计数）、
   `clean.json`（清洗后评论）与 `analyze.json`（逐条情感预测结果 + 顶层 `method`
   来源标注：真实模式为模型名，加载失败回退时为 `rule_placeholder`；供审计，
-  不属于 HTTP 响应字段）；
+  不属于 HTTP 响应字段）；另按需生成词云 PNG 缓存 `wordcloud_<tone>.png`（见 2.6.3）；
   详情文件仍为 `outputs/videos/<bvid>.json`；
 - 服务重启：`queued` / `crawling` / `processing` 重置为 `queued` 重新跑；
   `crawled` / `cleaned` **保持等待态**，等待用户操作；
@@ -584,11 +590,61 @@ cleaned →（continue）→ queued → processing（情感推理→统计分析
 
 | 状态码 | 场景 |
 | --- | --- |
-| `400` | `PUT /api/settings` 的数值越界 / 枚举非法；`mode=account` 但无凭据；`POST /api/videos` 的 `settings` 非法；BV 号格式非法 |
-| `404` | 未知 `bvid`（detail / retry / continue / delete） |
+| `400` | `PUT /api/settings` 的数值越界 / 枚举非法；`mode=account` 但无凭据；`POST /api/videos` 的 `settings` 非法；BV 号格式非法；导出接口的 `stage` / 词云图 `tone` 非法 |
+| `404` | 未知 `bvid`（detail / retry / continue / delete）；导出所需的阶段产物或词云关键词尚未生成 |
 | `409` | 提交时该 BV 号已在处理中；`continue` 时任务不在 `crawled` / `cleaned` |
 | `502` | `POST /api/crawler/session/check` 调用 B 站登录态接口的网络/接口异常 |
-| `503` | `POST /api/account/login/start` 缺少浏览器依赖（未安装 Playwright、无可用 Edge/Chromium）；`detail` 带安装指引 |
+| `503` | `POST /api/account/login/start` 缺少浏览器依赖（未安装 Playwright、无可用 Edge/Chromium）；Python 词云渲染缺少 `wordcloud`——`detail` 均带安装指引 |
+
+---
+
+## 二点六、导出文件与 Python 词云图（2026-11-04）
+
+> 本节为 2026-11-04 新增的 4 个**只读**接口，均为 additive：不改变既有响应字段，
+> 不参与前端轮询。业务实现见 `src/videos/service.py` / `src/artifacts/service.py`，
+> CSV 序列化见 `src/videos/exporting.py`，词云渲染见 `src/visualization/wordclouds.py`。
+
+### 2.6.1 视频任务导出：`GET /api/videos/{bvid}/download?stage=crawl|clean`
+
+- 由中间产物 `outputs/videos/<bvid>/crawl.json` / `clean.json` 的 `records[]` **实时转 CSV**，
+  不改变落盘 JSON；
+- `crawl` 列：`bvid,aid,video_title,rpid,level,root_rpid,parent_rpid,text,likes,reply_count,ctime_utc,collected_at_utc`；
+- `clean` 列：crawl 全部列 + `raw_text`（清洗前原文；`text` 为清洗后文本）；
+- 200：`text/csv; charset=utf-8`（UTF-8 BOM，Excel 可直接打开），
+  `Content-Disposition: attachment; filename="collect_<bvid>.csv"`（clean 为 `clean_<bvid>.csv`），
+  `Cache-Control: no-store`；
+- 400：`stage` 非 `crawl` / `clean`，或 bvid 形态非法；
+- 404：任务不存在；该阶段产物尚未生成（`detail` 为中文原因，如「该阶段产物尚未生成，暂无可导出的数据」）。
+
+### 2.6.2 数据项目导出：`GET /api/artifacts/{project_id}/download?stage=initial|clean|excluded`
+
+- 返回该阶段落盘 CSV 的**原样字节**（`data/uploads/<project_id>/<stage>.csv`，UTF-8 BOM）；
+- 200：`text/csv; charset=utf-8`，attachment，文件名 `<项目名或项目 id>_<stage>.csv`
+  （非 ASCII 走 RFC 5987 `filename*`）；
+- 400：`stage` 非枚举值 / 项目 id 形态非法；
+- 404：项目不存在；该阶段文件尚未生成。
+
+### 2.6.3 Python 渲染词云图
+
+```
+GET /api/videos/{bvid}/wordcloud-image?tone=positive|negative[&download=true]
+GET /api/artifacts/{project_id}/wordcloud-image?tone=positive|negative[&download=true]
+```
+
+- 用 `wordcloud` 库按当前聚合词频（`keywords[tone]`，已过滤处理标记与标点）渲染 PNG：
+  正面绿色系、负面红色系、白底、无标题、960×600；
+- 200：`image/png`；`download=true` 时 `attachment`，否则 `inline`；
+- 缓存：视频写入 `outputs/videos/<bvid>/wordcloud_<tone>.png`，数据项目写入项目目录；
+  源文件（`<bvid>.json` / `analysis.json`）更新后自动重渲染；删除任务/项目时一并清理；
+- 400：`tone` 非 `positive` / `negative`；
+- 404：任务/项目不存在；该情感可用词不足 2 个；
+- 503：服务端未安装 `wordcloud`（`detail` 带 `pip install wordcloud` 指引）。
+
+### 2.6.4 词云词量
+
+`detail.keywords.*` 与 `analysis.keywords.*` **每侧最多 60 项**（2026-11-04 起；
+此前视频任务 8 项、数据项目 50 项），词不足时返回实际数量；`count` / `weight` 语义不变。
+前端词云显示全部返回词（字号随词数自适应），关键词排行仍取前 15。
 
 ---
 
@@ -648,7 +704,8 @@ data/uploads/<project_id>/
 ├── clean.csv                   筛选后-保留（清洗 + 分词后的评论）
 ├── excluded.csv                筛选后-排除（含排除原因列）
 ├── sentiment.csv               逐条情感（真实模型优先，加载失败回退规则占位；含 label/confidence/probs/method）
-└── analysis.json               聚合情感分析（占比、词频、长度分布）
+├── analysis.json               聚合情感分析（占比、词频、长度分布）
+└── wordcloud_<tone>.png        按需生成的 Python 词云图缓存（positive / negative；重新分析后自动失效）
 ```
 
 #### 列表：`GET /api/artifacts`
@@ -783,6 +840,23 @@ data/uploads/<project_id>/
 
 `method` 必须如实反映来源：真实模型可用时为模型名（如 `textcnn` / `bilstm_attention`），
 模型加载失败回退规则占位时为 `rule_placeholder`，前端据此显示模型名 / 「规则占位（降级）」标识。
+`keywords.*` 每侧最多 60 项（2026-11-04 起，此前 50 项）；前端词云默认 ECharts 渲染，
+也可切换为 Python 渲染 PNG（见「二点六」2.6.3）。
+
+#### 导出 CSV：`GET /api/artifacts/{project_id}/download?stage=clean`
+
+浏览器下载该阶段 CSV（与「打开 CSV」不同，**不会**在服务器本机弹程序）：
+
+- 200：`text/csv; charset=utf-8`（UTF-8 BOM），`Content-Disposition: attachment`，
+  文件名 `<项目名或 id>_<stage>.csv`；
+- `stage` 只接受 `initial` | `clean` | `excluded`（默认 `clean`）；
+- 400：非法 `stage` / 项目 id；404：项目不存在，或该阶段文件尚未生成。
+
+#### Python 渲染词云图：`GET /api/artifacts/{project_id}/wordcloud-image?tone=positive|negative`
+
+返回按 `analysis.json` 词频渲染的 PNG（可带 `&download=true` 下载），语义与视频任务
+`wordcloud-image` 一致，详见「二点六」2.6.3；项目目录下缓存
+`wordcloud_<tone>.png`，重新分析后自动失效重渲染。
 
 #### 打开 CSV：`POST /api/artifacts/{project_id}/open`
 
@@ -867,8 +941,8 @@ macOS `open`，Linux `xdg-open`）：
 
 ### 4.5.3 安全约定（必须遵守）
 
-- `table` / `comments` / `analysis` / `open` **只接受服务端生成的 `id` 与固定枚举 `stage`**，
-  对外**绝不接受任何文件路径**；
+- `table` / `comments` / `analysis` / `open` / `download` / `wordcloud-image`
+  **只接受服务端生成的 `id`、固定枚举 `stage` / `tone`**，对外**绝不接受任何文件路径**；
 - `open` 额外限定：扩展名必须是 `.csv`，解析后的真实路径必须位于
   `data/uploads/` 或 `data/processed/` 之内（`resolve()` 后复核父目录），否则 `400`；
 - 上传文件名只取 basename，禁止路径成分；解析后的内容按统一 CSV 落盘，不直接使用用户文件名做路径。
