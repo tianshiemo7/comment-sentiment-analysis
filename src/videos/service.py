@@ -61,6 +61,9 @@ QUEUE_POLL_SECONDS = 0.2
 #: 关停时等待工作线程退出的最长时间（秒）
 SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
+#: 旧任务词云回填记忆化的最大条目数（只读缓存，超出按插入顺序淘汰最旧）
+KEYWORD_CACHE_MAX_ENTRIES = 128
+
 
 def _submit_payload(task: dict[str, Any]) -> dict[str, Any]:
     """提交 / 重试接口的响应体（契约锁定为 4 个字段）。"""
@@ -70,6 +73,13 @@ def _submit_payload(task: dict[str, Any]) -> dict[str, Any]:
         "progress": int(task.get("progress", 0)),
         "created_at": task["created_at"],
     }
+
+
+def _copy_keywords(
+    groups: Mapping[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    """复制词云分组，避免调用方改到进程内记忆化缓存。"""
+    return {tone: [dict(item) for item in items] for tone, items in groups.items()}
 
 
 class VideoService:
@@ -91,6 +101,12 @@ class VideoService:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._seq = 0
+        # 旧任务词云回填的进程内记忆化：bvid → (clean_mtime, analyze_mtime, keywords)。
+        # 只读缓存，不写回 <bvid>.json；阶段产物 mtime 变化时自动重算。
+        self._keyword_cache: dict[
+            str, tuple[int, int, dict[str, list[dict[str, Any]]]]
+        ] = {}
+        self._keyword_cache_lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
     # 生命周期
@@ -373,11 +389,22 @@ class VideoService:
 
         先过 :func:`clean_keyword_groups`：保留既有过滤语义（历史缓存里带处理标记
         的词不会重新出现），回填结果同样再过滤一次。
+
+        回填按 ``clean.json`` / ``analyze.json`` 的 ``mtime`` 做**进程内记忆化**
+        （加锁、只读、不写回 detail 文件）：旧任务 detail / 图片请求每秒多次时
+        不必反复对几千条评论做 jieba 分词；阶段产物更新后 ``mtime`` 变化 → 自动重算。
         """
         cleaned = clean_keyword_groups(stored.get("keywords"), precision=3)
         total = len(cleaned.get("positive") or []) + len(cleaned.get("negative") or [])
         if total >= placeholder.KEYWORDS_PER_SIDE:
             return cleaned
+        signature = self._stage_signature(bvid)
+        if signature is None:  # 没有 clean / analyze 产物：占位旧任务原样返回
+            return cleaned
+        with self._keyword_cache_lock:
+            cached = self._keyword_cache.get(bvid)
+        if cached is not None and cached[0] == signature:
+            return _copy_keywords(cached[1])
         clean_stage = self.store.read_stage(bvid, "clean") or {}
         analyze_stage = self.store.read_stage(bvid, "analyze") or {}
         comments = [
@@ -389,8 +416,26 @@ class VideoService:
         count = min(len(comments), len(predictions))
         if count == 0:
             return cleaned
-        rebuilt = placeholder._build_real_keywords(comments[:count], predictions[:count])
-        return clean_keyword_groups(rebuilt, precision=3)
+        rebuilt = clean_keyword_groups(
+            placeholder._build_real_keywords(comments[:count], predictions[:count]),
+            precision=3,
+        )
+        with self._keyword_cache_lock:
+            if len(self._keyword_cache) >= KEYWORD_CACHE_MAX_ENTRIES:
+                self._keyword_cache.pop(next(iter(self._keyword_cache)), None)
+            self._keyword_cache[bvid] = (signature, rebuilt)
+        return _copy_keywords(rebuilt)
+
+    def _stage_signature(self, bvid: str) -> tuple[int, int] | None:
+        """返回 ``(clean.json mtime, analyze.json mtime)``；任一缺失 / 非法返回 ``None``。"""
+        try:
+            clean_path = self.store.stage_path(bvid, "clean")
+            analyze_path = self.store.stage_path(bvid, "analyze")
+            if not clean_path.is_file() or not analyze_path.is_file():
+                return None
+            return (clean_path.stat().st_mtime_ns, analyze_path.stat().st_mtime_ns)
+        except (OSError, ValueError):  # pragma: no cover - 依赖文件系统异常
+            return None
 
     def compose_detail(self, task: dict[str, Any]) -> dict[str, Any]:
         """由任务记录（+ 已落盘的 detail）组装详情响应体。"""

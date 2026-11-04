@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -167,6 +169,36 @@ class WordcloudDependencyError(ImportError):
 #: 情感 → 配色（正面绿色系、负面红色系）
 TONE_COLORMAPS: dict[str, str] = {"positive": "Greens", "negative": "Reds"}
 
+#: ``os.replace`` 在 Windows 上遇到「目标文件正被读取」时的重试次数
+REPLACE_RETRIES = 5
+
+#: 每次重试前的等待秒数（20ms × 5 ≈ 100ms 足够等读操作结束）
+REPLACE_RETRY_DELAY_SECONDS = 0.02
+
+#: 并发渲染时临时文件的唯一前缀分隔符（``wordcloud_positive.<随机串>.png``）
+TMP_SUFFIX = ".png"
+
+
+def _replace_with_retry(tmp_path: Path, target: Path) -> None:
+    """把 ``tmp_path`` 原子替换成 ``target``；Windows 上对偶发占用做有限重试。
+
+    Windows 的 ``os.replace`` 在目标文件正被其他线程 / 进程读取时会抛出
+    ``PermissionError``（WinError 32）。并发请求同一张词云图时，一个线程正在
+    ``FileResponse`` 读取旧 PNG，另一个线程同时替换它就会撞上；这里做
+    :data:`REPLACE_RETRIES` 次 20ms 级短重试，仍失败才把异常抛给调用方。
+    """
+    last_error: OSError | None = None
+    for attempt in range(REPLACE_RETRIES):
+        try:
+            os.replace(tmp_path, target)
+            return
+        except PermissionError as exc:  # pragma: no cover - 依赖并发时序
+            last_error = exc
+            if attempt + 1 < REPLACE_RETRIES:
+                time.sleep(REPLACE_RETRY_DELAY_SECONDS)
+    assert last_error is not None
+    raise last_error
+
 
 def render_frequencies_to_png(
     frequencies: Mapping[str, int],
@@ -179,7 +211,11 @@ def render_frequencies_to_png(
 
     只做**图片渲染**（``WordCloud.to_file``），不引入 matplotlib；正面用绿色系、
     负面用红色系；CJK 字体缺失时仍能出图（文字为方块，这里记录 warning）。
-    先写 ``<stem>.tmp.png`` 再 :func:`os.replace` 原子替换，避免并发读到半截文件。
+
+    并发安全：先渲染到**唯一临时文件**（``tempfile.mkstemp``，父目录内、``.png``
+    扩展名），再用 :func:`os.replace` 原子替换目标文件；临时名唯一，多个线程渲染
+    同一目标时互不覆盖临时文件，``os.replace`` 在 Windows 上偶发的占用错误由
+    :func:`_replace_with_retry` 有限重试。任何结局都会清理临时文件。
 
     Args:
         frequencies: ``{词: 频次}``（一般来自词云数据 ``keywords[tone]``）。
@@ -190,6 +226,7 @@ def render_frequencies_to_png(
     Raises:
         ValueError: 有效词（通过 :func:`is_display_keyword` 且频次 > 0）不足 2 个。
         WordcloudDependencyError: ``wordcloud`` 未安装（HTTP 503）。
+        OSError: 临时文件写盘 / 原子替换在重试后仍失败。
     """
     cleaned = {
         str(word): int(count)
@@ -225,13 +262,19 @@ def render_frequencies_to_png(
 
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.stem + ".tmp" + path.suffix)
+    # 唯一临时名：并发渲染同一目标时各线程写各自的 tmp，不会互相截断 / 占用。
+    # 扩展名必须是 .png，PIL 的 WordCloud.to_file 按扩展名决定编码格式。
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.stem + ".", suffix=TMP_SUFFIX, dir=path.parent
+    )
+    os.close(fd)  # 关掉 mkstemp 的文件句柄，让 WordCloud.to_file 自己打开写
+    tmp = Path(tmp_name)
     try:
         cloud.to_file(str(tmp))
-        os.replace(tmp, path)
+        _replace_with_retry(tmp, path)
     finally:
-        if tmp.exists():  # 渲染失败时清掉半截临时文件
-            tmp.unlink(missing_ok=True)
+        # 成功时 os.replace 已把 tmp 移走（missing_ok 静默）；失败时清掉半截文件
+        tmp.unlink(missing_ok=True)
     return path
 
 

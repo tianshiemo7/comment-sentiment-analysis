@@ -192,6 +192,66 @@ def test_render_frequencies_requires_enough_words(tmp_path):
         render_frequencies_to_png({"讲解": 3}, tmp_path / "a.png")
 
 
+@pytest.mark.skipif(not WORDCLOUD_AVAILABLE, reason="wordcloud 未安装")
+def test_render_same_path_concurrently(tmp_path):
+    """10 线程对同一 out_path 冷缓存并发渲染：无异常、最终 PNG 完整可解码。
+
+    回归 QA 发现的 M1：固定临时名 ``<stem>.tmp.png`` 在 Windows 上被并发线程
+    同时写入 / 替换，抛 ``PermissionError``（WinError 32）导致接口 500。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from PIL import Image
+
+    from src.visualization.wordclouds import render_frequencies_to_png
+
+    target = tmp_path / "wordcloud_positive.png"
+    frequencies = {"讲解": 20, "清晰": 12, "实用": 8, "流畅": 6, "推荐": 4}
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            render_frequencies_to_png(frequencies, target, tone="positive")
+        except BaseException as exc:  # noqa: BLE001 - 收集线程内异常用于断言
+            errors.append(exc)
+
+    for _ in range(2):  # 两轮：每轮先删目标，模拟冷缓存下的并发首渲染
+        target.unlink(missing_ok=True)
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            list(pool.map(lambda _: worker(), range(10)))
+        assert errors == [], errors
+        assert target.is_file()
+        assert target.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        with Image.open(target) as image:  # 完整解码，确认不是半截 / 损坏文件
+            assert image.size == (960, 600)
+            image.load()
+    # 唯一临时文件都已清理：目录里只剩最终 PNG
+    assert [path.name for path in tmp_path.iterdir()] == ["wordcloud_positive.png"]
+
+
+def test_replace_with_retry_recovers_from_permission_error(tmp_path, monkeypatch):
+    """Windows 目标被占用时 ``os.replace`` 有限重试，前两次失败后第 3 次成功。"""
+    from src.visualization import wordclouds
+
+    tmp = tmp_path / "x.abcdef.png"
+    tmp.write_bytes(b"png-bytes")
+    target = tmp_path / "x.png"
+    real_replace = os.replace
+    calls: list[int] = []
+
+    def flaky_replace(src, dst):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError(32, "文件被另一个进程占用")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(wordclouds.os, "replace", flaky_replace)
+    wordclouds._replace_with_retry(tmp, target)
+    assert target.read_bytes() == b"png-bytes"
+    assert len(calls) == 3
+    assert not tmp.exists()
+
+
 # --------------------------------------------------------------------------- #
 # 视频任务词云图
 # --------------------------------------------------------------------------- #
@@ -438,6 +498,53 @@ def test_detail_old_task_without_stages_keeps_original_keywords(client, tmp_path
         keywords = detail.json()["keywords"]
         assert len(keywords["positive"]) == 8
         assert len(keywords["negative"]) == 8
+    finally:
+        service.shutdown()
+        video_service.set_service(None)
+
+
+def test_effective_keywords_memoized_by_stage_mtime(client, tmp_path, monkeypatch):
+    """回填按阶段产物 mtime 记忆化：第二次调用不重新分词，mtime 变化后失效重算。"""
+    from src.videos import placeholder
+
+    service = video_service.VideoService(root=tmp_path / "videos-memo")
+    video_service.set_service(service)
+    bvid = "BV1memoize11"
+    try:
+        _write_old_task(
+            service,
+            bvid,
+            keywords={
+                "positive": _keyword_items(BACKFILL_WORDS[:3]),
+                "negative": _keyword_items(BACKFILL_WORDS[3:6]),
+            },
+            with_stages=True,
+        )
+        calls: list[int] = []
+        real_build = placeholder._build_real_keywords
+
+        def counting(comments, predictions):
+            calls.append(1)
+            return real_build(comments, predictions)
+
+        monkeypatch.setattr(placeholder, "_build_real_keywords", counting)
+        stored = service.store.read_detail(bvid) or {}
+
+        first = service._effective_keywords(bvid, stored)
+        second = service._effective_keywords(bvid, stored)
+        assert calls == [1], "第二次调用应命中进程内缓存，不再重新分词"
+        assert first == second
+        assert 3 < len(first["positive"]) <= 60
+
+        # 阶段产物 mtime 变化（重新清洗 / 分析）→ 缓存失效，重算但结果一致
+        clean_path = service.store.stage_path(bvid, "clean")
+        future = clean_path.stat().st_mtime_ns + 10**10
+        os.utime(clean_path, ns=(future, future))
+        third = service._effective_keywords(bvid, stored)
+        assert len(calls) == 2
+        assert third == first
+        # 只读：落盘 detail 仍是旧词量
+        assert len((service.store.read_detail(bvid) or {})["keywords"]["positive"]) == 3
     finally:
         service.shutdown()
         video_service.set_service(None)
