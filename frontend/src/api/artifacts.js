@@ -12,6 +12,8 @@
  *   GET    /api/artifacts/{id}/analysis              -> {method,total,sentiment,keywords,length,sample}
  *   POST   /api/artifacts/{id}/open                  -> {"opened":true,"path":str}（会真调用系统 opener）
  *   GET    /api/artifacts/{id}/path?stage=clean      -> {"stage":str,"path":str,"exists":bool}（只读，不弹 Excel）
+ *   GET    /api/artifacts/{id}/download?stage=       -> text/csv 附件（浏览器下载，见 exportFiles.js）
+ *   GET    /api/artifacts/{id}/wordcloud-image?tone=&v=&download= -> image/png（Python 词云图）
  *   DELETE /api/artifacts/{id}                       -> {"deleted":true}
  *   POST   /api/solo-comments                        -> 单条评论对象
  *   GET    /api/solo-comments?offset&limit           -> {total,offset,limit,items}
@@ -20,6 +22,8 @@
  *
  * 全部使用同源相对路径；错误统一抛出带中文 detail 的 Error，并挂 err.status。
  */
+
+import { artifactDownloadUrl, wordcloudImageUrl } from '../utils/exportFiles.js'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
@@ -148,6 +152,22 @@ export function getArtifactPath(projectId, stage = 'clean') {
   return request(`/api/artifacts/${encodeURIComponent(projectId)}/path?${search.toString()}`)
 }
 
+/**
+ * 某阶段 CSV 的浏览器下载地址（数据项目；stage = initial | clean | excluded）。
+ * 纯字符串，供 <a download> / triggerDownload 使用，不发起请求。
+ */
+export { artifactDownloadUrl }
+
+/**
+ * Python 渲染词云图地址（数据项目）。
+ * @param {string} projectId
+ * @param {'positive'|'negative'} [tone]
+ * @param {{version?: string, download?: boolean}} [options]
+ */
+export function artifactWordcloudUrl(projectId, tone = 'positive', { version = '', download = false } = {}) {
+  return wordcloudImageUrl({ kind: 'artifact', id: projectId, tone, version, download })
+}
+
 /** 删除项目 */
 export function deleteArtifact(projectId) {
   return request(`/api/artifacts/${encodeURIComponent(projectId)}`, { method: 'DELETE' })
@@ -196,6 +216,8 @@ export default {
   getArtifactAnalysis,
   openArtifact,
   getArtifactPath,
+  artifactDownloadUrl,
+  artifactWordcloudUrl,
   deleteArtifact,
   saveSoloComment,
   listSoloComments,

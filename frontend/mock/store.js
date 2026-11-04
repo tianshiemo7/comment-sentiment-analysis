@@ -448,6 +448,76 @@ export function getDetail(bvid) {
   return { ok: true, status: 200, body: serializeDetail(record, nowMs()) }
 }
 
+/* ==========================================================================
+ * 导出 CSV 兜底（契约：GET /api/videos/{bvid}/download?stage=crawl|clean）
+ * ========================================================================== */
+
+/** crawl 导出列（与后端 crawler_adapter.STANDARD_FIELDS 一致）。 */
+const CRAWL_COLUMNS = [
+  'bvid',
+  'aid',
+  'video_title',
+  'rpid',
+  'level',
+  'root_rpid',
+  'parent_rpid',
+  'text',
+  'likes',
+  'reply_count',
+  'ctime_utc',
+  'collected_at_utc',
+]
+
+function csvCell(value) {
+  const text = value === null || value === undefined ? '' : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function csvOf(columns, rows) {
+  const lines = [columns.map(csvCell).join(',')]
+  for (const row of rows) lines.push(row.map(csvCell).join(','))
+  return `\ufeff${lines.join('\r\n')}\r\n`
+}
+
+/**
+ * `GET /api/videos/{bvid}/download?stage=crawl|clean` 的 mock 兜底：
+ * 按任务状态判断阶段产物是否存在，返回表头 + 2 行假数据，保证 mock 演示不白屏。
+ */
+export function downloadVideoCsv(bvid, { stage = 'crawl' } = {}) {
+  const record = records.get(bvid)
+  if (!record) return { ok: false, status: 404, body: { detail: `未找到视频 ${bvid} 的分析任务` } }
+  if (!['crawl', 'clean'].includes(stage)) {
+    return { ok: false, status: 400, body: { detail: '导出阶段只支持 crawl / clean' } }
+  }
+  const status = stateOf(record, nowMs()).status
+  const crawledReady = ['crawled', 'cleaned', 'completed'].includes(status)
+  const cleanReady = ['cleaned', 'completed'].includes(status)
+  if (stage === 'crawl' && !crawledReady) {
+    return { ok: false, status: 404, body: { detail: '该任务尚未完成采集，暂无可导出的数据' } }
+  }
+  if (stage === 'clean' && !cleanReady) {
+    return { ok: false, status: 404, body: { detail: '该任务尚未完成清洗，暂无可导出的数据' } }
+  }
+
+  const iso = toIso(new Date())
+  const base = [
+    { bvid, aid: '100001', video_title: record.title || '演示视频', rpid: '900001', level: 0, root_rpid: '', parent_rpid: '', text: '演示评论一（mock 导出）', likes: 12, reply_count: 2, ctime_utc: iso, collected_at_utc: iso },
+    { bvid, aid: '100001', video_title: record.title || '演示视频', rpid: '900002', level: 1, root_rpid: '900001', parent_rpid: '900001', text: '演示评论二（mock 导出）', likes: 5, reply_count: 0, ctime_utc: iso, collected_at_utc: iso },
+  ]
+  const columns = stage === 'clean' ? [...CRAWL_COLUMNS, 'raw_text'] : CRAWL_COLUMNS
+  const rows = base.map((item, index) =>
+    columns.map((column) => (column === 'raw_text' ? `清洗前原文 ${index + 1}（mock）` : item[column])),
+  )
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      filename: stage === 'crawl' ? `collect_${bvid}.csv` : `clean_${bvid}.csv`,
+      content: csvOf(columns, rows),
+    },
+  }
+}
+
 /**
  * POST /api/videos：带 settings 时走分步流水线（可暂停），不带时保持旧行为（一次跑完）。
  * @param {string} bvid

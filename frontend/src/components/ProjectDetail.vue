@@ -9,7 +9,7 @@
  *   4. 聚合情感图表：占比饼图 + 正/负词云 + 长度分布（复用既有 charts 组件）
  *   5. **页面最底部**：打开 CSV / 复制文件地址 / 重新处理
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import EChart from './charts/EChart.vue'
 import SentimentPie from './charts/SentimentPie.vue'
 import WordCloud from './charts/WordCloud.vue'
@@ -19,6 +19,8 @@ import ProbBars from './ProbBars.vue'
 import VideoStatusBadge from './VideoStatusBadge.vue'
 import Icon from './Icon.vue'
 import { TABLE_STAGES, useArtifactDetail } from '../composables/useArtifactDetail.js'
+import { artifactDownloadUrl, artifactWordcloudUrl } from '../api/artifacts.js'
+import { keywordsRevision, triggerDownload } from '../utils/exportFiles.js'
 import { formatDateTime, formatNumber } from '../utils/videoFormat.js'
 import { formatPercent } from '../utils/format.js'
 
@@ -102,6 +104,68 @@ const stageTabs = computed(() =>
 )
 
 const stageLabel = computed(() => stageTabs.value.find((item) => item.key === stage.value)?.label || stage.value)
+
+/** 底部导出的三个阶段按钮（清洗结果为主按钮，另外两个为次按钮）。 */
+const exportStages = [
+  { key: 'clean', label: '导出清洗结果 CSV', icon: 'download-2-line', primary: true },
+  { key: 'initial', label: '导出原始爬虫 CSV', icon: 'download-cloud-2-line', primary: false },
+  { key: 'excluded', label: '导出排除记录 CSV', icon: 'download-cloud-2-line', primary: false },
+]
+
+const exportingStage = ref('')
+const exportMessage = ref('')
+const exportError = ref('')
+
+/** 该阶段是否可导出：项目必须已完成且该阶段行数 > 0。 */
+function exportDisabled(key) {
+  if (!isCompleted.value) return true
+  return (stageRows(key) ?? 0) === 0
+}
+
+function exportTitle(key) {
+  const label = stageTabs.value.find((item) => item.key === key)?.label || key
+  if (!isCompleted.value) return '项目尚未处理完成，暂不可导出'
+  if (exportDisabled(key)) return `「${label}」暂无可导出的数据（0 行）`
+  return `下载「${label}」CSV（UTF-8 BOM，Excel 可直接打开）`
+}
+
+/** 触发浏览器下载；失败（后端未启动 / 文件未生成）给出中文提示，不跳错误页。 */
+async function exportStage(key) {
+  if (exportingStage.value || exportDisabled(key)) return
+  exportingStage.value = key
+  exportMessage.value = ''
+  exportError.value = ''
+  try {
+    const filename = await triggerDownload(artifactDownloadUrl(projectId.value, key))
+    exportMessage.value = `已开始下载：${filename}`
+  } catch (err) {
+    exportError.value = `导出失败：${err.message}`
+  } finally {
+    exportingStage.value = ''
+  }
+}
+
+/** 切换项目时清空上一条导出提示，避免张冠李戴。 */
+watch(projectId, () => {
+  exportingStage.value = ''
+  exportMessage.value = ''
+  exportError.value = ''
+})
+
+/** Python 词云图地址：没有关键词或项目 id 时为空（组件不显示「Python 图」切换）。 */
+function wordcloudImageUrlFor(tone, download = false) {
+  const words = analysis.value?.keywords?.[tone] || []
+  if (!projectId.value || words.length === 0) return ''
+  return artifactWordcloudUrl(projectId.value, tone, {
+    version: keywordsRevision(words),
+    download,
+  })
+}
+
+const positiveImageUrl = computed(() => wordcloudImageUrlFor('positive'))
+const negativeImageUrl = computed(() => wordcloudImageUrlFor('negative'))
+const positiveImageDownloadUrl = computed(() => wordcloudImageUrlFor('positive', true))
+const negativeImageDownloadUrl = computed(() => wordcloudImageUrlFor('negative', true))
 
 /** 长度分布柱图（契约 analysis.length：mean / median / p90 / max） */
 const lengthOption = computed(() => {
@@ -407,8 +471,18 @@ function submitJump() {
         </div>
 
         <div class="artifact__grid">
-          <WordCloud :words="analysis?.keywords?.positive || []" tone="positive" />
-          <WordCloud :words="analysis?.keywords?.negative || []" tone="negative" />
+          <WordCloud
+            :words="analysis?.keywords?.positive || []"
+            tone="positive"
+            :image-url="positiveImageUrl"
+            :image-download-url="positiveImageDownloadUrl"
+          />
+          <WordCloud
+            :words="analysis?.keywords?.negative || []"
+            tone="negative"
+            :image-url="negativeImageUrl"
+            :image-download-url="negativeImageDownloadUrl"
+          />
         </div>
       </template>
     </template>
@@ -439,6 +513,29 @@ function submitJump() {
           「复制文件地址」只读取路径，不会打开文件
         </span>
       </div>
+
+      <div class="artifact__actions-left artifact__export-row">
+        <span class="artifact__actions-label"><Icon name="download-2-line" :size="15" />导出数据</span>
+        <button
+          v-for="item in exportStages"
+          :key="item.key"
+          type="button"
+          class="btn"
+          :class="{ 'btn--primary': item.primary }"
+          :disabled="Boolean(exportingStage) || exportDisabled(item.key)"
+          :title="exportTitle(item.key)"
+          @click="exportStage(item.key)"
+        >
+          <Icon :name="item.icon" :size="15" />
+          {{ exportingStage === item.key ? '正在导出…' : item.label }}
+        </button>
+        <span class="artifact__actions-hint">
+          浏览器直接下载（不会打开 Excel）；CSV 为 UTF-8 BOM。项目未完成或该阶段 0 行时按钮置灰。
+        </span>
+      </div>
+
+      <p v-if="exportMessage" class="hint hint--ok artifact__action-msg">{{ exportMessage }}</p>
+      <p v-if="exportError" class="hint hint--error artifact__action-msg">{{ exportError }}</p>
       <p v-if="actionMessage" class="hint hint--ok artifact__action-msg">{{ actionMessage }}</p>
       <p v-if="actionError" class="hint hint--error artifact__action-msg">{{ actionError }}</p>
     </footer>
@@ -750,6 +847,19 @@ function submitJump() {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+/* 导出按钮单独一行，与「打开 CSV / 复制文件地址 / 重新处理」区分开 */
+.artifact__export-row {
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.artifact__actions-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 .artifact__actions-hint {
   font-size: 12.5px;

@@ -15,10 +15,14 @@
  *   4. POST   /api/videos/{bvid}/retry          -> 同接口 1
  *   5. POST   /api/videos/{bvid}/continue       -> 同接口 1（仅 crawled / cleaned 可继续，否则 409）
  *   6. DELETE /api/videos/{bvid}                -> {"deleted":true}
+ *   7. GET    /api/videos/{bvid}/download?stage=crawl|clean -> text/csv 附件（浏览器下载，见 exportFiles.js）
+ *   8. GET    /api/videos/{bvid}/wordcloud-image?tone=&v=&download= -> image/png（Python 词云图）
  *
  * 全部使用同源相对路径；开发时由 Vite 代理（或 mock 插件）处理。
  * 错误统一抛出带中文 detail 的 Error，并挂上 err.status 供界面区分 400/404/409。
  */
+
+import { videoDownloadUrl, wordcloudImageUrl } from '../utils/exportFiles.js'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
@@ -102,4 +106,29 @@ export function deleteVideo(bvid) {
   return request(`/api/videos/${encodeURIComponent(bvid)}`, { method: 'DELETE' })
 }
 
-export default { submitVideo, listVideos, getVideoDetail, retryVideo, continueVideo, deleteVideo }
+/**
+ * 7) 采集 / 清洗阶段 CSV 的浏览器下载地址（stage = crawl | clean）。
+ * 纯字符串，供 <a download> / triggerDownload 使用，不发起请求。
+ */
+export { videoDownloadUrl }
+
+/**
+ * 8) Python 渲染词云图地址（视频任务）。
+ * @param {string} bvid
+ * @param {'positive'|'negative'} [tone]
+ * @param {{version?: string, download?: boolean}} [options]
+ */
+export function videoWordcloudUrl(bvid, tone = 'positive', { version = '', download = false } = {}) {
+  return wordcloudImageUrl({ kind: 'video', id: bvid, tone, version, download })
+}
+
+export default {
+  submitVideo,
+  listVideos,
+  getVideoDetail,
+  retryVideo,
+  continueVideo,
+  deleteVideo,
+  videoDownloadUrl,
+  videoWordcloudUrl,
+}

@@ -9,7 +9,7 @@
  *   completed   → 饼图 / 折线 / 两张词云 / 关键词排行 / 代表性评论 / 模型指标；
  *   未选中      → 引导空态。
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import VideoHeader from './VideoHeader.vue'
 import VideoProgress from './VideoProgress.vue'
 import CommentList from './CommentList.vue'
@@ -19,6 +19,8 @@ import SentimentPie from './charts/SentimentPie.vue'
 import TrendLine from './charts/TrendLine.vue'
 import WordCloud from './charts/WordCloud.vue'
 import KeywordBar from './charts/KeywordBar.vue'
+import { videoDownloadUrl, videoWordcloudUrl } from '../api/videos.js'
+import { keywordsRevision, triggerDownload } from '../utils/exportFiles.js'
 
 const props = defineProps({
   detail: { type: Object, default: null },
@@ -94,6 +96,52 @@ const lengthStats = computed(() => props.detail?.analysis?.length_stats || null)
 const waitingBvid = computed(() => props.video?.bvid || props.detail?.video?.bvid || '')
 const failedBvid = computed(() => props.video?.bvid || props.detail?.video?.bvid || '')
 
+/** 详情里的 bvid（导出 CSV / Python 词云图都基于它拼 URL）。 */
+const videoBvid = computed(() => props.detail?.video?.bvid || props.video?.bvid || '')
+
+const exportingStage = ref('')
+const exportMessage = ref('')
+const exportError = ref('')
+
+/** 导出采集 / 清洗数据 CSV；失败（后端未启动 / 产物未生成）给中文提示，不跳错误页。 */
+async function exportVideo(stage) {
+  const bvid = videoBvid.value
+  if (!bvid || exportingStage.value) return
+  exportingStage.value = stage
+  exportMessage.value = ''
+  exportError.value = ''
+  try {
+    const filename = await triggerDownload(videoDownloadUrl(bvid, stage))
+    exportMessage.value = `已开始下载：${filename}`
+  } catch (err) {
+    exportError.value = `导出失败：${err.message}`
+  } finally {
+    exportingStage.value = ''
+  }
+}
+
+/** 切换视频时清空导出提示，避免上一条任务的结果串到当前任务。 */
+watch(videoBvid, () => {
+  exportingStage.value = ''
+  exportMessage.value = ''
+  exportError.value = ''
+})
+
+/** Python 词云图地址：没有关键词或 bvid 时为空（组件不显示「Python 图」切换）。 */
+function wordcloudImageUrlFor(tone, download = false) {
+  const words = keywords.value?.[tone] || []
+  if (!videoBvid.value || words.length === 0) return ''
+  return videoWordcloudUrl(videoBvid.value, tone, {
+    version: keywordsRevision(words),
+    download,
+  })
+}
+
+const positiveImageUrl = computed(() => wordcloudImageUrlFor('positive'))
+const negativeImageUrl = computed(() => wordcloudImageUrlFor('negative'))
+const positiveImageDownloadUrl = computed(() => wordcloudImageUrlFor('positive', true))
+const negativeImageDownloadUrl = computed(() => wordcloudImageUrlFor('negative', true))
+
 const PHASE_TEXT = { done: '已完成', active: '进行中', pending: '待执行', failed: '失败' }
 const PHASE_ICONS = {
   done: 'checkbox-circle-line',
@@ -165,6 +213,7 @@ const phaseIcon = (status) => PHASE_ICONS[status] || 'time-line'
           {{ autoHint }}
         </p>
 
+        <!-- 等待态也允许导出已完成阶段的原始数据：crawled 只有采集，cleaned 采集 + 清洗 -->
         <div class="detail__waiting-actions">
           <button
             type="button"
@@ -175,8 +224,32 @@ const phaseIcon = (status) => PHASE_ICONS[status] || 'time-line'
             <Icon :name="isCrawlStage ? 'eraser-line' : 'heart-pulse-line'" :size="14" :spin="continuing" />
             {{ continuing ? '正在继续…' : isCrawlStage ? '开始清洗' : '开始分析' }}
           </button>
+          <button
+            type="button"
+            class="btn"
+            :disabled="Boolean(exportingStage)"
+            title="由 crawl.json 实时生成 CSV（UTF-8 BOM）"
+            @click="exportVideo('crawl')"
+          >
+            <Icon name="download-cloud-2-line" :size="14" />
+            {{ exportingStage === 'crawl' ? '正在导出…' : '导出采集数据 CSV' }}
+          </button>
+          <button
+            v-if="effectiveStatus === 'cleaned'"
+            type="button"
+            class="btn"
+            :disabled="Boolean(exportingStage)"
+            title="由 clean.json 实时生成 CSV（UTF-8 BOM）"
+            @click="exportVideo('clean')"
+          >
+            <Icon name="download-cloud-2-line" :size="14" />
+            {{ exportingStage === 'clean' ? '正在导出…' : '导出清洗数据 CSV' }}
+          </button>
           <span class="detail__waiting-note">继续后任务回到队列，完成后会再次暂停或直接完成（取决于自动流程设置）。</span>
         </div>
+
+        <p v-if="exportMessage" class="hint hint--ok detail__export-msg">{{ exportMessage }}</p>
+        <p v-if="exportError" class="hint hint--error detail__export-msg">{{ exportError }}</p>
       </div>
 
       <!-- 失败 -->
@@ -197,8 +270,18 @@ const phaseIcon = (status) => PHASE_ICONS[status] || 'time-line'
         </div>
 
         <div class="detail__grid">
-          <WordCloud :words="keywords.positive" tone="positive" />
-          <WordCloud :words="keywords.negative" tone="negative" />
+          <WordCloud
+            :words="keywords.positive"
+            tone="positive"
+            :image-url="positiveImageUrl"
+            :image-download-url="positiveImageDownloadUrl"
+          />
+          <WordCloud
+            :words="keywords.negative"
+            tone="negative"
+            :image-url="negativeImageUrl"
+            :image-download-url="negativeImageDownloadUrl"
+          />
         </div>
 
         <div class="detail__grid">
@@ -224,6 +307,36 @@ const phaseIcon = (status) => PHASE_ICONS[status] || 'time-line'
           <CommentList title="代表性正面评论" tone="positive" :comments="topComments.positive" />
           <CommentList title="代表性负面评论" tone="negative" :comments="topComments.negative" />
         </div>
+
+        <!-- 完成态底部导出条：采集 / 清洗数据 CSV 由后端从阶段 JSON 实时生成 -->
+        <footer class="detail__export">
+          <div class="detail__export-bar">
+            <span class="detail__export-label"><Icon name="download-2-line" :size="14" />导出数据</span>
+            <button
+              type="button"
+              class="btn btn--primary"
+              :disabled="Boolean(exportingStage)"
+              title="由 crawl.json 实时生成 CSV（UTF-8 BOM，Excel 可直接打开）"
+              @click="exportVideo('crawl')"
+            >
+              <Icon name="download-cloud-2-line" :size="14" />
+              {{ exportingStage === 'crawl' ? '正在导出…' : '导出采集数据 CSV' }}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :disabled="Boolean(exportingStage)"
+              title="由 clean.json 实时生成 CSV（UTF-8 BOM，Excel 可直接打开）"
+              @click="exportVideo('clean')"
+            >
+              <Icon name="download-cloud-2-line" :size="14" />
+              {{ exportingStage === 'clean' ? '正在导出…' : '导出清洗数据 CSV' }}
+            </button>
+            <span class="detail__export-hint">浏览器直接下载（不会打开文件）；CSV 为 UTF-8 BOM</span>
+          </div>
+          <p v-if="exportMessage" class="hint hint--ok detail__export-msg">{{ exportMessage }}</p>
+          <p v-if="exportError" class="hint hint--error detail__export-msg">{{ exportError }}</p>
+        </footer>
       </template>
     </template>
   </section>
@@ -420,6 +533,38 @@ const phaseIcon = (status) => PHASE_ICONS[status] || 'time-line'
 .detail__waiting-note {
   color: var(--text-muted);
   font-size: 12.5px;
+}
+/* ---------- 导出按钮（等待态 + 完成态共用） ---------- */
+.detail__export-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.detail__export {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.detail__export-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.detail__export-hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.detail__export-msg {
+  margin: 0;
 }
 .detail__failed h2 {
   font-size: 18px;

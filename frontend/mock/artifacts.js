@@ -219,6 +219,41 @@ export function getStages(id) {
 
 const STAGES = ['initial', 'clean', 'excluded']
 
+/** mock CSV 单元格：一律双引号包裹并转义，与真实后端导出的 CSV 行为对齐。 */
+function csvCell(value) {
+  const text = value === null || value === undefined ? '' : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+/** 生成 UTF-8 BOM 的 CSV 文本（Excel 可直接打开）。 */
+function csvOf(columns, rows) {
+  const lines = [columns.map(csvCell).join(',')]
+  for (const row of rows) lines.push(row.map(csvCell).join(','))
+  return `\ufeff${lines.join('\r\n')}\r\n`
+}
+
+/**
+ * `GET /api/artifacts/{id}/download?stage=` 的 mock 兜底：
+ * 用内存里的三张表拼出假 CSV，保证 `VITE_USE_MOCK=1` 演示时导出按钮不白屏。
+ */
+export function downloadProjectCsv(id, { stage = 'clean' } = {}) {
+  const project = findProject(id)
+  if (!project) return { ok: false, status: 404, body: { detail: `未找到数据项目 ${id}` } }
+  if (!STAGES.includes(stage)) return { ok: false, status: 400, body: { detail: `非法阶段：${stage}` } }
+  if (projectState(project).status !== 'completed') {
+    return { ok: false, status: 404, body: { detail: '该阶段文件尚未生成，暂无可导出的数据' } }
+  }
+  const table = project.data[stage]
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      filename: `${(project.name || project.id).replace(/[\\/:*?"<>|]/g, '_')}_${stage}.csv`,
+      content: csvOf(table.columns, table.rows),
+    },
+  }
+}
+
 export function getTable(id, { stage = 'clean', offset = 0, limit = 100 } = {}) {
   const project = findProject(id)
   if (!project) return { ok: false, status: 404, body: { detail: `未找到数据项目 ${id}` } }

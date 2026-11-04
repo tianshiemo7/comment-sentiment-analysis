@@ -20,6 +20,7 @@ import {
   deleteProject,
   deleteSolo,
   deleteSoloMany,
+  downloadProjectCsv,
   getAnalysis,
   getComments,
   getProject,
@@ -39,6 +40,7 @@ import { checkSession, getSettingsPayload, resetSettings, updateSettings } from 
 import {
   continueVideo,
   deleteVideo,
+  downloadVideoCsv,
   getDetail,
   listVideos,
   retryVideo,
@@ -50,17 +52,37 @@ const BV = 'BV[0-9A-Za-z]{10}'
 const RE_DETAIL = new RegExp(`^/api/videos/(${BV})/detail$`)
 const RE_RETRY = new RegExp(`^/api/videos/(${BV})/retry$`)
 const RE_CONTINUE = new RegExp(`^/api/videos/(${BV})/continue$`)
+const RE_VIDEO_DOWNLOAD = new RegExp(`^/api/videos/(${BV})/download$`)
+const RE_VIDEO_WORDCLOUD_IMAGE = new RegExp(`^/api/videos/(${BV})/wordcloud-image$`)
 const RE_ITEM = new RegExp(`^/api/videos/(${BV})$`)
 
 const RE_ARTIFACT_ITEM = /^\/api\/artifacts\/([^/]+)$/
-const RE_ARTIFACT_ACTION = /^\/api\/artifacts\/([^/]+)\/(stages|table|comments|analysis|path|open|analyze)$/
+const RE_ARTIFACT_ACTION = /^\/api\/artifacts\/([^/]+)\/(stages|table|comments|analysis|path|open|analyze|download|wordcloud-image)$/
 const RE_SOLO_ITEM = /^\/api\/solo-comments\/([^/]+)$/
+
+/** mock 无 Python 渲染环境：词云图接口统一返回 404 JSON，让前端走「失败回退」路径。 */
+const MOCK_WORDCLOUD_DETAIL =
+  'mock 模式不支持 Python 词云图，请连接真实后端（python -m uvicorn src.inference.app:app --port 8000）'
 
 function sendJson(res, status, body) {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.setHeader('Cache-Control', 'no-store')
   res.end(JSON.stringify(body))
+}
+
+/** 发送 CSV 附件（与真实后端一致：UTF-8 + BOM、attachment、禁止缓存）。 */
+function sendCsv(res, filename, content) {
+  const fallback = String(filename || 'download.csv').replace(/[^\x20-\x7e]/g, '_').replace(/["\\/:*?<>|]/g, '_')
+  res.statusCode = 200
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(String(filename || 'download.csv'))}`,
+  )
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.end(Buffer.from(String(content), 'utf8'))
 }
 
 /** 解析 JSON 请求体（契约里 POST 均为 application/json）。 */
@@ -326,6 +348,21 @@ async function handle(req, res) {
       resolveByResult(res, getProjectPath(id, { stage: search.get('stage') || 'clean' }))
       return true
     }
+    // 浏览器导出：返回假 CSV（表头 + 数据行），演示时不会白屏
+    if (action === 'download' && method === 'GET') {
+      const result = downloadProjectCsv(id, { stage: search.get('stage') || 'clean' })
+      if (!result.ok) {
+        resolveByResult(res, result)
+        return true
+      }
+      sendCsv(res, result.body.filename, result.body.content)
+      return true
+    }
+    // Python 词云图：mock 无渲染环境，按契约返回 404 JSON（前端据此提示并回退）
+    if (action === 'wordcloud-image' && method === 'GET') {
+      sendJson(res, 404, { detail: MOCK_WORDCLOUD_DETAIL })
+      return true
+    }
     if (action === 'open' && method === 'POST') {
       let body = {}
       try {
@@ -375,6 +412,25 @@ async function handle(req, res) {
   const detail = RE_DETAIL.exec(path)
   if (detail && method === 'GET') {
     resolveByResult(res, getDetail(detail[1]))
+    return true
+  }
+
+  // 视频导出 CSV：按阶段返回假数据（采集 / 清洗），保证 mock 演示不白屏
+  const videoDownload = RE_VIDEO_DOWNLOAD.exec(path)
+  if (videoDownload && method === 'GET') {
+    const result = downloadVideoCsv(videoDownload[1], { stage: url.searchParams.get('stage') || 'crawl' })
+    if (!result.ok) {
+      resolveByResult(res, result)
+      return true
+    }
+    sendCsv(res, result.body.filename, result.body.content)
+    return true
+  }
+
+  // Python 词云图：mock 无渲染环境，返回 404 JSON 中文提示
+  const videoWordcloudImage = RE_VIDEO_WORDCLOUD_IMAGE.exec(path)
+  if (videoWordcloudImage && method === 'GET') {
+    sendJson(res, 404, { detail: MOCK_WORDCLOUD_DETAIL })
     return true
   }
 
