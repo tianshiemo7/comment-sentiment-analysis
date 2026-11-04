@@ -63,8 +63,8 @@ PLACEHOLDER_MODEL_METRICS: dict[str, float] = {
 #: 趋势图默认分桶天数（按天 `YYYY-MM-DD`）
 TREND_DAYS = 14
 
-#: 词云每侧取词数
-KEYWORDS_PER_SIDE = 8
+#: 词云每侧最多取词数（2026-11-04 由 8 提升到 60，前端字号自适应）
+KEYWORDS_PER_SIDE = 60
 
 #: 代表性评论每侧条数（契约建议 ≤ 10）
 TOP_COMMENTS_PER_SIDE = 5

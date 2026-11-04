@@ -54,8 +54,8 @@ FAILURE_STAGE = "情感推理"
 #: 模拟失败的原因文案
 SIMULATED_FAILURE_REASON = "占位流水线模拟的情感推理失败（ARTIFACT_SIMULATE_FAILURE=1）"
 
-#: 词云取词条数上限（每个极性）
-KEYWORD_LIMIT = 50
+#: 词云每侧最多取词条数（2026-11-04 由 50 统一为 60，与视频侧一致）
+KEYWORD_LIMIT = 60
 
 #: 聚合分析里的抽样条数
 SAMPLE_LIMIT = 10
