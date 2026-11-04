@@ -291,7 +291,7 @@ export function useArtifactDetail(projectId, projectStatus) {
     try {
       await openArtifact(id, targetStage)
       actionMessage.value = '已在系统默认程序中打开'
-      return data
+      return true
     } catch (err) {
       actionError.value = err.message
       return null
