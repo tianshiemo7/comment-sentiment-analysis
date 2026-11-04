@@ -5,6 +5,8 @@
 - :class:`InvalidBvidError` → HTTP **400**，响应体 ``{"detail": "BV 号格式不正确，应形如 BV1xx411c7mD"}``
 - :class:`VideoBusyError` → HTTP **409**，响应体 ``{"detail": "该视频已在分析队列中"}``
 - :class:`VideoNotFoundError` → HTTP **404**，响应体 ``{"detail": "..."}``
+- :class:`InvalidExportStageError` → HTTP **400**（导出阶段 / 词云 tone 非白名单）
+- :class:`VideoDataUnavailableError` → HTTP **404**（任务存在但该阶段产物未生成）
 
 异常文案在这里集中定义：契约里锁定的两句错误文案**只能改这一处**。
 """
@@ -32,6 +34,14 @@ class VideoBusyError(VideoError):
 
 class VideoNotContinuableError(VideoError):
     """任务不在 ``crawled`` / ``cleaned`` 等待态，不能调用 continue（HTTP 409）。"""
+
+
+class InvalidExportStageError(VideoError):
+    """导出的阶段 / 词云 tone 不在白名单（HTTP 400）。"""
+
+
+class VideoDataUnavailableError(VideoError):
+    """任务存在但所需产物尚未生成（导出 / 词云图，HTTP 404）。"""
 
 
 class VideoNotFoundError(VideoError):

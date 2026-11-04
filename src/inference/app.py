@@ -22,6 +22,7 @@
 - ``POST   /api/videos/{bvid}/retry``（重置为 queued；不存在 404）
 - ``POST   /api/videos/{bvid}/continue``（等待态继续：crawled→清洗 / cleaned→分析；409/404）
 - ``DELETE /api/videos/{bvid}``（删除；不存在 404）
+- ``GET    /api/videos/{bvid}/download``（导出采集 / 清洗 CSV：crawl | clean）
 
 设置与账号（实现在 `src/videos/settings.py` / `src/videos/browser_login.py`，spec 第 2 节）：
 
@@ -43,6 +44,7 @@
 - ``GET    /api/artifacts/{project_id}/comments``（逐条情感，可按 label 过滤）
 - ``GET    /api/artifacts/{project_id}/analysis``（聚合占比 / 词频 / 长度分布）
 - ``GET    /api/artifacts/{project_id}/path``（**只读**返回该阶段 CSV 路径，无副作用）
+- ``GET    /api/artifacts/{project_id}/download``（下载某阶段 CSV：initial | clean | excluded）
 - ``POST   /api/artifacts/{project_id}/open``（在服务器本机打开 CSV）
 - ``DELETE /api/artifacts/{project_id}``（删除项目目录）
 - ``POST   /api/solo-comments`` / ``GET /api/solo-comments`` /
@@ -113,7 +115,9 @@ from ..videos import settings as video_settings
 from ..videos.browser_login import AccountLoginStatus, LoginDependencyError
 from ..videos.errors import (
     InvalidBvidError,
+    InvalidExportStageError,
     VideoBusyError,
+    VideoDataUnavailableError,
     VideoNotContinuableError,
     VideoNotFoundError,
 )
@@ -134,6 +138,7 @@ from ..videos.settings import (
 from . import batch as batch_io
 from . import service
 from . import visualizations
+from .downloads import attachment_headers
 from .schemas import (
     BatchItem,
     BatchPredictResponse,
@@ -453,6 +458,34 @@ def delete_video_task(bvid: str) -> VideoDeleteResponse:
     except VideoNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return VideoDeleteResponse(deleted=True)
+
+
+@app.get(
+    "/api/videos/{bvid}/download",
+    summary="导出采集 / 清洗数据 CSV",
+    tags=["视频分析"],
+)
+def download_video_task(
+    bvid: str, stage: str = Query("crawl", description="crawl | clean")
+) -> Response:
+    """把 ``crawl.json`` / ``clean.json`` 的 ``records[]`` 实时转成 CSV 供浏览器下载。
+
+    - ``stage`` 只接受 ``crawl`` / ``clean``，否则 **400**；
+    - 任务不存在、或该阶段产物尚未生成 → **404**（中文 detail）；
+    - 响应：``text/csv; charset=utf-8``（UTF-8 BOM，Excel 可直接打开）、
+      ``Content-Disposition: attachment``、``Cache-Control: no-store``。
+    """
+    try:
+        payload = videos_service.get_service().export_csv(bvid, stage)
+    except (VideoNotFoundError, VideoDataUnavailableError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (InvalidExportStageError, InvalidBvidError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=payload["content"],
+        media_type="text/csv; charset=utf-8",
+        headers=attachment_headers(payload["filename"]),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -800,6 +833,35 @@ def get_artifact_path(
     except ArtifactValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ArtifactPathResponse(**payload)
+
+
+@app.get(
+    "/api/artifacts/{project_id}/download",
+    summary="下载某阶段 CSV（浏览器导出）",
+    tags=["数据项目"],
+)
+def download_artifact(
+    project_id: str,
+    stage: str = Query("clean", description="initial | clean | excluded"),
+) -> Response:
+    """原样返回该阶段落盘 CSV（UTF-8 BOM），供浏览器下载。
+
+    - ``stage`` 只接受 ``initial`` / ``clean`` / ``excluded``，否则 **400**；
+    - 项目不存在，或该阶段文件尚未生成 → **404**；
+    - 响应：``text/csv; charset=utf-8``、``Content-Disposition: attachment``、
+      ``Cache-Control: no-store``；文件名由服务端拼接（不含用户原始文件名）。
+    """
+    try:
+        payload = artifacts_service.get_service().download_csv(project_id, stage)
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=payload["content"],
+        media_type="text/csv; charset=utf-8",
+        headers=attachment_headers(payload["filename"]),
+    )
 
 
 @app.delete(

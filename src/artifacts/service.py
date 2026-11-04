@@ -385,6 +385,25 @@ class ArtifactService:
             "sample": payload.get("sample") if isinstance(payload.get("sample"), list) else [],
         }
 
+    def download_csv(self, project_id: str, stage: str = "clean") -> dict[str, Any]:
+        """导出某阶段 CSV 的原始字节（浏览器下载）；项目不存在 / 文件未生成 → 404。
+
+        安全：沿用 :meth:`ArtifactStore.resolve_open_path`（``stage`` 白名单 + ``resolve()``
+        后必须位于 ``data/uploads/`` 或 ``data/processed/`` 内），不新增路径拼接逻辑；
+        响应文件名由服务端按「项目显示名 + 阶段」拼接，绝不含用户上传的原始文件名。
+
+        Raises:
+            ArtifactNotFoundError: 项目不存在，或该阶段文件尚未生成（HTTP 404）。
+            ArtifactValidationError: ``stage`` 非枚举值（HTTP 400）。
+        """
+        record = self.store.require_project(project_id)
+        path = self.store.resolve_open_path(project_id, stage)  # stage 白名单 + 根目录校验
+        if not path.is_file():
+            raise ArtifactNotFoundError("该阶段文件尚未生成，暂无可导出的数据")
+        name = str(record.get("name") or project_id)
+        safe_name = "".join(ch for ch in name if ch not in '\\/:*?"<>|\r\n').strip() or project_id
+        return {"content": path.read_bytes(), "filename": f"{safe_name}_{stage}.csv"}
+
     def open_csv(self, project_id: str, stage: str = "clean") -> dict[str, Any]:
         """在服务器本机用系统默认程序打开某个阶段的 CSV。
 
@@ -637,8 +656,15 @@ class ArtifactService:
         raise ArtifactValidationError("无法分配评论 id，请稍后重试")  # pragma: no cover
 
     def _clear_run_artifacts(self, project_id: str) -> None:
-        """重新分析前清掉上一轮产物（避免新状态读到旧表）。"""
-        for name in ("clean.csv", "excluded.csv", "sentiment.csv", "analysis.json"):
+        """重新分析前清掉上一轮产物（避免新状态读到旧表 / 旧词云图）。"""
+        for name in (
+            "clean.csv",
+            "excluded.csv",
+            "sentiment.csv",
+            "analysis.json",
+            "wordcloud_positive.png",
+            "wordcloud_negative.png",
+        ):
             try:
                 path = self.store.artifact_path(project_id, name)
             except ArtifactValidationError:  # pragma: no cover - id 已校验过

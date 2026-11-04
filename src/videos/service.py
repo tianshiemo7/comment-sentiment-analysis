@@ -41,9 +41,11 @@ from .errors import (
     MESSAGE_BUSY,
     MESSAGE_INVALID_BVID,
     InvalidBvidError,
+    InvalidExportStageError,
     PipelineAborted,
     PipelineFailure,
     VideoBusyError,
+    VideoDataUnavailableError,
     VideoNotContinuableError,
     VideoNotFoundError,
 )
@@ -247,6 +249,32 @@ class VideoService:
             payload = _submit_payload(self.store.get_task(bvid) or task)
             logger.info("任务继续执行：%s（第 %s 代，从 %s 继续）", bvid, run_id, status)
             return payload
+
+    def export_csv(self, bvid: str, stage: str = "crawl") -> dict[str, Any]:
+        """导出采集 / 清洗阶段 CSV（浏览器下载）；任务不存在或产物未生成 → 对应业务异常。
+
+        阶段 JSON 只读：``crawl.json`` / ``clean.json`` 的 ``records[]`` 实时转成
+        UTF-8 BOM CSV，不改变落盘产物。
+
+        Raises:
+            InvalidBvidError: BV 号形态非法（HTTP 400）。
+            InvalidExportStageError: 阶段不是 crawl / clean（HTTP 400）。
+            VideoNotFoundError: 任务不存在（HTTP 404）。
+            VideoDataUnavailableError: 任务存在但该阶段产物尚未生成（HTTP 404）。
+        """
+        from .exporting import STAGE_COLUMNS, stage_csv
+
+        if not isinstance(bvid, str) or not BVID_RE.match(bvid):
+            raise InvalidBvidError(MESSAGE_INVALID_BVID)
+        if self.store.get_task(bvid) is None:
+            raise VideoNotFoundError(f"任务不存在：{bvid}")
+        if stage not in STAGE_COLUMNS:
+            raise InvalidExportStageError("导出阶段只支持 crawl / clean")
+        payload = self.store.read_stage(bvid, stage)
+        if not payload:
+            raise VideoDataUnavailableError("该阶段产物尚未生成，暂无可导出的数据")
+        content, filename = stage_csv(bvid, stage, payload)
+        return {"content": content, "filename": filename}
 
     def delete(self, bvid: str) -> bool:
         """删除任务与 detail 文件；不存在（或 bvid 非法）→ 404。"""
