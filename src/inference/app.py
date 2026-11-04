@@ -23,6 +23,7 @@
 - ``POST   /api/videos/{bvid}/continue``（等待态继续：crawled→清洗 / cleaned→分析；409/404）
 - ``DELETE /api/videos/{bvid}``（删除；不存在 404）
 - ``GET    /api/videos/{bvid}/download``（导出采集 / 清洗 CSV：crawl | clean）
+- ``GET    /api/videos/{bvid}/wordcloud-image``（Python 渲染词云 PNG：positive | negative）
 
 设置与账号（实现在 `src/videos/settings.py` / `src/videos/browser_login.py`，spec 第 2 节）：
 
@@ -45,6 +46,7 @@
 - ``GET    /api/artifacts/{project_id}/analysis``（聚合占比 / 词频 / 长度分布）
 - ``GET    /api/artifacts/{project_id}/path``（**只读**返回该阶段 CSV 路径，无副作用）
 - ``GET    /api/artifacts/{project_id}/download``（下载某阶段 CSV：initial | clean | excluded）
+- ``GET    /api/artifacts/{project_id}/wordcloud-image``（Python 渲染词云 PNG）
 - ``POST   /api/artifacts/{project_id}/open``（在服务器本机打开 CSV）
 - ``DELETE /api/artifacts/{project_id}``（删除项目目录）
 - ``POST   /api/solo-comments`` / ``GET /api/solo-comments`` /
@@ -488,6 +490,40 @@ def download_video_task(
     )
 
 
+@app.get(
+    "/api/videos/{bvid}/wordcloud-image",
+    summary="Python 渲染的词云图",
+    tags=["视频分析"],
+)
+def get_video_wordcloud_image(
+    bvid: str,
+    tone: str = Query("positive", description="positive | negative"),
+    download: bool = False,
+) -> FileResponse:
+    """按需用 ``wordcloud`` 库把 ``keywords[tone]`` 渲染成 PNG（缓存到任务目录）。
+
+    - ``tone`` 只接受 ``positive`` / ``negative``，否则 **400**；
+    - 任务不存在、或该情感没有足够关键词（< 2 个）→ **404**；
+    - ``wordcloud`` 未安装 → **503**（detail 带 ``pip install wordcloud`` 指引）；
+    - 默认 ``inline`` 展示，``download=true`` → ``attachment``；渲染失败不影响任务状态。
+    """
+    try:
+        path = videos_service.get_service().wordcloud_image(bvid, tone)
+    except (VideoNotFoundError, VideoDataUnavailableError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InvalidExportStageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ImportError as exc:  # WordcloudDependencyError（缺 wordcloud）
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type="image/png",
+        filename=path.name,
+        content_disposition_type="attachment" if download else "inline",
+        headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 系统设置与账号（`/api/settings`、`/api/crawler/session/check`、`/api/account/login/*`）
 #
@@ -861,6 +897,40 @@ def download_artifact(
         content=payload["content"],
         media_type="text/csv; charset=utf-8",
         headers=attachment_headers(payload["filename"]),
+    )
+
+
+@app.get(
+    "/api/artifacts/{project_id}/wordcloud-image",
+    summary="Python 渲染的数据项目词云图",
+    tags=["数据项目"],
+)
+def get_artifact_wordcloud_image(
+    project_id: str,
+    tone: str = Query("positive", description="positive | negative"),
+    download: bool = False,
+) -> FileResponse:
+    """按需用 ``wordcloud`` 库把 ``analysis.json.keywords[tone]`` 渲染成 PNG（缓存到项目目录）。
+
+    - ``tone`` 只接受 ``positive`` / ``negative``，否则 **400**；
+    - 项目不存在、或该情感没有足够关键词（< 2 个）→ **404**；
+    - ``wordcloud`` 未安装 → **503**（detail 带 ``pip install wordcloud`` 指引）；
+    - 默认 ``inline`` 展示，``download=true`` → ``attachment``。
+    """
+    try:
+        path = artifacts_service.get_service().wordcloud_image(project_id, tone)
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ImportError as exc:  # WordcloudDependencyError（缺 wordcloud）
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type="image/png",
+        filename=path.name,
+        content_disposition_type="attachment" if download else "inline",
+        headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"},
     )
 
 

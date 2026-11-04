@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import queue
@@ -403,6 +404,44 @@ class ArtifactService:
         name = str(record.get("name") or project_id)
         safe_name = "".join(ch for ch in name if ch not in '\\/:*?"<>|\r\n').strip() or project_id
         return {"content": path.read_bytes(), "filename": f"{safe_name}_{stage}.csv"}
+
+    def wordcloud_image(self, project_id: str, tone: str = "positive") -> Path:
+        """按需渲染数据项目词云 PNG（缓存到项目目录 ``wordcloud_<tone>.png``）。
+
+        数据来源：``analysis.json.keywords[tone]``（先过
+        :func:`clean_keyword_groups`）。缓存失效：PNG 不存在，或 ``analysis.json``
+        的 mtime 晚于 PNG 时重新渲染（重新分析会删掉旧 PNG，见
+        :meth:`_clear_run_artifacts`）。
+
+        Raises:
+            ArtifactValidationError: ``tone`` 不是 positive / negative（HTTP 400）。
+            ArtifactNotFoundError: 项目不存在，或该情感没有足够关键词（HTTP 404）。
+            ImportError: ``wordcloud`` 未安装（HTTP 503）。
+        """
+        from ..visualization import wordclouds
+
+        if tone not in ("positive", "negative"):
+            raise ArtifactValidationError("tone 只支持 positive / negative")
+        self.store.require_project(project_id)
+        analysis_path = self.store.artifact_path(project_id, "analysis.json")
+        try:
+            payload = json.loads(analysis_path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        words = clean_keyword_groups(payload.get("keywords")).get(tone) or []
+        frequencies = {item["word"]: item["count"] for item in words}
+        if len(frequencies) < 2:
+            raise ArtifactNotFoundError("该情感暂无足够关键词生成词云")
+        target = self.store.artifact_path(project_id, f"wordcloud_{tone}.png")
+        if (
+            target.is_file()
+            and analysis_path.is_file()
+            and target.stat().st_mtime_ns >= analysis_path.stat().st_mtime_ns
+        ):
+            return target
+        return wordclouds.render_frequencies_to_png(frequencies, target, tone=tone)
 
     def open_csv(self, project_id: str, stage: str = "clean") -> dict[str, Any]:
         """在服务器本机用系统默认程序打开某个阶段的 CSV。

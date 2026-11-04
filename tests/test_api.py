@@ -252,6 +252,9 @@ def test_business_routes_exposed():
         ("POST", "/api/videos/{bvid}/retry"),
         ("POST", "/api/videos/{bvid}/continue"),
         ("DELETE", "/api/videos/{bvid}"),
+        # 导出与 Python 词云图（spec 2026-11-04 第 3 节）
+        ("GET", "/api/videos/{bvid}/download"),
+        ("GET", "/api/videos/{bvid}/wordcloud-image"),
         # 系统设置与账号（spec 第 2 节：设置 / 登录态检查 / 人工登录窗口）
         ("GET", "/api/settings"),
         ("PUT", "/api/settings"),
@@ -270,6 +273,8 @@ def test_business_routes_exposed():
         ("GET", "/api/artifacts/{project_id}/analysis"),
         ("GET", "/api/artifacts/{project_id}/path"),
         ("POST", "/api/artifacts/{project_id}/open"),
+        ("GET", "/api/artifacts/{project_id}/download"),
+        ("GET", "/api/artifacts/{project_id}/wordcloud-image"),
         ("DELETE", "/api/artifacts/{project_id}"),
         ("POST", "/api/solo-comments"),
         ("GET", "/api/solo-comments"),

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections import Counter
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from .keywords import SPECIAL_TOKENS, is_display_keyword
+
+logger = logging.getLogger(__name__)
 
 FIGURES_DIR = Path("outputs") / "figures"
 
@@ -152,3 +155,91 @@ def plot_wordclouds_by_label(
             frequencies, out_dir / f"wordcloud_{label}.png", title=titles[label]
         )
     return result
+
+
+# --------------------------------------------------------------------------- #
+# 按需渲染（不依赖 matplotlib）：接口用法见 `src/inference/app.py` 的图片端点
+# --------------------------------------------------------------------------- #
+class WordcloudDependencyError(ImportError):
+    """wordcloud 库缺失（HTTP 503，detail 带安装指引）。"""
+
+
+#: 情感 → 配色（正面绿色系、负面红色系）
+TONE_COLORMAPS: dict[str, str] = {"positive": "Greens", "negative": "Reds"}
+
+
+def render_frequencies_to_png(
+    frequencies: Mapping[str, int],
+    out_path: str | Path,
+    *,
+    tone: str = "positive",
+    size: tuple[int, int] = (960, 600),
+) -> Path:
+    """用 ``wordcloud`` 库把 ``{词: 频次}`` 渲染成白底 PNG（原子写盘，返回路径）。
+
+    只做**图片渲染**（``WordCloud.to_file``），不引入 matplotlib；正面用绿色系、
+    负面用红色系；CJK 字体缺失时仍能出图（文字为方块，这里记录 warning）。
+    先写 ``<stem>.tmp.png`` 再 :func:`os.replace` 原子替换，避免并发读到半截文件。
+
+    Args:
+        frequencies: ``{词: 频次}``（一般来自词云数据 ``keywords[tone]``）。
+        out_path: 输出 PNG 路径（父目录不存在时自动创建）。
+        tone: ``positive`` / ``negative``（配色用；非法值按正面配色兜底）。
+        size: 图片尺寸 ``(宽, 高)``。
+
+    Raises:
+        ValueError: 有效词（通过 :func:`is_display_keyword` 且频次 > 0）不足 2 个。
+        WordcloudDependencyError: ``wordcloud`` 未安装（HTTP 503）。
+    """
+    cleaned = {
+        str(word): int(count)
+        for word, count in frequencies.items()
+        if is_display_keyword(str(word)) and int(count) > 0
+    }
+    if len(cleaned) < 2:
+        raise ValueError("可绘制的有效词不足 2 个")
+    try:
+        from wordcloud import WordCloud  # noqa: PLC0415 - 函数内导入，缺依赖时降级为 503
+    except ImportError as exc:  # pragma: no cover - 取决于本地环境
+        raise WordcloudDependencyError(
+            "Python 词云渲染需要 wordcloud，请执行：python -m pip install wordcloud"
+        ) from exc
+
+    width, height = int(size[0]), int(size[1])
+    font = detect_cjk_font()
+    if font is None:
+        logger.warning("未找到中文字体，Python 词云可能显示方块；可设置 WORDCLOUD_FONT")
+    cloud = WordCloud(
+        font_path=font,
+        width=width,
+        height=height,
+        background_color="white",
+        colormap=TONE_COLORMAPS.get(tone, "Greens"),
+        random_state=42,
+        collocations=False,
+        max_words=200,
+        prefer_horizontal=1.0,
+        margin=4,
+    )
+    cloud.generate_from_frequencies(cleaned)
+
+    path = Path(out_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.stem + ".tmp" + path.suffix)
+    try:
+        cloud.to_file(str(tmp))
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():  # 渲染失败时清掉半截临时文件
+            tmp.unlink(missing_ok=True)
+    return path
+
+
+__all__ = [
+    "WordcloudDependencyError",
+    "detect_cjk_font",
+    "plot_wordcloud",
+    "plot_wordclouds_by_label",
+    "render_frequencies_to_png",
+    "word_frequencies",
+]

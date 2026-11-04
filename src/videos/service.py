@@ -276,6 +276,41 @@ class VideoService:
         content, filename = stage_csv(bvid, stage, payload)
         return {"content": content, "filename": filename}
 
+    def wordcloud_image(self, bvid: str, tone: str = "positive") -> Path:
+        """按需渲染词频词云 PNG（缓存到 ``<root>/<bvid>/wordcloud_<tone>.png``）。
+
+        数据来源：detail 文件里的 ``keywords[tone]``（先过
+        :func:`clean_keyword_groups` 清洗历史数据里的模型标记 / 非法词）。
+        缓存失效：PNG 不存在，或 ``<bvid>.json`` 的 mtime 晚于 PNG 时重新渲染；
+        渲染函数是原子写盘，并发请求最多重复渲染、不会读到半截文件。
+
+        Raises:
+            InvalidExportStageError: ``tone`` 不是 positive / negative（HTTP 400）。
+            VideoNotFoundError: 任务不存在（HTTP 404）。
+            VideoDataUnavailableError: 该情感没有足够关键词（< 2 个，HTTP 404）。
+            ImportError: ``wordcloud`` 未安装（HTTP 503）。
+        """
+        from ..visualization import wordclouds
+
+        if tone not in ("positive", "negative"):
+            raise InvalidExportStageError("tone 只支持 positive / negative")
+        if self.store.get_task(bvid) is None:
+            raise VideoNotFoundError(f"任务不存在：{bvid}")
+        stored = self.store.read_detail(bvid) or {}
+        words = self._effective_keywords(bvid, stored).get(tone) or []
+        frequencies = {item["word"]: item["count"] for item in words}
+        if len(frequencies) < 2:
+            raise VideoDataUnavailableError("该情感暂无足够关键词生成词云")
+        target = self.store.stage_dir(bvid) / f"wordcloud_{tone}.png"
+        source = self.store.detail_path(bvid)
+        if (
+            target.is_file()
+            and source.is_file()
+            and target.stat().st_mtime_ns >= source.stat().st_mtime_ns
+        ):
+            return target
+        return wordclouds.render_frequencies_to_png(frequencies, target, tone=tone)
+
     def delete(self, bvid: str) -> bool:
         """删除任务与 detail 文件；不存在（或 bvid 非法）→ 404。"""
         with self._run_lock:
@@ -324,6 +359,38 @@ class VideoService:
             "created_at": task.get("created_at"),
             "updated_at": task.get("updated_at"),
         }
+
+    def _effective_keywords(
+        self, bvid: str, stored: Mapping[str, Any]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """读取详情里的词云数据；旧任务用已落盘产物**只读回填**到新词量。
+
+        2026-11-04 词量 8/50 → 60 后，已完成任务没有「重新分析」入口；这里对旧
+        detail 的少量词云做只读兼容升级：若两侧总词数 < 60 且 ``clean.json`` /
+        ``analyze.json`` 都在，就用**已落盘**的清洗后评论与历史预测（按索引对齐、
+        取较短长度）重新统计词频——不重新推理、不改 label / confidence、不写回
+        ``<bvid>.json``；没有阶段产物的占位旧任务原样返回。
+
+        先过 :func:`clean_keyword_groups`：保留既有过滤语义（历史缓存里带处理标记
+        的词不会重新出现），回填结果同样再过滤一次。
+        """
+        cleaned = clean_keyword_groups(stored.get("keywords"), precision=3)
+        total = len(cleaned.get("positive") or []) + len(cleaned.get("negative") or [])
+        if total >= placeholder.KEYWORDS_PER_SIDE:
+            return cleaned
+        clean_stage = self.store.read_stage(bvid, "clean") or {}
+        analyze_stage = self.store.read_stage(bvid, "analyze") or {}
+        comments = [
+            item for item in (clean_stage.get("records") or []) if isinstance(item, Mapping)
+        ]
+        predictions = [
+            item for item in (analyze_stage.get("predictions") or []) if isinstance(item, Mapping)
+        ]
+        count = min(len(comments), len(predictions))
+        if count == 0:
+            return cleaned
+        rebuilt = placeholder._build_real_keywords(comments[:count], predictions[:count])
+        return clean_keyword_groups(rebuilt, precision=3)
 
     def compose_detail(self, task: dict[str, Any]) -> dict[str, Any]:
         """由任务记录（+ 已落盘的 detail）组装详情响应体。"""
@@ -385,7 +452,12 @@ class VideoService:
             "analysis": analysis_block,
             "sentiment": stored.get("sentiment") if completed else None,
             "trend": list(stored.get("trend") or []) if completed else [],
-            "keywords": clean_keyword_groups(stored.get("keywords"), precision=3),
+            # 未完成时仍为空两组；已完成时兼容旧任务把词云回填到新词量
+            "keywords": (
+                self._effective_keywords(bvid, stored)
+                if completed
+                else clean_keyword_groups(None, precision=3)
+            ),
             "model": stored.get("model") or placeholder.build_model_block(),
             "top_comments": top_comments,
             "error": task.get("error"),
