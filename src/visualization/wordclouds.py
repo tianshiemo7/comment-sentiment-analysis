@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -170,27 +171,35 @@ class WordcloudDependencyError(ImportError):
 TONE_COLORMAPS: dict[str, str] = {"positive": "Greens", "negative": "Reds"}
 
 #: ``os.replace`` 在 Windows 上遇到「目标文件正被读取」时的重试次数
-REPLACE_RETRIES = 5
+REPLACE_RETRIES = 10
 
-#: 每次重试前的等待秒数（20ms × 5 ≈ 100ms 足够等读操作结束）
-REPLACE_RETRY_DELAY_SECONDS = 0.02
+#: 每次重试前的等待秒数（25ms × 10 ≈ 250ms 足够等一次读操作结束）
+REPLACE_RETRY_DELAY_SECONDS = 0.025
 
-#: 并发渲染时临时文件的唯一前缀分隔符（``wordcloud_positive.<随机串>.png``）
+#: 并发渲染时临时文件的唯一扩展名（``wordcloud_positive.<随机串>.png``，PIL 按它识别格式）
 TMP_SUFFIX = ".png"
+
+#: 进程内串行化 ``os.replace``：Windows 上多个线程**同时**把各自的临时文件替换到
+#: 同一目标时会偶发 ``WinError 5``（Access denied）——两个 MoveFileEx 撞在一起；
+#: 用一把短锁把重命名排成队（临界区只有一次 rename，不会拖慢渲染）。
+_REPLACE_LOCK = threading.Lock()
 
 
 def _replace_with_retry(tmp_path: Path, target: Path) -> None:
     """把 ``tmp_path`` 原子替换成 ``target``；Windows 上对偶发占用做有限重试。
 
-    Windows 的 ``os.replace`` 在目标文件正被其他线程 / 进程读取时会抛出
-    ``PermissionError``（WinError 32）。并发请求同一张词云图时，一个线程正在
-    ``FileResponse`` 读取旧 PNG，另一个线程同时替换它就会撞上；这里做
-    :data:`REPLACE_RETRIES` 次 20ms 级短重试，仍失败才把异常抛给调用方。
+    两个并发问题分别处理：
+
+    1. **多线程同时替换同一目标** → ``WinError 5``：用 :data:`_REPLACE_LOCK`
+       把 ``os.replace`` 串行化（临界区只有一次 rename）；
+    2. **目标正被读**（``FileResponse`` 正在读取旧 PNG）→ ``WinError 32``：
+       做 :data:`REPLACE_RETRIES` 次 25ms 级短重试，仍失败才把异常抛给调用方。
     """
     last_error: OSError | None = None
     for attempt in range(REPLACE_RETRIES):
         try:
-            os.replace(tmp_path, target)
+            with _REPLACE_LOCK:
+                os.replace(tmp_path, target)
             return
         except PermissionError as exc:  # pragma: no cover - 依赖并发时序
             last_error = exc
@@ -214,8 +223,8 @@ def render_frequencies_to_png(
 
     并发安全：先渲染到**唯一临时文件**（``tempfile.mkstemp``，父目录内、``.png``
     扩展名），再用 :func:`os.replace` 原子替换目标文件；临时名唯一，多个线程渲染
-    同一目标时互不覆盖临时文件，``os.replace`` 在 Windows 上偶发的占用错误由
-    :func:`_replace_with_retry` 有限重试。任何结局都会清理临时文件。
+    同一目标时互不覆盖临时文件；替换经 :func:`_replace_with_retry` 串行化 + 有限
+    重试（Windows 并发 rename / 目标被读都会短暂失败）。任何结局都会清理临时文件。
 
     Args:
         frequencies: ``{词: 频次}``（一般来自词云数据 ``keywords[tone]``）。
