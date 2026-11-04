@@ -231,8 +231,10 @@ def test_artifact_export_rejects_bad_stage_and_unknown_project(artifacts_client)
     client, _ = artifacts_client
     project = _upload(client)
     assert client.get(f"/api/artifacts/{project['id']}/download?stage=bad").status_code == 400
-    # 形态合法但不存在的项目 → 404
-    assert client.get("/api/artifacts/p_20260101_0000_zzzzzz/download").status_code == 404
+    # 项目 id 形态非法 → 400（契约 3.1：不接受任意路径 / 文件名）
+    assert client.get("/api/artifacts/not-a-project/download?stage=clean").status_code == 400
+    # 形态合法但那不存在的项目 → 404
+    assert client.get("/api/artifacts/p_20260101_0000_abcdef/download").status_code == 404
 
 
 def test_artifact_export_stage_not_ready_returns_404(artifacts_client):

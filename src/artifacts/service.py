@@ -392,13 +392,15 @@ class ArtifactService:
         安全：沿用 :meth:`ArtifactStore.resolve_open_path`（``stage`` 白名单 + ``resolve()``
         后必须位于 ``data/uploads/`` 或 ``data/processed/`` 内），不新增路径拼接逻辑；
         响应文件名由服务端按「项目显示名 + 阶段」拼接，绝不含用户上传的原始文件名。
+        先做路径校验再查项目：项目 id 形态非法 / stage 非法 → 400（契约 3.1），
+        项目不存在或文件未生成 → 404。
 
         Raises:
             ArtifactNotFoundError: 项目不存在，或该阶段文件尚未生成（HTTP 404）。
-            ArtifactValidationError: ``stage`` 非枚举值（HTTP 400）。
+            ArtifactValidationError: 项目 id 形态非法 / ``stage`` 非枚举值（HTTP 400）。
         """
+        path = self.store.resolve_open_path(project_id, stage)  # id / stage 白名单 + 根目录校验
         record = self.store.require_project(project_id)
-        path = self.store.resolve_open_path(project_id, stage)  # stage 白名单 + 根目录校验
         if not path.is_file():
             raise ArtifactNotFoundError("该阶段文件尚未生成，暂无可导出的数据")
         name = str(record.get("name") or project_id)
