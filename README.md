@@ -36,7 +36,7 @@
 | 前端 `frontend/` | ✅ Vue 3 + Vite + ECharts：B 站分析主界面 / 单条预测 / 批量预测 / 实验可视化 / 模型对比；默认直连真实后端 |
 | 实验可视化 | ✅ 按模型读取真实训练曲线、混淆矩阵及共享语料词云，支持原图查看、下载和刷新；未生成的 Attention 图明确提示 |
 | 真实权重与指标（2026-11-02 电商实验） | ✅ TextCNN 测试 Acc **92.95%** / F1 93.02%，BiLSTM-Attention **93.67%** / F1 93.73%（电商公开语料，**非 B 站领域指标**） |
-| 测试与验收 | ✅ 本机 `pytest` **656 passed / 2 warnings**；前端 `npm test` **19 passed**（Node 内置 `node:test`，零新依赖）；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS**；2026-11-04 导出/词云浏览器验收 **14/14 PASS** |
+| 测试与验收 | ✅ 本机 `pytest` **659 passed / 2 warnings**；前端 `npm test` **19 passed**（Node 内置 `node:test`，零新依赖）；实验可视化浏览器检查 **9/9 PASS**；既有端到端冒烟后端 **9/9** + 前端 **6/6 PASS**；2026-11-04 导出/词云浏览器验收 **14/14 PASS** |
 
 ## 二、技术栈
 
@@ -270,7 +270,7 @@ BV1UB4y1W7Xu,112233,示例标题,123456,1,,,这个教程讲解清晰,12,3,2026-0
 ## 八、测试与质量
 
 ```bash
-python -m pytest tests/ -q    # 本轮 Windows/CUDA：656 passed / 2 warnings
+python -m pytest tests/ -q    # 本轮 Windows/CUDA：659 passed / 2 warnings
 cd frontend && npm test       # 前端单元测试：19 passed（Node 内置 node:test）
 ```
 
